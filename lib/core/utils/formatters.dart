@@ -1,0 +1,37 @@
+import 'package:intl/intl.dart';
+
+class Formatters {
+  // Formatear moneda
+  static String formatCurrency(double amount) {
+    final formatter = NumberFormat.currency(
+      locale: 'es_CO',
+      symbol: '\$',
+      decimalDigits: 2,
+    );
+    return formatter.format(amount);
+  }
+  
+  // Formatear fecha
+  static String formatDate(DateTime date) {
+    final formatter = DateFormat('dd/MM/yyyy', 'es');
+    return formatter.format(date);
+  }
+  
+  // Formatear fecha y hora
+  static String formatDateTime(DateTime date) {
+    final formatter = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    return formatter.format(date);
+  }
+  
+  // Formatear solo hora
+  static String formatTime(DateTime date) {
+    final formatter = DateFormat('HH:mm', 'es');
+    return formatter.format(date);
+  }
+  
+  // Formatear número con decimales
+  static String formatNumber(double number, {int decimals = 2}) {
+    return number.toStringAsFixed(decimals);
+  }
+}
+
