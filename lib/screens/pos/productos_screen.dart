@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
@@ -90,12 +91,22 @@ class _ProductosScreenState extends State<ProductosScreen> {
   }
 
   Widget _buildProductsList(List<ProductoModel> productos) {
+    final cart = context.watch<CartProvider>().activeCart;
+    final allProductos = context.read<ProductosProvider>().allProductos;
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: productos.length,
       itemBuilder: (context, index) {
         final producto = productos[index];
-        return _ProductCard(producto: producto);
+        final cantidadEnCarrito = cart?.items
+                .where((i) => i.productoTiendaId == producto.id)
+                .fold<double>(0, (s, i) => s + i.cantidad) ??
+            0;
+        return _ProductCard(
+          producto: producto,
+          allProductos: allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+        );
       },
     );
   }
@@ -103,12 +114,28 @@ class _ProductosScreenState extends State<ProductosScreen> {
 
 class _ProductCard extends StatelessWidget {
   final ProductoModel producto;
+  final List<ProductoModel> allProductos;
+  final double cantidadEnCarrito;
 
-  const _ProductCard({required this.producto});
+  const _ProductCard({
+    required this.producto,
+    required this.allProductos,
+    this.cantidadEnCarrito = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final hasStock = producto.hasStock;
+    final disponible = ProductoPosRules.disponibleParaMostrar(
+      producto,
+      allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+    );
+    final hasStock = disponible > 0;
+    final esFraccion = ProductoPosRules.isFraccion(producto);
+    final existenciaReal = ProductoPosRules.existenciaReal(producto);
+    final stockText = esFraccion
+        ? 'Stock: ${existenciaReal.toStringAsFixed(producto.permiteDecimal ? 1 : 0)} | Máx: ${disponible.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}'
+        : 'Cant: ${disponible.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -125,7 +152,7 @@ class _ProductCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      producto.nombre,
+                      ProductoPosRules.nombreParaMostrar(producto),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
@@ -165,7 +192,7 @@ class _ProductCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            'Stock: ${producto.existencia.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}',
+                            stockText,
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
@@ -197,83 +224,198 @@ class _ProductCard extends StatelessWidget {
   }
 
   void _addToCart(BuildContext context) async {
-    await context.read<CartProvider>().addToCart(producto);
-    if (!context.mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${producto.nombre} agregado'),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 1),
-        behavior: SnackBarBehavior.floating,
-      ),
+    final cart = context.read<CartProvider>().activeCart;
+    final cantidadEnCarrito = cart?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    final maxDisp = ProductoPosRules.getMaxQuantity(
+      producto,
+      allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
     );
+    final qty = (maxDisp >= 1) ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+    if (qty > maxDisp) return;
+    final ok = await context.read<CartProvider>().addToCart(
+          producto,
+          cantidad: qty,
+          allProductos: allProductos,
+        );
+    if (!context.mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _showQuantityDialog(BuildContext context) {
-    final controller = TextEditingController(text: '1');
+    final productosProvider = context.read<ProductosProvider>();
+    final cart = context.read<CartProvider>().activeCart;
+    final cantidadEnCarrito = cart?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    final maxDisp = ProductoPosRules.getMaxQuantity(
+      producto,
+      productosProvider.allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+    );
+    final esFraccion = ProductoPosRules.isFraccion(producto);
+    final existenciaReal = ProductoPosRules.existenciaReal(producto);
+    final initialQty = producto.permiteDecimal ? 0.1 : 1.0;
+    final controller = TextEditingController(
+      text: initialQty.toStringAsFixed(producto.permiteDecimal ? 1 : 0),
+    );
+
+    String stockLabel() {
+      if (esFraccion) {
+        return 'Stock: ${existenciaReal.toStringAsFixed(producto.permiteDecimal ? 1 : 0)} | Máx. por venta: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
+      }
+      return 'Disponibles: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
+    }
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(producto.nombre),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              Formatters.formatCurrency(producto.precio),
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              keyboardType: producto.permiteDecimal
-                  ? const TextInputType.numberWithOptions(decimal: true)
-                  : TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Cantidad',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final cantidad = double.tryParse(controller.text);
-              if (cantidad == null || cantidad <= 0) return;
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          double? parseQty() {
+            final v = double.tryParse(controller.text.replaceAll(',', '.'));
+            if (v == null) return null;
+            return producto.permiteDecimal
+                ? double.tryParse(v.toStringAsFixed(2))
+                : v.roundToDouble().toDouble();
+          }
 
-              Navigator.pop(ctx);
-              await context
-                  .read<CartProvider>()
-                  .addToCart(producto, cantidad: cantidad);
+          void adjustQty(double delta) {
+            final current = parseQty() ?? initialQty;
+            var next = current + delta;
+            if (producto.permiteDecimal) {
+              next = (next * 100).round() / 100;
+              if (next < 0.1) next = 0.1;
+            } else {
+              next = next.roundToDouble();
+              if (next < 1) next = 1;
+            }
+            if (next > maxDisp) next = maxDisp;
+            controller.text =
+                next.toStringAsFixed(producto.permiteDecimal ? 2 : 0);
+            setState(() {});
+          }
 
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${producto.nombre} x$cantidad agregado'),
-                  backgroundColor: AppColors.success,
-                  duration: const Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
+          return AlertDialog(
+            title: Text(ProductoPosRules.nombreParaMostrar(producto)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  Formatters.formatCurrency(producto.precio),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.success,
-              foregroundColor: Colors.white,
+                const SizedBox(height: 8),
+                Text(
+                  stockLabel(),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  keyboardType: producto.permiteDecimal
+                      ? const TextInputType.numberWithOptions(decimal: true)
+                      : TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Cantidad',
+                    border: OutlineInputBorder(),
+                  ),
+                  autofocus: true,
+                  onChanged: (_) => setState(() {}),
+                ),
+                if (producto.permiteDecimal) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      ...([0.01, 0.1, 0.5, 1, 10, 50, 100]
+                          .map((d) => ActionChip(
+                                label: Text('+$d'),
+                                onPressed: () => adjustQty(d.toDouble()),
+                              ))),
+                      ...([-0.01, -0.1, -0.5, -1, -10, -50, -100]
+                          .map((d) => ActionChip(
+                                label: Text('$d'),
+                                onPressed: () => adjustQty(d.toDouble()),
+                              ))),
+                    ],
+                  ),
+                ],
+              ],
             ),
-            child: const Text('Agregar'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  var cantidad = parseQty();
+                  if (cantidad == null || cantidad <= 0) return;
+                  if (producto.permiteDecimal) {
+                    cantidad = double.parse(cantidad.toStringAsFixed(2));
+                  }
+                  if (cantidad > maxDisp) return;
+
+                  Navigator.pop(ctx);
+                  final ok = await context.read<CartProvider>().addToCart(
+                        producto,
+                        cantidad: cantidad,
+                        allProductos: productosProvider.allProductos,
+                      );
+
+                  if (!context.mounted) return;
+                  if (ok) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
+                        backgroundColor: AppColors.success,
+                        duration: const Duration(seconds: 1),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                            'Cantidad supera el máximo disponible'),
+                        backgroundColor: AppColors.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Agregar'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

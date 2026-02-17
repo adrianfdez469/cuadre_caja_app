@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../core/utils/producto_pos_rules.dart';
 import '../data/models/cart_model.dart';
 import '../data/models/producto_model.dart';
 import '../data/datasources/local/cart_local_datasource.dart';
@@ -54,21 +55,38 @@ class CartProvider extends ChangeNotifier {
     }
   }
 
-  /// Agrega producto al carrito activo
-  Future<void> addToCart(ProductoModel producto, {double cantidad = 1}) async {
+  /// Agrega producto al carrito activo.
+  /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
+  /// Retorna true si se agregó, false si la cantidad supera el máximo permitido.
+  Future<bool> addToCart(
+    ProductoModel producto, {
+    double cantidad = 1,
+    List<ProductoModel>? allProductos,
+  }) async {
     final cart = activeCart;
-    if (cart == null) return;
+    if (cart == null) return false;
 
-    final existingIdx = cart.items.indexWhere(
-      (i) => i.productoTiendaId == producto.id,
-    );
+    final cantidadYaEnCarrito = cart.items
+        .where((i) => i.productoTiendaId == producto.id)
+        .fold<double>(0, (s, i) => s + i.cantidad);
 
-    if (existingIdx >= 0) {
+    if (allProductos != null) {
+      final maxPermitido = ProductoPosRules.getMaxQuantity(
+        producto,
+        allProductos,
+        cantidadEnCarrito: cantidadYaEnCarrito,
+      );
+      if (cantidad > maxPermitido) return false;
+    }
+
+    if (cantidadYaEnCarrito > 0) {
+      final existingIdx = cart.items
+          .indexWhere((i) => i.productoTiendaId == producto.id);
       cart.items[existingIdx].cantidad += cantidad;
     } else {
       cart.items.add(CartItemModel(
         productoTiendaId: producto.id,
-        nombre: producto.nombre,
+        nombre: ProductoPosRules.nombreParaMostrar(producto),
         precio: producto.precio,
         cantidad: cantidad,
       ));
@@ -76,21 +94,44 @@ class CartProvider extends ChangeNotifier {
 
     await _saveActiveCart();
     notifyListeners();
+    return true;
   }
 
-  /// Actualiza cantidad de un item
-  Future<void> updateItemCantidad(int itemIndex, double cantidad) async {
+  /// Actualiza cantidad de un item.
+  /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
+  /// Retorna true si se actualizó, false si la cantidad supera el máximo.
+  Future<bool> updateItemCantidad(
+    int itemIndex,
+    double cantidad, {
+    List<ProductoModel>? allProductos,
+    ProductoModel? producto,
+  }) async {
     final cart = activeCart;
-    if (cart == null || itemIndex >= cart.items.length) return;
+    if (cart == null || itemIndex >= cart.items.length) return false;
 
     if (cantidad <= 0) {
       cart.items.removeAt(itemIndex);
-    } else {
-      cart.items[itemIndex].cantidad = cantidad;
+      await _saveActiveCart();
+      notifyListeners();
+      return true;
     }
 
+    if (allProductos != null && producto != null) {
+      final cantidadOtrosItems = cart.items
+          .where((i) => i.productoTiendaId == producto.id && i != cart.items[itemIndex])
+          .fold<double>(0, (s, i) => s + i.cantidad);
+      final maxPermitido = ProductoPosRules.getMaxQuantity(
+        producto,
+        allProductos,
+        cantidadEnCarrito: cantidadOtrosItems,
+      );
+      if (cantidad > maxPermitido) return false;
+    }
+
+    cart.items[itemIndex].cantidad = cantidad;
     await _saveActiveCart();
     notifyListeners();
+    return true;
   }
 
   /// Elimina un item del carrito

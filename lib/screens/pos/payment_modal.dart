@@ -239,10 +239,8 @@ class _PaymentModalState extends State<PaymentModal> {
         isOffline: !sync.isOnline,
       );
 
-      // Actualizar existencia local de productos
-      for (final item in cart.activeCart!.items) {
-        productos.updateExistenciaLocal(item.productoTiendaId, item.cantidad);
-      }
+      // Recargar productos desde cache/servidor para reflejar desagregaciones y descuentos
+      await productos.loadProductos(auth.tiendaId);
 
       // Limpiar carrito
       await cart.clearActiveCart();

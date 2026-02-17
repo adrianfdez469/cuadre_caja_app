@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/producto_pos_rules.dart';
+import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/productos_provider.dart';
 import 'payment_modal.dart';
 
 class CartScreen extends StatelessWidget {
@@ -95,12 +98,36 @@ class CartScreen extends StatelessWidget {
 
   Widget _buildCartContent(BuildContext context, CartProvider cartProvider) {
     final items = cartProvider.activeCart!.items;
+    final allProductos = context.watch<ProductosProvider>().allProductos;
 
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
+        ProductoModel? producto;
+        try {
+          producto = allProductos.firstWhere(
+            (p) => p.id == item.productoTiendaId,
+          );
+        } catch (_) {
+          producto = null;
+        }
+        final cantidadEnCarrito = item.cantidad;
+        final disponible = producto != null
+            ? ProductoPosRules.getMaxQuantity(
+                producto,
+                allProductos,
+                cantidadEnCarrito: cantidadEnCarrito,
+              )
+            : double.infinity;
+        final maxTotalPermitido =
+            producto != null ? cantidadEnCarrito + disponible : double.infinity;
+        final canIncrement = item.cantidad < maxTotalPermitido;
+        final decrementQty = producto?.permiteDecimal == true
+            ? (item.cantidad - 0.1).clamp(0.1, double.infinity)
+            : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
+
         return Dismissible(
           key: Key(item.productoTiendaId),
           direction: DismissDirection.endToStart,
@@ -142,11 +169,15 @@ class CartScreen extends StatelessWidget {
                       IconButton(
                         icon: const Icon(Icons.remove_circle_outline),
                         onPressed: () {
-                          if (item.cantidad > 1) {
-                            cartProvider.updateItemCantidad(
-                                index, item.cantidad - 1);
-                          } else {
+                          if (item.cantidad <= (producto?.permiteDecimal == true ? 0.1 : 1)) {
                             cartProvider.removeItem(index);
+                          } else {
+                            cartProvider.updateItemCantidad(
+                              index,
+                              decrementQty,
+                              allProductos: producto != null ? allProductos : null,
+                              producto: producto,
+                            );
                           }
                         },
                         iconSize: 28,
@@ -168,8 +199,19 @@ class CartScreen extends StatelessWidget {
                       ),
                       IconButton(
                         icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () => cartProvider.updateItemCantidad(
-                            index, item.cantidad + 1),
+                        onPressed: canIncrement
+                            ? () async {
+                                final newQty = producto?.permiteDecimal == true
+                                    ? double.parse((item.cantidad + 0.1).toStringAsFixed(2))
+                                    : item.cantidad + 1;
+                                await cartProvider.updateItemCantidad(
+                                  index,
+                                  newQty,
+                                  allProductos: producto != null ? allProductos : null,
+                                  producto: producto,
+                                );
+                              }
+                            : null,
                         iconSize: 28,
                         color: AppColors.success,
                       ),

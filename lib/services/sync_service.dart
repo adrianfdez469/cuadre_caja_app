@@ -15,6 +15,7 @@ import '../data/models/periodo_model.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
+import '../core/utils/producto_pos_rules.dart';
 
 enum ConnectionStatus { online, offline }
 
@@ -233,25 +234,58 @@ class SyncService {
   // VENTAS - Offline-First
   // ==========================================
 
-  /// Crea una venta (guarda localmente y sincroniza si es posible)
+  /// Crea una venta (guarda localmente y sincroniza si es posible).
+  /// Aplica desagregaciones para productos fracción antes de descontar existencias.
   Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async {
-    // Siempre guardar localmente primero
     await ventasLocal.saveVentaPendiente(venta);
     onSyncEvent?.call('Venta guardada');
 
-    // Descontar existencia localmente
-    for (final producto in venta.productos) {
-      final productos = await productosLocal.getProductos(venta.tiendaId);
-      final p = productos.where((x) => x.id == producto.productoTiendaId).firstOrNull;
-      if (p != null) {
-        await productosLocal.updateExistencia(
-          producto.productoTiendaId,
-          p.existencia - producto.cantidad,
-        );
-      }
+    final productos = await productosLocal.getProductos(venta.tiendaId);
+    if (productos.isEmpty) return venta;
+
+    // 1) Identificar desagregaciones: producto fracción con existencia < cantidad a vender
+    final desagregaciones = <_Desagregacion>[];
+    for (final cartProd in venta.productos) {
+      final candidatos = productos.where((x) => x.id == cartProd.productoTiendaId).toList();
+      final p = candidatos.isEmpty ? null : candidatos.first;
+      if (p == null) continue;
+      if (!ProductoPosRules.isFraccion(p)) continue;
+      if (p.existencia >= cartProd.cantidad) continue;
+      final need = cartProd.cantidad - p.existencia;
+      final upf = (p.unidadesPorFraccion ?? 1).toDouble();
+      final n = (need / upf).ceil().clamp(1, 0x7fffffff);
+      final padreId = p.fraccionDe?.id;
+      if (padreId == null) continue;
+      desagregaciones.add(_Desagregacion(
+        padreProductoId: padreId,
+        cantidad: n,
+        hijoProductoTiendaId: p.id,
+        unidadesPorFraccion: upf,
+      ));
     }
 
-    // Si hay conexión, sincronizar inmediatamente
+    // 2) Calcular nuevas existencias: aplicar desagregaciones y luego restar vendido
+    final existencias = {for (final p in productos) p.id: p.existencia};
+
+    for (final d in desagregaciones) {
+      final padres = productos.where((x) => x.productoId == d.padreProductoId).toList();
+      final padre = padres.isEmpty ? null : padres.first;
+      if (padre != null) {
+        existencias[padre.id] = (existencias[padre.id] ?? padre.existencia) - d.cantidad;
+      }
+      existencias[d.hijoProductoTiendaId] =
+          (existencias[d.hijoProductoTiendaId] ?? 0) + (d.cantidad * d.unidadesPorFraccion);
+    }
+
+    for (final cartProd in venta.productos) {
+      final prev = existencias[cartProd.productoTiendaId] ?? 0;
+      existencias[cartProd.productoTiendaId] = prev - cartProd.cantidad;
+    }
+
+    for (final e in existencias.entries) {
+      await productosLocal.updateExistencia(e.key, e.value);
+    }
+
     if (isOnline) {
       await _syncSingleVenta(venta);
     } else {
@@ -462,6 +496,20 @@ class SyncService {
   Future<int> getPendingCount() async {
     return await ventasLocal.countPendientes();
   }
+}
+
+class _Desagregacion {
+  final String padreProductoId;
+  final int cantidad;
+  final String hijoProductoTiendaId;
+  final double unidadesPorFraccion;
+
+  _Desagregacion({
+    required this.padreProductoId,
+    required this.cantidad,
+    required this.hijoProductoTiendaId,
+    required this.unidadesPorFraccion,
+  });
 }
 
 class SyncResult {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/utils/producto_pos_rules.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
 
@@ -32,7 +33,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     final code = barcodes.first.rawValue?.trim();
     if (code == null || code.isEmpty) return;
 
-    final producto = context.read<ProductosProvider>().findProductByCodigo(code);
+    final productosProvider = context.read<ProductosProvider>();
+    final producto = productosProvider.findProductByCodigo(code);
     if (!mounted) return;
 
     if (producto == null) {
@@ -51,7 +53,17 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       return;
     }
 
-    if (!producto.hasStock) {
+    final cart = context.read<CartProvider>().activeCart;
+    final cantidadEnCarrito = cart?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    final maxDisp = ProductoPosRules.getMaxQuantity(
+      producto,
+      productosProvider.allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+    );
+    if (maxDisp <= 0) {
       setState(() => _scanned = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -67,15 +79,24 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     }
 
     setState(() => _scanned = true);
-    context.read<CartProvider>().addToCart(producto, cantidad: 1);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${producto.nombre} agregado'),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 1),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+    context.read<CartProvider>().addToCart(
+      producto,
+      cantidad: qty,
+      allProductos: productosProvider.allProductos,
+    ).then((ok) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok
+              ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
+              : 'Cantidad supera el máximo'),
+          backgroundColor: ok ? AppColors.success : AppColors.error,
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
     _cooldown?.cancel();
     _cooldown = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _scanned = false);

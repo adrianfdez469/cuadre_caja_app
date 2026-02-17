@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../core/utils/producto_pos_rules.dart';
 import '../data/models/producto_model.dart';
 import '../data/models/categoria_model.dart';
 import '../services/sync_service.dart';
@@ -26,7 +27,9 @@ class ProductosProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _allProductos = await _syncService.loadProductos(tiendaId);
+      final raw = await _syncService.loadProductos(tiendaId);
+      // Especificaciones POS: solo precio > 0, existencia (con excepción fracción), orden alfabético
+      _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(raw);
       _categorias = await _syncService.loadCategorias(tiendaId);
 
       // Si ya hay una categoría seleccionada, filtrar
