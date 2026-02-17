@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'categoria_model.dart';
 
 class ProductoModel {
@@ -100,34 +102,46 @@ class ProductoModel {
     'fraccionDeId': fraccionDe?.id,
     'fraccionDeNombre': fraccionDe?.nombre,
     'unidadesPorFraccion': unidadesPorFraccion,
+    'codigosJson': codigos.isEmpty ? null : jsonEncode(codigos.map((c) => c.toJson()).toList()),
   };
 
-  factory ProductoModel.fromMap(Map<String, dynamic> map) => ProductoModel(
-    id: map['id'] as String,
-    productoId: map['productoId'] as String? ?? map['id'] as String,
-    nombre: map['nombre'] as String,
-    descripcion: map['descripcion'] as String?,
-    precio: (map['precio'] as num).toDouble(),
-    costo: (map['costo'] as num?)?.toDouble() ?? 0.0,
-    existencia: (map['existencia'] as num?)?.toDouble() ?? 0.0,
-    permiteDecimal: (map['permiteDecimal'] as int?) == 1,
-    categoria: map['categoriaId'] != null
-        ? CategoriaModel(
-            id: map['categoriaId'] as String,
-            nombre: map['categoriaNombre'] as String? ?? '',
-            color: map['categoriaColor'] as String? ?? '#CCCCCC',
-          )
-        : null,
-    proveedor: map['proveedor'] as String?,
-    esFraccion: (map['esFraccion'] as int?) == 1,
-    fraccionDe: map['fraccionDeId'] != null
-        ? FraccionDeModel(
-            id: map['fraccionDeId'] as String,
-            nombre: map['fraccionDeNombre'] as String? ?? '',
-          )
-        : null,
-    unidadesPorFraccion: map['unidadesPorFraccion'] as int?,
-  );
+  factory ProductoModel.fromMap(Map<String, dynamic> map) {
+    final codigosRaw = map['codigosJson'] as String?;
+    List<CodigoProductoModel> codigosList = [];
+    if (codigosRaw != null && codigosRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(codigosRaw) as List;
+        codigosList = decoded.map((c) => CodigoProductoModel.fromJson(c as Map<String, dynamic>)).toList();
+      } catch (_) {}
+    }
+    return ProductoModel(
+      id: map['id'] as String,
+      productoId: map['productoId'] as String? ?? map['id'] as String,
+      nombre: map['nombre'] as String,
+      descripcion: map['descripcion'] as String?,
+      precio: (map['precio'] as num).toDouble(),
+      costo: (map['costo'] as num?)?.toDouble() ?? 0.0,
+      existencia: (map['existencia'] as num?)?.toDouble() ?? 0.0,
+      permiteDecimal: (map['permiteDecimal'] as int?) == 1,
+      categoria: map['categoriaId'] != null
+          ? CategoriaModel(
+              id: map['categoriaId'] as String,
+              nombre: map['categoriaNombre'] as String? ?? '',
+              color: map['categoriaColor'] as String? ?? '#CCCCCC',
+            )
+          : null,
+      proveedor: map['proveedor'] as String?,
+      esFraccion: (map['esFraccion'] as int?) == 1,
+      fraccionDe: map['fraccionDeId'] != null
+          ? FraccionDeModel(
+              id: map['fraccionDeId'] as String,
+              nombre: map['fraccionDeNombre'] as String? ?? '',
+            )
+          : null,
+      unidadesPorFraccion: map['unidadesPorFraccion'] as int?,
+      codigos: codigosList,
+    );
+  }
 }
 
 class CodigoProductoModel {

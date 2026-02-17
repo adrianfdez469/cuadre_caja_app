@@ -59,6 +59,37 @@ class ProductosProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Resuelve producto por código (barras/QR). Si varios tienen el mismo código:
+  /// prioriza sin proveedor, luego mayor existencia.
+  ProductoModel? findProductByCodigo(String codigo) {
+    final c = codigo.trim();
+    if (c.isEmpty) return null;
+    final candidatos = _allProductos
+        .where((p) => p.codigos.any((cod) => cod.codigo.trim() == c))
+        .toList();
+    if (candidatos.isEmpty) return null;
+    if (candidatos.length == 1) return candidatos.first;
+    // Desempate: sin proveedor primero, luego mayor existencia
+    candidatos.sort((a, b) {
+      final aSinProv = (a.proveedor == null || a.proveedor!.isEmpty) ? 1 : 0;
+      final bSinProv = (b.proveedor == null || b.proveedor!.isEmpty) ? 1 : 0;
+      if (aSinProv != bSinProv) return bSinProv.compareTo(aSinProv);
+      return b.existencia.compareTo(a.existencia);
+    });
+    return candidatos.first;
+  }
+
+  /// Búsqueda global por nombre (case-insensitive), para POS. No modifica categoría.
+  List<ProductoModel> searchByName(String query, {int limit = 10}) {
+    if (query.trim().isEmpty) return [];
+    final q = query.trim().toLowerCase();
+    final list = _allProductos
+        .where((p) => p.nombre.toLowerCase().contains(q))
+        .take(limit)
+        .toList();
+    return list;
+  }
+
   /// Busca productos por nombre
   void searchProductos(String query) {
     if (query.isEmpty) {

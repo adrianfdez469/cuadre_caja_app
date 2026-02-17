@@ -92,8 +92,9 @@ class VentaLocalModel {
     serverId: serverId ?? this.serverId,
   );
 
-  /// Body para POST /venta/{tiendaId}/{periodoId}
-  Map<String, dynamic> toApiJson() => {
+  /// Body para POST /venta/{tiendaId}/{periodoId}. Pasar [usuarioId] al sincronizar si no está en el modelo.
+  Map<String, dynamic> toApiJson({String? usuarioId}) => {
+    if (usuarioId != null) 'usuarioId': usuarioId,
     'syncId': syncId,
     'createdAt': createdAt,
     'productos': productos.map((p) => p.toJson()).toList(),
@@ -214,4 +215,82 @@ class VentaServerModel {
           [],
     );
   }
+}
+
+/// Modelo unificado para listado y detalle (servidor + local)
+class VentaUnificadaModel {
+  final String identifier;
+  final String? dbId;
+  final String tiendaId;
+  final String periodoId;
+  final double total;
+  final double totalcash;
+  final double totaltransfer;
+  final double discountTotal;
+  final int createdAtMs;
+  final bool synced;
+  final SyncState syncState;
+  final bool wasOffline;
+  final int syncAttempts;
+  final String? errorMessage;
+  final String? usuarioNombre;
+  final List<VentaProducto> productos;
+
+  VentaUnificadaModel({
+    required this.identifier,
+    this.dbId,
+    required this.tiendaId,
+    required this.periodoId,
+    required this.total,
+    required this.totalcash,
+    this.totaltransfer = 0,
+    this.discountTotal = 0,
+    required this.createdAtMs,
+    required this.synced,
+    required this.syncState,
+    this.wasOffline = false,
+    this.syncAttempts = 0,
+    this.errorMessage,
+    this.usuarioNombre,
+    required this.productos,
+  });
+
+  int get itemCount => productos.length;
+
+  static VentaUnificadaModel fromLocal(VentaLocalModel v) => VentaUnificadaModel(
+        identifier: v.syncId,
+        dbId: v.serverId,
+        tiendaId: v.tiendaId,
+        periodoId: v.periodoId,
+        total: v.total,
+        totalcash: v.totalcash,
+        totaltransfer: v.totaltransfer,
+        discountTotal: 0,
+        createdAtMs: v.createdAt,
+        synced: v.syncState == SyncState.synced,
+        syncState: v.syncState,
+        wasOffline: v.wasOffline,
+        syncAttempts: v.syncAttempts,
+        errorMessage: v.errorMessage,
+        usuarioNombre: null,
+        productos: v.productos,
+      );
+
+  static VentaUnificadaModel fromServer(VentaServerModel v) => VentaUnificadaModel(
+        identifier: v.syncId ?? v.id,
+        dbId: v.id,
+        tiendaId: v.tiendaId,
+        periodoId: v.cierrePeriodoId,
+        total: v.total,
+        totalcash: v.totalcash,
+        totaltransfer: v.totaltransfer,
+        discountTotal: v.discountTotal,
+        createdAtMs: (v.frontendCreatedAt ?? v.createdAt).millisecondsSinceEpoch,
+        synced: true,
+        syncState: SyncState.synced,
+        wasOffline: v.wasOffline,
+        syncAttempts: 0,
+        usuarioNombre: v.usuarioNombre,
+        productos: v.productos,
+      );
 }

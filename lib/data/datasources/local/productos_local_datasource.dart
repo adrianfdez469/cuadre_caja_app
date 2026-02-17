@@ -83,6 +83,15 @@ class ProductosLocalDataSource {
     );
   }
 
+  /// Incrementa existencia (al eliminar una venta y restaurar stock)
+  Future<void> incrementExistencia(String productoTiendaId, double cantidad) async {
+    final db = await dbHelper.database;
+    await db.rawUpdate(
+      'UPDATE productos SET existencia = existencia + ? WHERE id = ?',
+      [cantidad, productoTiendaId],
+    );
+  }
+
   /// Verifica si hay productos cacheados
   Future<bool> hasCache(String tiendaId) async {
     final db = await dbHelper.database;

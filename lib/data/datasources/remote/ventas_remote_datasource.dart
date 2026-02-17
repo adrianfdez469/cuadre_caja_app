@@ -14,11 +14,14 @@ class VentasRemoteDataSource {
 
   VentasRemoteDataSource(this.apiClient);
 
-  /// POST /venta/{tiendaId}/{periodoId}
-  Future<VentaCreateResult> crearVenta(VentaLocalModel ventaLocal) async {
+  /// POST /venta/{tiendaId}/{periodoId}. [usuarioId] opcional para el body.
+  Future<VentaCreateResult> crearVenta(
+    VentaLocalModel ventaLocal, {
+    String? usuarioId,
+  }) async {
     final response = await apiClient.dio.post(
       ApiConstants.ventas(ventaLocal.tiendaId, ventaLocal.periodoId),
-      data: ventaLocal.toApiJson(),
+      data: ventaLocal.toApiJson(usuarioId: usuarioId),
     );
 
     final data = response.data as Map<String, dynamic>;

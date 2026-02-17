@@ -269,7 +269,12 @@ class SyncService {
         syncState: SyncState.syncing,
       );
 
-      final result = await ventasRemote.crearVenta(venta);
+      String? usuarioId;
+      try {
+        final user = await storageService.getUser();
+        if (user != null) usuarioId = user['id'] as String?;
+      } catch (_) {}
+      final result = await ventasRemote.crearVenta(venta, usuarioId: usuarioId);
 
       await ventasLocal.updateSyncState(
         venta.syncId,
@@ -327,8 +332,7 @@ class SyncService {
 
       if (synced > 0) {
         onSyncEvent?.call('$synced ventas sincronizadas');
-        // Limpiar ventas sincronizadas
-        await ventasLocal.clearSyncedVentas();
+        // No borrar ventas sincronizadas para poder mostrarlas en lista unificada
       }
       if (failed > 0) {
         onSyncEvent?.call('$failed ventas con error');
@@ -373,6 +377,36 @@ class SyncService {
       }
     }
     return [];
+  }
+
+  /// Sincroniza una sola venta por syncId (solo si está pendiente o error)
+  Future<bool> syncSingleVentaBySyncId(String syncId) async {
+    if (!isOnline) return false;
+    final venta = await ventasLocal.getVentaBySyncId(syncId);
+    if (venta == null) return false;
+    if (venta.syncState == SyncState.synced || venta.syncState == SyncState.syncing) {
+      return true;
+    }
+    return await _syncSingleVenta(venta);
+  }
+
+  /// Elimina una venta: en servidor si está sincronizada y hay red; siempre en local y restaura stock
+  Future<void> deleteVentaAndRestoreStock(String syncId, String tiendaId) async {
+    final venta = await ventasLocal.getVentaBySyncId(syncId);
+    if (venta == null) return;
+
+    if (venta.syncState == SyncState.synced && venta.serverId != null && isOnline) {
+      try {
+        await ventasRemote.cancelarVenta(venta.tiendaId, venta.periodoId, venta.serverId!);
+      } catch (e) {
+        print('⚠️ Error eliminando venta en servidor: $e');
+      }
+    }
+
+    for (final p in venta.productos) {
+      await productosLocal.incrementExistencia(p.productoTiendaId, p.cantidad);
+    }
+    await ventasLocal.deleteBySyncId(syncId);
   }
 
   // ==========================================

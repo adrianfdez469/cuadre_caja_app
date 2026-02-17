@@ -10,13 +10,17 @@ class VentasProvider extends ChangeNotifier {
 
   List<VentaServerModel> _ventasServidor = [];
   List<VentaLocalModel> _ventasPendientes = [];
+  List<VentaUnificadaModel> _ventasUnificado = [];
   bool _isLoading = false;
+  bool _isLoadingVentas = false;
 
   VentasProvider(this._syncService);
 
   List<VentaServerModel> get ventasServidor => _ventasServidor;
   List<VentaLocalModel> get ventasPendientes => _ventasPendientes;
+  List<VentaUnificadaModel> get ventasUnificado => _ventasUnificado;
   bool get isLoading => _isLoading;
+  bool get isLoadingVentas => _isLoadingVentas;
   int get pendingCount => _ventasPendientes.length;
 
   /// Crea una venta desde el carrito activo
@@ -82,5 +86,48 @@ class VentasProvider extends ChangeNotifier {
     await refreshPendientes();
     notifyListeners();
     return result;
+  }
+
+  /// Carga lista unificada de ventas del período (servidor + local), orden por fecha desc
+  Future<void> loadVentasUnificado(String tiendaId, String periodoId) async {
+    _isLoadingVentas = true;
+    notifyListeners();
+
+    try {
+      List<VentaServerModel> serverList = [];
+      if (_syncService.isOnline) {
+        serverList = await _syncService.loadVentas(tiendaId, periodoId);
+      }
+      final localList = await _syncService.ventasLocal.getVentasByPeriodo(periodoId);
+
+      final serverIds = serverList.map((v) => v.syncId ?? v.id).toSet();
+      _ventasUnificado = [
+        ...serverList.map((v) => VentaUnificadaModel.fromServer(v)),
+        ...localList
+            .where((v) => !serverIds.contains(v.syncId))
+            .map((v) => VentaUnificadaModel.fromLocal(v)),
+      ];
+      _ventasUnificado.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    } catch (e) {
+      print('❌ Error cargando ventas unificado: $e');
+    }
+
+    _isLoadingVentas = false;
+    notifyListeners();
+  }
+
+  /// Sincroniza una venta por syncId
+  Future<bool> syncSingleVenta(String syncId) async {
+    final ok = await _syncService.syncSingleVentaBySyncId(syncId);
+    await refreshPendientes();
+    notifyListeners();
+    return ok;
+  }
+
+  /// Elimina una venta (servidor si synced y hay red; siempre local y restaura stock)
+  Future<void> deleteVenta(String syncId, String tiendaId) async {
+    await _syncService.deleteVentaAndRestoreStock(syncId, tiendaId);
+    await refreshPendientes();
+    notifyListeners();
   }
 }

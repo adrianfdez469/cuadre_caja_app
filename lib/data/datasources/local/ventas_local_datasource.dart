@@ -38,6 +38,40 @@ class VentasLocalDataSource {
     return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
   }
 
+  /// Obtiene todas las ventas del período (para lista unificada)
+  Future<List<VentaLocalModel>> getVentasByPeriodo(String periodoId) async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_pendientes',
+      where: 'periodoId = ?',
+      whereArgs: [periodoId],
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
+  }
+
+  /// Obtiene una venta por syncId
+  Future<VentaLocalModel?> getVentaBySyncId(String syncId) async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_pendientes',
+      where: 'syncId = ?',
+      whereArgs: [syncId],
+    );
+    if (maps.isEmpty) return null;
+    return VentaLocalModel.fromMap(maps.first);
+  }
+
+  /// Elimina una venta por syncId
+  Future<void> deleteBySyncId(String syncId) async {
+    final db = await dbHelper.database;
+    await db.delete(
+      'ventas_pendientes',
+      where: 'syncId = ?',
+      whereArgs: [syncId],
+    );
+  }
+
   /// Actualiza el estado de sincronización de una venta
   Future<void> updateSyncState(
     String syncId, {

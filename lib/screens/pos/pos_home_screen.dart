@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/utils/formatters.dart';
+import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
@@ -10,6 +12,8 @@ import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
 import '../login_screen.dart';
 import 'cart_screen.dart';
+import 'ventas_list_screen.dart';
+import 'barcode_scanner_screen.dart';
 import 'widgets/categorias_grid.dart';
 import 'widgets/connection_indicator.dart';
 
@@ -23,6 +27,9 @@ class POSHomeScreen extends StatefulWidget {
 class _POSHomeScreenState extends State<POSHomeScreen> {
   bool _isInitialized = false;
   String? _initError;
+  final _searchController = TextEditingController();
+  final _barcodeController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -96,6 +103,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   @override
   void dispose() {
     context.read<SyncProvider>().stopMonitoring();
+    _searchController.dispose();
+    _barcodeController.dispose();
     super.dispose();
   }
 
@@ -173,6 +182,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           PopupMenuButton(
             icon: const Icon(Icons.more_vert),
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'ventas',
+                child: ListTile(
+                  leading: Icon(Icons.receipt_long),
+                  title: Text('Ventas y sincronizaciones'),
+                  dense: true,
+                ),
+              ),
               if (auth.locales.length > 1)
                 const PopupMenuItem(
                   value: 'cambiar_tienda',
@@ -201,6 +218,12 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
             ],
             onSelected: (value) async {
               switch (value) {
+                case 'ventas':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const VentasListScreen()),
+                  );
+                  break;
                 case 'cambiar_tienda':
                   _showCambiarTiendaDialog();
                   break;
@@ -252,9 +275,75 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       return _buildNoPeriodoView(periodoProvider);
     }
 
-    // Sync status bar + categorías
+    // Búsqueda por nombre + Sync status bar + contenido
     return Column(
       children: [
+        // Búsqueda por nombre + escáner
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Buscar por nombre...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                ),
+                icon: const Icon(Icons.qr_code_scanner),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Campo para pistola de códigos (Enter = buscar y agregar)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: TextField(
+            controller: _barcodeController,
+            decoration: InputDecoration(
+              hintText: 'Código (pistola): escanee y pulse Enter',
+              prefixIcon: const Icon(Icons.qr_code_2, size: 20),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+            onSubmitted: (value) => _onBarcodeSubmitted(context, value),
+          ),
+        ),
+
         // Sync status bar
         if (syncProvider.lastMessage.isNotEmpty)
           Container(
@@ -274,13 +363,19 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
             ),
           ),
 
-        // Categorías grid
+        // Resultados búsqueda o categorías
         Expanded(
-          child: productosProvider.isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : CategoriasGrid(
-                  categorias: productosProvider.categorias,
+          child: _searchQuery.trim().isEmpty
+              ? (productosProvider.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : CategoriasGrid(
+                      categorias: productosProvider.categorias,
+                      productosProvider: productosProvider,
+                    ))
+              : _BuildSearchResults(
+                  query: _searchQuery.trim(),
                   productosProvider: productosProvider,
+                  onProductTap: _showAddToCartDialog,
                 ),
         ),
       ],
@@ -418,6 +513,170 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _onBarcodeSubmitted(BuildContext context, String code) {
+    if (code.trim().isEmpty) return;
+    final producto = context.read<ProductosProvider>().findProductByCodigo(code);
+    _barcodeController.clear();
+    if (producto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Producto no encontrado para el código escaneado'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (!producto.hasStock) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sin stock'),
+          backgroundColor: AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    context.read<CartProvider>().addToCart(producto, cantidad: 1);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${producto.nombre} agregado'),
+        backgroundColor: AppColors.success,
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showAddToCartDialog(BuildContext context, ProductoModel producto) {
+    if (!producto.hasStock) return;
+    final controller = TextEditingController(text: '1');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(producto.nombre),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              Formatters.formatCurrency(producto.precio),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              keyboardType: producto.permiteDecimal
+                  ? const TextInputType.numberWithOptions(decimal: true)
+                  : TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Cantidad',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final cantidad = double.tryParse(controller.text);
+              if (cantidad == null || cantidad <= 0) return;
+
+              Navigator.pop(ctx);
+              await context.read<CartProvider>().addToCart(producto, cantidad: cantidad);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${producto.nombre} x$cantidad agregado'),
+                  backgroundColor: AppColors.success,
+                  duration: const Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.success,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Agregar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lista de resultados de búsqueda por nombre (tiempo real)
+class _BuildSearchResults extends StatelessWidget {
+  final String query;
+  final ProductosProvider productosProvider;
+  final void Function(BuildContext context, ProductoModel product) onProductTap;
+
+  const _BuildSearchResults({
+    required this.query,
+    required this.productosProvider,
+    required this.onProductTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final results = productosProvider.searchByName(query, limit: 15);
+
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off, size: 48, color: AppColors.textHint),
+            const SizedBox(height: 12),
+            Text(
+              'Sin coincidencias para "$query"',
+              style: TextStyle(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final p = results[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            title: Text(
+              p.nombre,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: p.hasStock ? null : AppColors.textSecondary,
+              ),
+            ),
+            subtitle: Text(
+              '${Formatters.formatCurrency(p.precio)}  •  Stock: ${p.existencia.toStringAsFixed(p.permiteDecimal ? 1 : 0)}',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            trailing: p.hasStock
+                ? const Icon(Icons.add_shopping_cart, color: AppColors.success)
+                : null,
+            onTap: p.hasStock ? () => onProductTap(context, p) : null,
+          ),
+        );
+      },
     );
   }
 }

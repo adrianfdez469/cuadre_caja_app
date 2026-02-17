@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
 
   Database? _database;
 
@@ -43,7 +43,8 @@ class DatabaseHelper {
         fraccionDeId TEXT,
         fraccionDeNombre TEXT,
         unidadesPorFraccion INTEGER,
-        tiendaId TEXT NOT NULL
+        tiendaId TEXT NOT NULL,
+        codigosJson TEXT
       )
     ''');
 
@@ -112,13 +113,19 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Drop y recrear para simplificar migraciones durante desarrollo
-    await db.execute('DROP TABLE IF EXISTS productos');
-    await db.execute('DROP TABLE IF EXISTS ventas_pendientes');
-    await db.execute('DROP TABLE IF EXISTS periodo_cache');
-    await db.execute('DROP TABLE IF EXISTS transfer_destinations');
-    await db.execute('DROP TABLE IF EXISTS carritos');
-    await _onCreate(db, newVersion);
+    if (oldVersion < 3) {
+      try {
+        await db.execute('ALTER TABLE productos ADD COLUMN codigosJson TEXT');
+      } catch (_) {}
+    }
+    if (oldVersion <= 1) {
+      await db.execute('DROP TABLE IF EXISTS productos');
+      await db.execute('DROP TABLE IF EXISTS ventas_pendientes');
+      await db.execute('DROP TABLE IF EXISTS periodo_cache');
+      await db.execute('DROP TABLE IF EXISTS transfer_destinations');
+      await db.execute('DROP TABLE IF EXISTS carritos');
+      await _onCreate(db, newVersion);
+    }
   }
 
   Future<void> clearAllData() async {

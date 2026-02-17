@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'core/di/injection.dart';
 import 'core/constants/app_colors.dart';
 import 'providers/auth_provider.dart';
@@ -14,6 +15,10 @@ import 'screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Necesario para DateFormat/NumberFormat con locale 'es' y 'es_CO'
+  await initializeDateFormatting('es', null);
+  await initializeDateFormatting('es_CO', null);
 
   if (kIsWeb) {
     // Importar sqflite_common_ffi_web solo si se necesita
