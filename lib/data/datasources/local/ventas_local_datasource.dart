@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../models/venta_model.dart';
 import 'database_helper.dart';
 
@@ -116,5 +118,47 @@ class VentasLocalDataSource {
   /// Verifica si hay ventas pendientes
   Future<bool> hasPendientes() async {
     return (await countPendientes()) > 0;
+  }
+
+  /// Cachea ventas del servidor para un período (lista completa del endpoint).
+  Future<void> cacheVentasServidor(
+    String tiendaId,
+    String periodoId,
+    List<VentaServerModel> ventas,
+  ) async {
+    final db = await dbHelper.database;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'ventas_servidor_cache',
+        where: 'tiendaId = ? AND periodoId = ?',
+        whereArgs: [tiendaId, periodoId],
+      );
+      for (final v in ventas) {
+        await txn.insert('ventas_servidor_cache', {
+          'id': v.id,
+          'tiendaId': tiendaId,
+          'periodoId': periodoId,
+          'ventaJson': jsonEncode(v.toJson()),
+        });
+      }
+    });
+  }
+
+  /// Obtiene ventas de servidor cacheadas para un período (para modo offline).
+  Future<List<VentaServerModel>> getVentasServidorCache(
+    String tiendaId,
+    String periodoId,
+  ) async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_servidor_cache',
+      where: 'tiendaId = ? AND periodoId = ?',
+      whereArgs: [tiendaId, periodoId],
+    );
+    return maps
+        .map((m) => VentaServerModel.fromJson(
+              jsonDecode(m['ventaJson'] as String) as Map<String, dynamic>,
+            ))
+        .toList();
   }
 }

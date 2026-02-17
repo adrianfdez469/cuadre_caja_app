@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 4;
 
   Database? _database;
 
@@ -69,6 +69,15 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
+      CREATE TABLE ventas_servidor_cache (
+        id TEXT PRIMARY KEY,
+        tiendaId TEXT NOT NULL,
+        periodoId TEXT NOT NULL,
+        ventaJson TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
       CREATE TABLE periodo_cache (
         id TEXT PRIMARY KEY,
         tiendaId TEXT NOT NULL,
@@ -125,6 +134,18 @@ class DatabaseHelper {
       await db.execute('DROP TABLE IF EXISTS transfer_destinations');
       await db.execute('DROP TABLE IF EXISTS carritos');
       await _onCreate(db, newVersion);
+    }
+    if (oldVersion < 4) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS ventas_servidor_cache (
+            id TEXT PRIMARY KEY,
+            tiendaId TEXT NOT NULL,
+            periodoId TEXT NOT NULL,
+            ventaJson TEXT NOT NULL
+          )
+        ''');
+      } catch (_) {}
     }
   }
 

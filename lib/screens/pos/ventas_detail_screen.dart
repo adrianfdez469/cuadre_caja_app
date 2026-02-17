@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/sync_error_messages.dart';
 import '../../data/models/venta_model.dart';
+import 'ventas_list_screen.dart';
 
 class VentasDetailScreen extends StatelessWidget {
   final VentaUnificadaModel venta;
@@ -47,6 +49,51 @@ class VentasDetailScreen extends StatelessWidget {
                 ),
               ),
             ),
+            if (venta.syncState == SyncState.error && (venta.errorMessage?.isNotEmpty ?? false)) ...[
+              const SizedBox(height: 16),
+              Card(
+                color: AppColors.syncError.withOpacity(0.08),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: AppColors.syncError, size: 24),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              SyncErrorMessages.title(venta.errorMessage),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.syncError,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        SyncErrorMessages.detail(venta.errorMessage),
+                        style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => VentasListScreen.showErrorLog(context, venta),
+                        icon: const Icon(Icons.info_outline, size: 18),
+                        label: const Text('Ver log completo'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.syncError,
+                          side: BorderSide(color: AppColors.syncError),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             const Text(
               'Totales',

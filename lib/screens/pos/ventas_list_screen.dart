@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/sync_error_messages.dart';
 import '../../data/models/venta_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/periodo_provider.dart';
@@ -12,6 +13,49 @@ import 'ventas_detail_screen.dart';
 
 class VentasListScreen extends StatefulWidget {
   const VentasListScreen({super.key});
+
+  /// Muestra el diálogo con el log de error de sincronización (compartido con detalle de venta).
+  static void showErrorLog(BuildContext context, VentaUnificadaModel venta) {
+    final title = SyncErrorMessages.title(venta.errorMessage);
+    final detail = SyncErrorMessages.detail(venta.errorMessage);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.syncError, size: 28),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                detail,
+                style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
+              ),
+              if (venta.syncAttempts > 0) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Intentos de sincronización: ${venta.syncAttempts}',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   State<VentasListScreen> createState() => _VentasListScreenState();
@@ -54,8 +98,20 @@ class _VentasListScreenState extends State<VentasListScreen> {
               onPressed: ventasProvider.isLoading
                   ? null
                   : () async {
-                      await ventasProvider.syncPendientes();
+                      final result = await ventasProvider.syncPendientes();
                       if (mounted) await _load();
+                      if (mounted && result.failed > 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              '${result.failed} venta(s) no se sincronizaron. Toca "Ver detalle" en cada una para más información.',
+                            ),
+                            backgroundColor: AppColors.warning,
+                            behavior: SnackBarBehavior.floating,
+                            duration: const Duration(seconds: 5),
+                          ),
+                        );
+                      }
                     },
               icon: const Icon(Icons.sync, size: 20, color: Colors.white),
               label: const Text('Sincronizar todos', style: TextStyle(color: Colors.white)),
@@ -86,6 +142,9 @@ class _VentasListScreenState extends State<VentasListScreen> {
                           await ventasProvider.syncSingleVenta(v.identifier);
                           if (mounted) await _load();
                         },
+                        onViewError: v.syncState == SyncState.error && (v.errorMessage?.isNotEmpty ?? false)
+                            ? () => VentasListScreen.showErrorLog(context, v)
+                            : null,
                         onDelete: () => _confirmDelete(context, v, auth.tiendaId, periodo.periodoId, ventasProvider),
                       );
                     },
@@ -110,6 +169,7 @@ class _VentasListScreenState extends State<VentasListScreen> {
     );
   }
 
+  /// Muestra el diálogo con el log de error de sincronización (compartido con detalle de venta).
   Future<void> _confirmDelete(
     BuildContext context,
     VentaUnificadaModel venta,
@@ -161,6 +221,7 @@ class _VentaListItem extends StatelessWidget {
   final bool isOnline;
   final VoidCallback onTap;
   final VoidCallback onSync;
+  final VoidCallback? onViewError;
   final VoidCallback onDelete;
 
   const _VentaListItem({
@@ -168,6 +229,7 @@ class _VentaListItem extends StatelessWidget {
     required this.isOnline,
     required this.onTap,
     required this.onSync,
+    this.onViewError,
     required this.onDelete,
   });
 
@@ -253,6 +315,15 @@ class _VentaListItem extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  if (onViewError != null)
+                    TextButton.icon(
+                      onPressed: onViewError,
+                      icon: const Icon(Icons.info_outline, size: 18, color: AppColors.syncError),
+                      label: Text(
+                        'Ver detalle del error',
+                        style: TextStyle(color: AppColors.syncError, fontSize: 13),
+                      ),
+                    ),
                   if (canSync)
                     TextButton.icon(
                       onPressed: onSync,

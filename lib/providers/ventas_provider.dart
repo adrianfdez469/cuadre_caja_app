@@ -94,10 +94,7 @@ class VentasProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      List<VentaServerModel> serverList = [];
-      if (_syncService.isOnline) {
-        serverList = await _syncService.loadVentas(tiendaId, periodoId);
-      }
+      final serverList = await _syncService.loadVentas(tiendaId, periodoId);
       final localList = await _syncService.ventasLocal.getVentasByPeriodo(periodoId);
 
       final serverIds = serverList.map((v) => v.syncId ?? v.id).toSet();

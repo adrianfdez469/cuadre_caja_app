@@ -34,3 +34,14 @@ class AuthException implements Exception {
   String toString() => 'AuthException: $message';
 }
 
+/// Excepción cuando el servidor rechaza la creación/sincronización de una venta.
+/// El [message] es el texto devuelto por el API en el campo "error".
+class SyncVentaException implements Exception {
+  final String message;
+
+  SyncVentaException(this.message);
+
+  @override
+  String toString() => message;
+}
+

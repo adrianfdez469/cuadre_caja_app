@@ -1,4 +1,7 @@
+import 'package:dio/dio.dart';
+
 import '../../../core/constants/api_constants.dart';
+import '../../../core/errors/exceptions.dart';
 import '../../../core/network/api_client.dart';
 import '../../models/venta_model.dart';
 
@@ -15,20 +18,32 @@ class VentasRemoteDataSource {
   VentasRemoteDataSource(this.apiClient);
 
   /// POST /venta/{tiendaId}/{periodoId}. [usuarioId] opcional para el body.
+  /// En 4xx/5xx lanza [SyncVentaException] con el mensaje del API (campo "error").
   Future<VentaCreateResult> crearVenta(
     VentaLocalModel ventaLocal, {
     String? usuarioId,
   }) async {
-    final response = await apiClient.dio.post(
-      ApiConstants.ventas(ventaLocal.tiendaId, ventaLocal.periodoId),
-      data: ventaLocal.toApiJson(usuarioId: usuarioId),
-    );
+    try {
+      final response = await apiClient.dio.post(
+        ApiConstants.ventas(ventaLocal.tiendaId, ventaLocal.periodoId),
+        data: ventaLocal.toApiJson(usuarioId: usuarioId),
+      );
 
-    final data = response.data as Map<String, dynamic>;
-    return VentaCreateResult(
-      venta: VentaServerModel.fromJson(data['venta'] as Map<String, dynamic>),
-      duplicado: data['duplicado'] as bool? ?? false,
-    );
+      final data = response.data as Map<String, dynamic>;
+      return VentaCreateResult(
+        venta: VentaServerModel.fromJson(data['venta'] as Map<String, dynamic>),
+        duplicado: data['duplicado'] as bool? ?? false,
+      );
+    } on DioException catch (e) {
+      final body = e.response?.data;
+      String message;
+      if (body is Map<String, dynamic> && body['error'] != null) {
+        message = body['error'] as String;
+      } else {
+        message = e.message ?? 'Error de conexión al sincronizar la venta';
+      }
+      throw SyncVentaException(message);
+    }
   }
 
   /// GET /venta/{tiendaId}/{periodoId}

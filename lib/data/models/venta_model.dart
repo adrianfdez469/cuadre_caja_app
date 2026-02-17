@@ -208,13 +208,33 @@ class VentaServerModel {
           ? DateTime.parse(json['frontendCreatedAt'] as String)
           : null,
       wasOffline: json['wasOffline'] as bool? ?? false,
-      usuarioNombre: json['usuario']?['nombre'] as String?,
+      usuarioNombre: (json['usuario']?['nombre'] as String?) ??
+          json['usuarioNombre'] as String?,
       productos: (json['productos'] as List<dynamic>?)
               ?.map((p) => VentaProducto.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],
     );
   }
+
+  /// Serialización para cache local (no tiene que coincidir 1:1 con el API).
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'tiendaId': tiendaId,
+        'usuarioId': usuarioId,
+        'cierrePeriodoId': cierrePeriodoId,
+        'total': total,
+        'totalcash': totalcash,
+        'totaltransfer': totaltransfer,
+        'discountTotal': discountTotal,
+        'syncId': syncId,
+        'createdAt': createdAt.toIso8601String(),
+        if (frontendCreatedAt != null)
+          'frontendCreatedAt': frontendCreatedAt!.toIso8601String(),
+        'wasOffline': wasOffline,
+        'usuarioNombre': usuarioNombre,
+        'productos': productos.map((p) => p.toJson()).toList(),
+      };
 }
 
 /// Modelo unificado para listado y detalle (servidor + local)

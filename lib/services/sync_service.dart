@@ -12,6 +12,7 @@ import '../data/datasources/remote/ventas_remote_datasource.dart';
 import '../data/datasources/remote/transfer_destinations_remote_datasource.dart';
 import '../data/models/producto_model.dart';
 import '../data/models/periodo_model.dart';
+import '../core/errors/exceptions.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
@@ -323,13 +324,14 @@ class SyncService {
       }
       return true;
     } catch (e) {
-      print('❌ Error sincronizando venta ${venta.syncId}: $e');
+      final errorMessage = e is SyncVentaException ? e.message : e.toString();
+      print('❌ Error sincronizando venta ${venta.syncId}: $errorMessage');
 
       await ventasLocal.updateSyncState(
         venta.syncId,
         syncState: SyncState.error,
         syncAttempts: venta.syncAttempts + 1,
-        errorMessage: e.toString(),
+        errorMessage: errorMessage,
       );
 
       onSyncEvent?.call('Error sincronizando venta');
@@ -405,12 +407,21 @@ class SyncService {
   ) async {
     if (isOnline) {
       try {
-        return await ventasRemote.getVentas(tiendaId, periodoId);
+        final ventas = await ventasRemote.getVentas(tiendaId, periodoId);
+        // Cachear lista completa para modo offline
+        await ventasLocal.cacheVentasServidor(tiendaId, periodoId, ventas);
+        return ventas;
       } catch (e) {
         print('⚠️ Error cargando ventas del servidor: $e');
       }
     }
-    return [];
+    // Sin conexión o error: usar cache local de ventas del servidor si existe
+    try {
+      return await ventasLocal.getVentasServidorCache(tiendaId, periodoId);
+    } catch (e) {
+      print('⚠️ Error cargando ventas cacheadas: $e');
+      return [];
+    }
   }
 
   /// Sincroniza una sola venta por syncId (solo si está pendiente o error)
