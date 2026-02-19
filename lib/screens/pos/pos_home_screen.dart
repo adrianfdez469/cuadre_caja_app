@@ -85,7 +85,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     final tiendaId = auth.tiendaId;
 
     try {
-      // Cargar en paralelo
+      // Cargar en paralelo: productos, período, carrito y ventas pendientes
       await Future.wait([
         context.read<ProductosProvider>().loadProductos(tiendaId),
         context.read<PeriodoProvider>().loadPeriodo(tiendaId),
@@ -93,8 +93,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         context.read<VentasProvider>().refreshPendientes(),
       ]);
 
-      // Full sync si hay conexión
+      // Full sync si hay conexión (ventas pendientes + productos, período, destinos)
       context.read<SyncProvider>().fullSync(tiendaId);
+
+      // Cargar y guardar listado unificado de ventas (servidor + local) para no depender de abrir "Ventas y sincronización"
+      final periodoId = context.read<PeriodoProvider>().periodoId;
+      if (periodoId != null && periodoId.isNotEmpty) {
+        await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
+      }
     } catch (e) {
       print('⚠️ Error inicializando: $e');
       setState(() => _initError = e.toString());
@@ -276,38 +282,29 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       return _buildNoPeriodoView(periodoProvider);
     }
 
-    // Búsqueda por nombre + Sync status bar + contenido
+    // Escáner + pistola arriba | contenido | solo buscador por nombre abajo
     return Column(
       children: [
-        // Búsqueda por nombre + escáner
+        // Campo pistola + icono escáner en la misma fila
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
-                  controller: _searchController,
+                  controller: _barcodeController,
                   decoration: InputDecoration(
-                    hintText: 'Buscar por nombre...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
+                    hintText: 'Código (pistola): escanee y pulse Enter',
+                    prefixIcon: const Icon(Icons.qr_code_2, size: 20),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  onChanged: (value) => setState(() => _searchQuery = value),
+                  onSubmitted: (value) => _onBarcodeSubmitted(context, value),
                 ),
               ),
               const SizedBox(width: 8),
@@ -323,25 +320,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 ),
               ),
             ],
-          ),
-        ),
-        // Campo para pistola de códigos (Enter = buscar y agregar)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: TextField(
-            controller: _barcodeController,
-            decoration: InputDecoration(
-              hintText: 'Código (pistola): escanee y pulse Enter',
-              prefixIcon: const Icon(Icons.qr_code_2, size: 20),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
-            ),
-            onSubmitted: (value) => _onBarcodeSubmitted(context, value),
           ),
         ),
 
@@ -378,6 +356,35 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   productosProvider: productosProvider,
                   onProductTap: _showAddToCartDialog,
                 ),
+        ),
+
+        // Solo buscador por nombre (parte inferior)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Buscar por nombre...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onChanged: (value) => setState(() => _searchQuery = value),
+          ),
         ),
       ],
     );

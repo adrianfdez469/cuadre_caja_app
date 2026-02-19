@@ -174,6 +174,8 @@ class VentaServerModel {
   final bool wasOffline;
   final String? usuarioNombre;
   final List<VentaProducto> productos;
+  final String? transferDestinationId;
+  final String? transferDestinationNombre;
 
   VentaServerModel({
     required this.id,
@@ -190,9 +192,18 @@ class VentaServerModel {
     this.wasOffline = false,
     this.usuarioNombre,
     required this.productos,
+    this.transferDestinationId,
+    this.transferDestinationNombre,
   });
 
+  /// Parsea respuesta de GET /api/app/venta/{tiendaId}/{periodoId} (y detalle).
+  /// Cada venta puede incluir: transferDestinationId (id si aplica) y/o
+  /// transferDestination: { id, nombre } (objeto si aplica, o undefined si no tiene destino).
   factory VentaServerModel.fromJson(Map<String, dynamic> json) {
+    final transferDest = json['transferDestination'] as Map<String, dynamic>?;
+    final transferId = transferDest?['id'] as String? ?? json['transferDestinationId'] as String?;
+    final transferNombre = transferDest?['nombre'] as String?;
+
     return VentaServerModel(
       id: json['id'] as String,
       tiendaId: json['tiendaId'] as String? ?? '',
@@ -214,6 +225,8 @@ class VentaServerModel {
               ?.map((p) => VentaProducto.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],
+      transferDestinationId: transferId,
+      transferDestinationNombre: transferNombre,
     );
   }
 
@@ -255,6 +268,10 @@ class VentaUnificadaModel {
   final String? errorMessage;
   final String? usuarioNombre;
   final List<VentaProducto> productos;
+  /// ID del destino de transferencia si la venta incluyó pago por transferencia.
+  final String? transferDestinationId;
+  /// Nombre del destino (resuelto desde API o destinos cargados).
+  final String? transferDestinationNombre;
 
   VentaUnificadaModel({
     required this.identifier,
@@ -273,6 +290,8 @@ class VentaUnificadaModel {
     this.errorMessage,
     this.usuarioNombre,
     required this.productos,
+    this.transferDestinationId,
+    this.transferDestinationNombre,
   });
 
   int get itemCount => productos.length;
@@ -294,6 +313,8 @@ class VentaUnificadaModel {
         errorMessage: v.errorMessage,
         usuarioNombre: null,
         productos: v.productos,
+        transferDestinationId: v.transferDestinationId,
+        transferDestinationNombre: null,
       );
 
   static VentaUnificadaModel fromServer(VentaServerModel v) => VentaUnificadaModel(
@@ -312,5 +333,7 @@ class VentaUnificadaModel {
         syncAttempts: 0,
         usuarioNombre: v.usuarioNombre,
         productos: v.productos,
+        transferDestinationId: v.transferDestinationId,
+        transferDestinationNombre: v.transferDestinationNombre,
       );
 }

@@ -16,7 +16,13 @@ class CategoriasGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (categorias.isEmpty) {
+    // Mostrar solo categorías que tienen al menos un producto
+    final categoriasConProductos = categorias.where((c) {
+      return productosProvider.allProductos
+          .any((p) => p.categoriaId == c.id);
+    }).toList();
+
+    if (categoriasConProductos.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -24,12 +30,16 @@ class CategoriasGrid extends StatelessWidget {
             Icon(Icons.category, size: 64, color: AppColors.textHint),
             const SizedBox(height: 16),
             Text(
-              'No hay categorías disponibles',
+              categorias.isEmpty
+                  ? 'No hay categorías disponibles'
+                  : 'No hay categorías con productos',
               style: TextStyle(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 8),
             Text(
-              'Sincroniza para cargar productos',
+              categorias.isEmpty
+                  ? 'Sincroniza para cargar productos'
+                  : 'Las categorías con 0 productos no se muestran',
               style: TextStyle(fontSize: 12, color: AppColors.textHint),
             ),
           ],
@@ -59,20 +69,22 @@ class CategoriasGrid extends StatelessWidget {
                 crossAxisSpacing: 12,
                 childAspectRatio: 1.5,
               ),
-              itemCount: categorias.length,
+              itemCount: categoriasConProductos.length,
               itemBuilder: (context, index) {
+                final categoria = categoriasConProductos[index];
+                final count = productosProvider.allProductos
+                    .where((p) => p.categoriaId == categoria.id)
+                    .length;
                 return _CategoriaCard(
-                  categoria: categorias[index],
-                  productCount: productosProvider.allProductos
-                      .where((p) => p.categoriaId == categorias[index].id)
-                      .length,
+                  categoria: categoria,
+                  productCount: count,
                   onTap: () {
-                    productosProvider.filterByCategoria(categorias[index].id);
+                    productosProvider.filterByCategoria(categoria.id);
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => ProductosScreen(
-                          categoria: categorias[index],
+                          categoria: categoria,
                         ),
                       ),
                     );

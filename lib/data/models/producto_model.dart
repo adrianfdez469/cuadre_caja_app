@@ -2,6 +2,22 @@ import 'dart:convert';
 
 import 'categoria_model.dart';
 
+/// Convierte un valor que puede ser String o Map (objeto poblado del API) a String?.
+/// Evita el error "type '_Map<String, dynamic>' is not a subtype of type 'String?'".
+String? _stringOrMap(dynamic value) {
+  if (value == null) return null;
+  if (value is String) return value.isEmpty ? null : value;
+  if (value is Map) {
+    final v = value['nombre'] ?? value['descripcion'] ?? value['id'];
+    if (v is String) return v;
+    if (v != null) return v.toString();
+  }
+  return null;
+}
+
+String _stringOrMapRequired(dynamic value, [String fallback = '']) =>
+    _stringOrMap(value) ?? value?.toString() ?? fallback;
+
 class ProductoModel {
   final String id;             // ProductoTienda ID (usar para ventas)
   final String productoId;     // Producto base ID
@@ -43,10 +59,10 @@ class ProductoModel {
 
   factory ProductoModel.fromJson(Map<String, dynamic> json) {
     return ProductoModel(
-      id: json['id'] as String? ?? '',
-      productoId: json['productoId'] as String? ?? json['id'] as String? ?? '',
-      nombre: json['nombre'] as String? ?? 'Sin nombre',
-      descripcion: json['descripcion'] as String?,
+      id: _stringOrMapRequired(json['id']),
+      productoId: _stringOrMapRequired(json['productoId'], _stringOrMapRequired(json['id'])),
+      nombre: _stringOrMapRequired(json['nombre'], 'Sin nombre'),
+      descripcion: _stringOrMap(json['descripcion']),
       precio: (json['precio'] as num?)?.toDouble() ?? 0.0,
       costo: (json['costo'] as num?)?.toDouble() ?? 0.0,
       existencia: (json['existencia'] as num?)?.toDouble() ?? 0.0,
@@ -58,7 +74,7 @@ class ProductoModel {
               ?.map((c) => CodigoProductoModel.fromJson(c as Map<String, dynamic>))
               .toList() ??
           [],
-      proveedor: json['proveedor'] as String?,
+      proveedor: _stringOrMap(json['proveedor']),
       esFraccion: json['esFraccion'] as bool? ?? false,
       fraccionDe: json['fraccionDe'] != null
           ? FraccionDeModel.fromJson(json['fraccionDe'] as Map<String, dynamic>)
@@ -157,9 +173,9 @@ class CodigoProductoModel {
 
   factory CodigoProductoModel.fromJson(Map<String, dynamic> json) =>
       CodigoProductoModel(
-        id: json['id'] as String? ?? '',
-        codigo: json['codigo'] as String? ?? '',
-        tipo: json['tipo'] as String?,
+        id: _stringOrMapRequired(json['id']),
+        codigo: _stringOrMapRequired(json['codigo']),
+        tipo: _stringOrMap(json['tipo']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -177,8 +193,8 @@ class FraccionDeModel {
 
   factory FraccionDeModel.fromJson(Map<String, dynamic> json) =>
       FraccionDeModel(
-        id: json['id'] as String? ?? '',
-        nombre: json['nombre'] as String? ?? '',
+        id: _stringOrMap(json['id']) ?? '',
+        nombre: _stringOrMap(json['nombre']) ?? '',
       );
 
   Map<String, dynamic> toJson() => {'id': id, 'nombre': nombre};
