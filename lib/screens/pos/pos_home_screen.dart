@@ -16,6 +16,7 @@ import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
 import 'productos_vendidos_screen.dart';
 import 'barcode_scanner_screen.dart';
+import '../version_screen.dart';
 import 'widgets/categorias_grid.dart';
 import 'widgets/connection_indicator.dart';
 
@@ -225,6 +226,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 ),
               ),
               const PopupMenuItem(
+                value: 'version',
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('Versión'),
+                  dense: true,
+                ),
+              ),
+              const PopupMenuItem(
                 value: 'logout',
                 child: ListTile(
                   leading: Icon(Icons.logout, color: Colors.red),
@@ -253,6 +262,12 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 case 'sync':
                   await syncProvider.fullSync(auth.tiendaId);
                   await _loadData();
+                  break;
+                case 'version':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const VersionScreen()),
+                  );
                   break;
                 case 'logout':
                   _confirmLogout();
