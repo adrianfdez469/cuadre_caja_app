@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -88,6 +89,19 @@ class _VersionScreenState extends State<VersionScreen> {
   bool get _hasUpdate {
     if (_remoteRelease == null) return false;
     return compareVersions(_remoteRelease!.version, _currentVersion) > 0;
+  }
+
+  void _showDriveFolderFallback() {
+    final url = AppConstants.driveFolderUrl;
+    Clipboard.setData(ClipboardData(text: url));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'No se pudo abrir el enlace. La URL se ha copiado al portapapeles; pégala en el navegador.',
+        ),
+        duration: Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _startUpdate() async {
@@ -343,8 +357,16 @@ class _VersionScreenState extends State<VersionScreen> {
           OutlinedButton.icon(
             onPressed: () async {
               final uri = Uri.parse(AppConstants.driveFolderUrl);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              try {
+                final launched = await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                );
+                if (!launched && mounted) {
+                  _showDriveFolderFallback();
+                }
+              } catch (_) {
+                if (mounted) _showDriveFolderFallback();
               }
             },
             icon: const Icon(Icons.folder_open),

@@ -8,8 +8,14 @@ import '../core/constants/app_constants.dart';
 import '../data/models/release_model.dart';
 
 /// URL directa de descarga para un archivo de Drive (compartido "cualquiera con el enlace").
+/// Para JSON y archivos pequeños.
 String driveDownloadUrl(String fileId) =>
     'https://drive.google.com/uc?export=download&id=$fileId';
+
+/// URL que evita la página de advertencia de virus en archivos grandes (APK, etc.).
+/// Ver https://stackoverflow.com/questions/48133080/how-to-download-a-google-drive-url-via-curl-or-wget
+String driveDownloadUrlLarge(String fileId) =>
+    'https://drive.usercontent.google.com/download?id=$fileId&export=download&confirm=t';
 
 /// Compara versiones semver (ej. "0.0.3" vs "1.0.0"). Devuelve <0 si a<b, 0 si a==b, >0 si a>b.
 int compareVersions(String a, String b) {
@@ -112,17 +118,26 @@ class ReleaseService {
   }
 
   /// Descarga el APK al directorio temporal y devuelve el File.
+  /// Usa la URL para archivos grandes para evitar la página de advertencia de Drive (~2 KB).
   Future<File?> downloadApk(String fileId, {void Function(int, int)? onProgress}) async {
     try {
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/update_${DateTime.now().millisecondsSinceEpoch}.apk';
       await _dio.download(
-        driveDownloadUrl(fileId),
+        driveDownloadUrlLarge(fileId),
         path,
         onReceiveProgress: onProgress,
       );
       final f = File(path);
-      return f.existsSync() ? f : null;
+      if (!f.existsSync()) return null;
+      // Si el archivo es muy pequeño, Drive devolvió HTML en lugar del APK
+      final len = f.lengthSync();
+      if (len < 100 * 1024) {
+        f.deleteSync();
+        print('ReleaseService.downloadApk: file too small ($len bytes), likely Drive warning page');
+        return null;
+      }
+      return f;
     } catch (e) {
       print('ReleaseService.downloadApk error: $e');
       return null;
