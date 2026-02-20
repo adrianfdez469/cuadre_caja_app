@@ -14,6 +14,7 @@ import '../../services/sync_service.dart';
 import '../login_screen.dart';
 import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
+import 'productos_vendidos_screen.dart';
 import 'barcode_scanner_screen.dart';
 import 'widgets/categorias_grid.dart';
 import 'widgets/connection_indicator.dart';
@@ -166,7 +167,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   MaterialPageRoute(builder: (_) => const CartScreen()),
                 ),
               ),
-              if (cartProvider.activeItemCount > 0)
+              if (cartProvider.totalItemCountAcrossCarts > 0)
                 Positioned(
                   right: 4,
                   top: 4,
@@ -177,7 +178,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                       shape: BoxShape.circle,
                     ),
                     child: Text(
-                      '${cartProvider.activeItemCount}',
+                      '${cartProvider.totalItemCountAcrossCarts}',
                       style: const TextStyle(fontSize: 10, color: Colors.white),
                     ),
                   ),
@@ -197,15 +198,24 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   dense: true,
                 ),
               ),
-              if (auth.locales.length > 1)
-                const PopupMenuItem(
-                  value: 'cambiar_tienda',
-                  child: ListTile(
-                    leading: Icon(Icons.store),
-                    title: Text('Cambiar tienda'),
-                    dense: true,
-                  ),
+              const PopupMenuItem(
+                value: 'productos_vendidos',
+                child: ListTile(
+                  leading: Icon(Icons.shopping_bag),
+                  title: Text('Productos Vendidos'),
+                  dense: true,
                 ),
+              ),
+              // Oculto hasta decidir si mostrarlo
+              // if (auth.locales.length > 1)
+              //   const PopupMenuItem(
+              //     value: 'cambiar_tienda',
+              //     child: ListTile(
+              //       leading: Icon(Icons.store),
+              //       title: Text('Cambiar tienda'),
+              //       dense: true,
+              //     ),
+              //   ),
               const PopupMenuItem(
                 value: 'sync',
                 child: ListTile(
@@ -231,9 +241,15 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                     MaterialPageRoute(builder: (_) => const VentasListScreen()),
                   );
                   break;
-                case 'cambiar_tienda':
-                  _showCambiarTiendaDialog();
+                case 'productos_vendidos':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProductosVendidosScreen()),
+                  );
                   break;
+                // case 'cambiar_tienda':
+                //   _showCambiarTiendaDialog();
+                //   break;
                 case 'sync':
                   await syncProvider.fullSync(auth.tiendaId);
                   await _loadData();
@@ -355,6 +371,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   query: _searchQuery.trim(),
                   productosProvider: productosProvider,
                   onProductTap: _showAddToCartDialog,
+                  onQuickAdd: _quickAddToCart,
                 ),
         ),
 
@@ -432,39 +449,40 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     );
   }
 
-  void _showCambiarTiendaDialog() {
-    final auth = context.read<AuthProvider>();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cambiar tienda'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: auth.locales.map((tienda) {
-            final isActive = tienda.id == auth.tiendaId;
-            return ListTile(
-              leading: Icon(
-                Icons.store,
-                color: isActive ? AppColors.primary : null,
-              ),
-              title: Text(tienda.nombre),
-              trailing: isActive ? const Icon(Icons.check) : null,
-              onTap: isActive
-                  ? null
-                  : () async {
-                      Navigator.pop(ctx);
-                      final ok = await auth.cambiarTienda(tienda.id);
-                      if (ok && mounted) {
-                        await _loadData();
-                      }
-                    },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
+  // Oculto hasta decidir si mostrar "Cambiar tienda" en el menú
+  // void _showCambiarTiendaDialog() {
+  //   final auth = context.read<AuthProvider>();
+  //
+  //   showDialog(
+  //     context: context,
+  //     builder: (ctx) => AlertDialog(
+  //       title: const Text('Cambiar tienda'),
+  //       content: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         children: auth.locales.map((tienda) {
+  //           final isActive = tienda.id == auth.tiendaId;
+  //           return ListTile(
+  //             leading: Icon(
+  //               Icons.store,
+  //               color: isActive ? AppColors.primary : null,
+  //             ),
+  //             title: Text(tienda.nombre),
+  //             trailing: isActive ? const Icon(Icons.check) : null,
+  //             onTap: isActive
+  //                 ? null
+  //                 : () async {
+  //                     Navigator.pop(ctx);
+  //                     final ok = await auth.cambiarTienda(tienda.id);
+  //                     if (ok && mounted) {
+  //                       await _loadData();
+  //                     }
+  //                   },
+  //           );
+  //         }).toList(),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   void _confirmLogout() {
     final ventas = context.read<VentasProvider>();
@@ -565,6 +583,50 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           cantidad: qty,
           allProductos: productosProvider.allProductos,
         );
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// Agregar 1 unidad al carrito desde el icono de acceso rápido (buscador).
+  Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
+    final productosProvider = context.read<ProductosProvider>();
+    final cart = context.read<CartProvider>().activeCart;
+    final cantidadEnCarrito = cart?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    final maxDisp = ProductoPosRules.getMaxQuantity(
+      producto,
+      productosProvider.allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+    );
+    if (maxDisp <= 0) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sin stock'),
+            backgroundColor: AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+    final ok = await context.read<CartProvider>().addToCart(
+          producto,
+          cantidad: qty,
+          allProductos: productosProvider.allProductos,
+        );
+    if (!context.mounted) return;
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -749,11 +811,13 @@ class _BuildSearchResults extends StatelessWidget {
   final String query;
   final ProductosProvider productosProvider;
   final void Function(BuildContext context, ProductoModel product) onProductTap;
+  final void Function(BuildContext context, ProductoModel product) onQuickAdd;
 
   const _BuildSearchResults({
     required this.query,
     required this.productosProvider,
     required this.onProductTap,
+    required this.onQuickAdd,
   });
 
   @override
@@ -816,7 +880,11 @@ class _BuildSearchResults extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
             trailing: hasStock
-                ? const Icon(Icons.add_shopping_cart, color: AppColors.success)
+                ? IconButton(
+                    icon: const Icon(Icons.add_shopping_cart, color: AppColors.success),
+                    onPressed: () => onQuickAdd(context, p),
+                    tooltip: 'Agregar 1 al carrito',
+                  )
                 : null,
             onTap: hasStock ? () => onProductTap(context, p) : null,
           ),

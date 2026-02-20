@@ -64,7 +64,7 @@ class CartScreen extends StatelessWidget {
         ],
       ),
       body: activeCart == null || activeCart.isEmpty
-          ? _buildEmptyCart()
+          ? _buildEmptyCart(context)
           : _buildCartContent(context, cartProvider),
       bottomNavigationBar: activeCart != null && activeCart.items.isNotEmpty
           ? _buildBottomBar(context, cartProvider)
@@ -72,7 +72,11 @@ class CartScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyCart() {
+  Widget _buildEmptyCart(BuildContext context) {
+    final cartProvider = context.watch<CartProvider>();
+    final canDeleteCart =
+        cartProvider.cartCount > 1 && (cartProvider.activeCart?.isEmpty ?? true);
+
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -91,6 +95,15 @@ class CartScreen extends StatelessWidget {
             'Agrega productos desde las categorías',
             style: TextStyle(fontSize: 14, color: AppColors.textHint),
           ),
+          if (canDeleteCart) ...[
+            const SizedBox(height: 24),
+            TextButton.icon(
+              onPressed: () => _confirmDeleteCart(context, cartProvider),
+              icon: const Icon(Icons.delete_outline, size: 20),
+              label: const Text('Eliminar este carrito'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            ),
+          ],
         ],
       ),
     );
@@ -359,6 +372,32 @@ class CartScreen extends StatelessWidget {
               cartProvider.clearActiveCart();
             },
             child: const Text('Vaciar', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCart(BuildContext context, CartProvider cartProvider) {
+    final nombre = cartProvider.activeCart?.nombre ?? 'este carrito';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar carrito'),
+        content: Text(
+          '¿Eliminar "$nombre"? Solo se puede eliminar cuando está vacío.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              cartProvider.deleteCart(cartProvider.activeCartIndex);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),

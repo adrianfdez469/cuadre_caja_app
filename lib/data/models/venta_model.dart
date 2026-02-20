@@ -266,6 +266,8 @@ class VentaUnificadaModel {
   final bool wasOffline;
   final int syncAttempts;
   final String? errorMessage;
+  /// ID del usuario que realizó la venta (servidor); null en ventas locales = usuario actual.
+  final String? usuarioId;
   final String? usuarioNombre;
   final List<VentaProducto> productos;
   /// ID del destino de transferencia si la venta incluyó pago por transferencia.
@@ -288,6 +290,7 @@ class VentaUnificadaModel {
     this.wasOffline = false,
     this.syncAttempts = 0,
     this.errorMessage,
+    this.usuarioId,
     this.usuarioNombre,
     required this.productos,
     this.transferDestinationId,
@@ -311,6 +314,7 @@ class VentaUnificadaModel {
         wasOffline: v.wasOffline,
         syncAttempts: v.syncAttempts,
         errorMessage: v.errorMessage,
+        usuarioId: null,
         usuarioNombre: null,
         productos: v.productos,
         transferDestinationId: v.transferDestinationId,
@@ -331,6 +335,7 @@ class VentaUnificadaModel {
         syncState: SyncState.synced,
         wasOffline: v.wasOffline,
         syncAttempts: 0,
+        usuarioId: v.usuarioId,
         usuarioNombre: v.usuarioNombre,
         productos: v.productos,
         transferDestinationId: v.transferDestinationId,

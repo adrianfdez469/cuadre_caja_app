@@ -23,6 +23,10 @@ class CartProvider extends ChangeNotifier {
   double get activeTotal => activeCart?.total ?? 0;
   int get activeItemCount => activeCart?.itemCount ?? 0;
 
+  /// Cantidad total de ítems en todos los carritos (para badge en pantalla principal).
+  int get totalItemCountAcrossCarts =>
+      _carts.fold(0, (sum, cart) => sum + cart.itemCount);
+
   /// Inicializa carritos para una tienda
   Future<void> init(String tiendaId) async {
     _tiendaId = tiendaId;
@@ -154,9 +158,11 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Elimina un carrito
+  /// Elimina un carrito. Solo se puede eliminar si está vacío y queda al menos uno.
   Future<void> deleteCart(int index) async {
-    if (_carts.length <= 1) return; // No eliminar el último
+    if (_carts.length <= 1) return;
+    if (index < 0 || index >= _carts.length) return;
+    if (!_carts[index].isEmpty) return; // Solo eliminar carritos vacíos
 
     final cart = _carts[index];
     _carts.removeAt(index);
@@ -164,7 +170,36 @@ class CartProvider extends ChangeNotifier {
 
     if (_activeCartIndex >= _carts.length) {
       _activeCartIndex = _carts.length - 1;
+    } else if (index < _activeCartIndex) {
+      _activeCartIndex--;
     }
+    notifyListeners();
+  }
+
+  /// Llamar después de completar una venta: elimina el carrito vendido si no es
+  /// "Carrito 1" y selecciona el primero de los restantes con ítems.
+  Future<void> onPurchaseCompleted() async {
+    if (_carts.isEmpty) return;
+
+    final soldIndex = _activeCartIndex;
+    if (soldIndex < 0 || soldIndex >= _carts.length) return;
+
+    final soldCart = _carts[soldIndex];
+    // Si no es el carrito principal y hay más de uno, eliminar el que se acaba de vaciar
+    if (soldCart.nombre != 'Carrito 1' && _carts.length > 1) {
+      _carts.removeAt(soldIndex);
+      await _cartLocal.deleteCart(soldCart.id);
+    }
+
+    // Seleccionar el primer carrito que tenga ítems; si ninguno, el primero
+    int newIndex = 0;
+    for (int i = 0; i < _carts.length; i++) {
+      if (!_carts[i].isEmpty) {
+        newIndex = i;
+        break;
+      }
+    }
+    _activeCartIndex = newIndex.clamp(0, _carts.length - 1);
     notifyListeners();
   }
 

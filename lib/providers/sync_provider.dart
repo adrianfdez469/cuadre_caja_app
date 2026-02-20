@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../services/sync_service.dart';
 
@@ -8,6 +10,7 @@ class SyncProvider extends ChangeNotifier {
   String _lastMessage = '';
   int _pendingVentas = 0;
   bool _isSyncing = false;
+  Timer? _messageClearTimer;
 
   SyncProvider(this._syncService) {
     _syncService.onConnectionChanged = (status) {
@@ -16,9 +19,18 @@ class SyncProvider extends ChangeNotifier {
     };
 
     _syncService.onSyncEvent = (message) {
+      _messageClearTimer?.cancel();
       _lastMessage = message;
       notifyListeners();
       _refreshPendingCount();
+      // Ocultar "Datos actualizados" tras 3 segundos para ahorrar espacio
+      if (message == 'Datos actualizados ✓') {
+        _messageClearTimer = Timer(const Duration(seconds: 3), () {
+          _lastMessage = '';
+          _messageClearTimer = null;
+          notifyListeners();
+        });
+      }
     };
   }
 
@@ -27,6 +39,12 @@ class SyncProvider extends ChangeNotifier {
   String get lastMessage => _lastMessage;
   int get pendingVentas => _pendingVentas;
   bool get isSyncing => _isSyncing;
+
+  @override
+  void dispose() {
+    _messageClearTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> startMonitoring() => _syncService.startMonitoring();
   void stopMonitoring() => _syncService.stopMonitoring();

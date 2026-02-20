@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/models/transfer_destination_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../providers/sync_provider.dart';
+import '../../services/sync_service.dart';
 
 class PaymentModal extends StatefulWidget {
   const PaymentModal({super.key});
@@ -21,12 +23,37 @@ class _PaymentModalState extends State<PaymentModal> {
   final _transferController = TextEditingController();
   bool _isProcessing = false;
   String _paymentMethod = 'cash'; // cash, transfer, mixed
+  List<TransferDestinationModel> _transferDestinations = [];
+  bool _transferDestinationsLoaded = false;
+  String? _selectedTransferDestinationId;
 
   @override
   void initState() {
     super.initState();
     final total = context.read<CartProvider>().activeTotal;
     _cashController.text = total.toStringAsFixed(2);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTransferDestinations());
+  }
+
+  Future<void> _loadTransferDestinations() async {
+    final auth = context.read<AuthProvider>();
+    final tiendaId = auth.tiendaId;
+    if (tiendaId.isEmpty) return;
+    final sync = context.read<SyncService>();
+    final destinos = await sync.loadTransferDestinations(tiendaId);
+    if (!mounted) return;
+    setState(() {
+      _transferDestinations = destinos;
+      _transferDestinationsLoaded = true;
+      if (_selectedTransferDestinationId == null && destinos.isNotEmpty) {
+        try {
+          _selectedTransferDestinationId =
+              destinos.firstWhere((d) => d.isDefault).id;
+        } catch (_) {
+          _selectedTransferDestinationId = destinos.first.id;
+        }
+      }
+    });
   }
 
   @override
@@ -153,6 +180,32 @@ class _PaymentModalState extends State<PaymentModal> {
                 onChanged: (_) => setState(() {}),
               ),
 
+            // Destino de transferencia (si paga algo por transferencia y hay destinos)
+            if (_paymentMethod != 'cash' &&
+                _transferAmount > 0 &&
+                _transferDestinationsLoaded &&
+                _transferDestinations.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedTransferDestinationId,
+                decoration: InputDecoration(
+                  labelText: 'Destino de transferencia',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: _transferDestinations
+                    .map((d) => DropdownMenuItem<String>(
+                          value: d.id,
+                          child: Text(d.nombre),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  setState(() => _selectedTransferDestinationId = value);
+                },
+              ),
+            ],
+
             const SizedBox(height: 16),
 
             // Cambio
@@ -236,14 +289,17 @@ class _PaymentModalState extends State<PaymentModal> {
         cart: cart.activeCart!,
         totalcash: _cashAmount,
         totaltransfer: _transferAmount,
+        transferDestinationId:
+            _transferAmount > 0 ? _selectedTransferDestinationId : null,
         isOffline: !sync.isOnline,
       );
 
       // Recargar productos desde cache/servidor para reflejar desagregaciones y descuentos
       await productos.loadProductos(auth.tiendaId);
 
-      // Limpiar carrito
+      // Limpiar carrito y aplicar reglas post-venta (eliminar carrito no principal si aplica, seleccionar primero con ítems)
       await cart.clearActiveCart();
+      await cart.onPurchaseCompleted();
 
       if (mounted) {
         Navigator.pop(context); // Cerrar modal
