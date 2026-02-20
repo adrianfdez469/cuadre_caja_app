@@ -23,11 +23,26 @@ class ApiClient {
 
   Dio get dio => _dio;
 
+  /// Timeout para lectura del token: evita que FlutterSecureStorage bloquee
+  /// indefinidamente en algunos dispositivos/ABIs (ej. arm64-v8a).
+  static const Duration _tokenReadTimeout = Duration(seconds: 5);
+
   Future<void> _onRequest(
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await _storageService.getToken();
+    String? token;
+    try {
+      token = await _storageService.getToken().timeout(
+        _tokenReadTimeout,
+        onTimeout: () {
+          print('⚠️ Timeout leyendo token, continuando sin Authorization');
+          return null;
+        },
+      );
+    } catch (e) {
+      print('⚠️ Error leyendo token: $e');
+    }
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
@@ -55,7 +70,10 @@ class ApiClient {
 
         if (refreshed) {
           // Reintentar la petición original con el nuevo token
-          final token = await _storageService.getToken();
+          final token = await _storageService.getToken().timeout(
+            _tokenReadTimeout,
+            onTimeout: () => null,
+          );
           final opts = err.requestOptions;
           opts.headers['Authorization'] = 'Bearer $token';
 
@@ -78,7 +96,10 @@ class ApiClient {
   /// Intenta refrescar el token usando /auth/refresh
   Future<bool> _tryRefreshToken() async {
     try {
-      final currentToken = await _storageService.getToken();
+      final currentToken = await _storageService.getToken().timeout(
+        _tokenReadTimeout,
+        onTimeout: () => null,
+      );
       if (currentToken == null) return false;
 
       final response = await Dio(BaseOptions(
@@ -111,7 +132,10 @@ class ApiClient {
   /// Intenta re-login con credenciales guardadas
   Future<bool> tryReLogin() async {
     try {
-      final credentials = await _storageService.getCredentials();
+      final credentials = await _storageService.getCredentials().timeout(
+        _tokenReadTimeout,
+        onTimeout: () => null,
+      );
       if (credentials == null) return false;
 
       final response = await _dio.post(ApiConstants.login, data: credentials);

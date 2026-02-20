@@ -10,26 +10,40 @@ class SecureStorageService {
 
   SecureStorageService(this._storage);
 
+  /// Timeout para el test de FlutterSecureStorage (evita bloqueos en algunos
+  /// dispositivos/ABIs, p. ej. arm64-v8a donde KeyStore puede colgarse).
+  static const Duration _initTestTimeout = Duration(seconds: 5);
+
   /// Llamar una vez al inicio para detectar si secure storage funciona
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
 
     try {
-      await _storage.write(key: '__test__', value: 'test');
-      final result = await _storage.read(key: '__test__');
-      await _storage.delete(key: '__test__');
-
-      if (result == 'test') {
-        _useSecureStorage = true;
+      final ok = await _runSecureStorageTest().timeout(
+        _initTestTimeout,
+        onTimeout: () {
+          print('⚠️ FlutterSecureStorage no respondió a tiempo (timeout), usando SharedPreferences');
+          return false;
+        },
+      );
+      _useSecureStorage = ok;
+      if (ok) {
         print('✅ Usando FlutterSecureStorage');
       } else {
-        _useSecureStorage = false;
         print('⚠️ FlutterSecureStorage no confiable, usando SharedPreferences');
       }
     } catch (e) {
       _useSecureStorage = false;
       print('⚠️ FlutterSecureStorage no disponible: $e');
     }
+  }
+
+  /// Devuelve true si read/write/delete funciona; false si falla o no usar secure storage.
+  Future<bool> _runSecureStorageTest() async {
+    await _storage.write(key: '__test__', value: 'test');
+    final result = await _storage.read(key: '__test__');
+    await _storage.delete(key: '__test__');
+    return result == 'test';
   }
 
   Future<void> _write(String key, String value) async {

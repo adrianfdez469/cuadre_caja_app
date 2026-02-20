@@ -278,14 +278,18 @@ class _VersionScreenState extends State<VersionScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Icon(Icons.system_update, color: AppColors.info, size: 28),
                           const SizedBox(width: 12),
-                          Text(
-                            'Hay una actualización disponible: v${_remoteRelease!.version}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                          Expanded(
+                            child: Text(
+                              'Hay una actualización disponible: v${_remoteRelease!.version}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              softWrap: true,
                             ),
                           ),
                         ],
