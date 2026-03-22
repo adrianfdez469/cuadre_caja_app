@@ -56,6 +56,9 @@ dependencies:
   # Escáner de códigos de barras
   mobile_scanner: ^6.0.2
 
+  # Reproducción de audio
+  audioplayers: ^6.6.0
+
   # Versión y actualizaciones
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
