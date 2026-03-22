@@ -90,6 +90,11 @@ class MyApp extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
           ),
+          snackBarTheme: SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            showCloseIcon: true,
+            dismissDirection: DismissDirection.horizontal,
+          ),
         ),
         home: const SplashScreen(),
       ),

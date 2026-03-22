@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
@@ -563,12 +564,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     final producto = productosProvider.findProductByCodigo(code);
     _barcodeController.clear();
     if (producto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Producto no encontrado para el código escaneado'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text('Producto no encontrado para el código escaneado'),
+        backgroundColor: AppColors.error,
       );
       return;
     }
@@ -583,12 +582,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       cantidadEnCarrito: cantidadEnCarrito,
     );
     if (maxDisp <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sin stock'),
-          backgroundColor: AppColors.warning,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text('Sin stock'),
+        backgroundColor: AppColors.warning,
       );
       return;
     }
@@ -599,13 +596,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           allProductos: productosProvider.allProductos,
         );
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+        backgroundColor: AppColors.success,
+        duration: const Duration(seconds: 1),
       );
     }
   }
@@ -625,12 +620,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     );
     if (maxDisp <= 0) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sin stock'),
-            backgroundColor: AppColors.warning,
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppSnackBar.show(
+          context,
+          content: const Text('Sin stock'),
+          backgroundColor: AppColors.warning,
         );
       }
       return;
@@ -643,13 +636,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         );
     if (!context.mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+        backgroundColor: AppColors.success,
+        duration: const Duration(seconds: 1),
       );
     }
   }
@@ -787,23 +778,19 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                       );
                   if (!context.mounted) return;
                   if (ok) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                            '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
-                        backgroundColor: AppColors.success,
-                        duration: const Duration(seconds: 1),
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                    AppSnackBar.show(
+                      context,
+                      content: Text(
+                          '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
+                      backgroundColor: AppColors.success,
+                      duration: const Duration(seconds: 1),
                     );
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                            'Cantidad supera el máximo disponible'),
-                        backgroundColor: AppColors.error,
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                    AppSnackBar.show(
+                      context,
+                      content: const Text(
+                          'Cantidad supera el máximo disponible'),
+                      backgroundColor: AppColors.error,
                     );
                   }
                 },

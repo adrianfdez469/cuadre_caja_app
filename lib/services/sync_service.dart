@@ -198,6 +198,11 @@ class SyncService {
     return cached;
   }
 
+  /// Solo lectura desde disco (sin red). Útil tras una venta para refrescar el POS al instante.
+  Future<List<ProductoModel>> loadProductosLocalOnly(String tiendaId) async {
+    return productosLocal.getProductos(tiendaId);
+  }
+
   /// Obtiene categorías (extraídas de productos cacheados)
   Future<List<CategoriaModel>> loadCategorias(String tiendaId) async {
     return await productosLocal.getCategorias(tiendaId);
@@ -288,7 +293,14 @@ class SyncService {
     }
 
     if (isOnline) {
-      await _syncSingleVenta(venta);
+      // Marcar "syncing" antes de programar la red para que otras rutas no
+      // intenten la misma venta en paralelo (p. ej. sync periódico).
+      await ventasLocal.updateSyncState(
+        venta.syncId,
+        syncState: SyncState.syncing,
+      );
+      // No esperar al servidor: la venta ya está guardada y el stock actualizado.
+      unawaited(_syncSingleVenta(venta));
     } else {
       onSyncEvent?.call('Venta guardada offline - se sincronizará al conectarse');
     }
@@ -299,10 +311,14 @@ class SyncService {
   /// Sincroniza una venta individual
   Future<bool> _syncSingleVenta(VentaLocalModel venta) async {
     try {
-      await ventasLocal.updateSyncState(
-        venta.syncId,
-        syncState: SyncState.syncing,
-      );
+      // Puede ya estar en syncing (p. ej. tras crearVenta en segundo plano).
+      final actual = await ventasLocal.getVentaBySyncId(venta.syncId);
+      if (actual?.syncState != SyncState.syncing) {
+        await ventasLocal.updateSyncState(
+          venta.syncId,
+          syncState: SyncState.syncing,
+        );
+      }
 
       String? usuarioId;
       try {

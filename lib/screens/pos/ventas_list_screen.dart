@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/sync_error_messages.dart';
 import '../../data/models/venta_model.dart';
@@ -101,15 +102,13 @@ class _VentasListScreenState extends State<VentasListScreen> {
                       final result = await ventasProvider.syncPendientes();
                       if (mounted) await _load();
                       if (mounted && result.failed > 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              '${result.failed} venta(s) no se sincronizaron. Toca "Ver detalle" en cada una para más información.',
-                            ),
-                            backgroundColor: AppColors.warning,
-                            behavior: SnackBarBehavior.floating,
-                            duration: const Duration(seconds: 5),
+                        AppSnackBar.show(
+                          context,
+                          content: Text(
+                            '${result.failed} venta(s) no se sincronizaron. Toca "Ver detalle" en cada una para más información.',
                           ),
+                          backgroundColor: AppColors.warning,
+                          duration: const Duration(seconds: 5),
                         );
                       }
                     },
@@ -205,12 +204,10 @@ class _VentasListScreenState extends State<VentasListScreen> {
       await context.read<ProductosProvider>().loadProductos(tiendaId);
     }
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Venta eliminada'),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text('Venta eliminada'),
+        backgroundColor: AppColors.success,
       );
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/categoria_model.dart';
@@ -243,13 +244,11 @@ class _ProductCard extends StatelessWidget {
         );
     if (!context.mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+        backgroundColor: AppColors.success,
+        duration: const Duration(seconds: 1),
       );
     }
   }
@@ -387,23 +386,19 @@ class _ProductCard extends StatelessWidget {
 
                   if (!context.mounted) return;
                   if (ok) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                            '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
-                        backgroundColor: AppColors.success,
-                        duration: const Duration(seconds: 1),
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                    AppSnackBar.show(
+                      context,
+                      content: Text(
+                          '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
+                      backgroundColor: AppColors.success,
+                      duration: const Duration(seconds: 1),
                     );
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                            'Cantidad supera el máximo disponible'),
-                        backgroundColor: AppColors.error,
-                        behavior: SnackBarBehavior.floating,
-                      ),
+                    AppSnackBar.show(
+                      context,
+                      content: const Text(
+                          'Cantidad supera el máximo disponible'),
+                      backgroundColor: AppColors.error,
                     );
                   }
                 },

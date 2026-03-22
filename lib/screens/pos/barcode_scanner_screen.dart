@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
@@ -39,12 +40,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
 
     if (producto == null) {
       setState(() => _scanned = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Producto no encontrado para el código: $code'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: Text('Producto no encontrado para el código: $code'),
+        backgroundColor: AppColors.error,
       );
       _cooldown?.cancel();
       _cooldown = Timer(const Duration(seconds: 2), () {
@@ -65,12 +64,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     );
     if (maxDisp <= 0) {
       setState(() => _scanned = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sin stock'),
-          backgroundColor: AppColors.warning,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text('Sin stock'),
+        backgroundColor: AppColors.warning,
       );
       _cooldown = Timer(const Duration(seconds: 2), () {
         if (mounted) setState(() => _scanned = false);
@@ -86,15 +83,13 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       allProductos: productosProvider.allProductos,
     ).then((ok) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ok
-              ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
-              : 'Cantidad supera el máximo'),
-          backgroundColor: ok ? AppColors.success : AppColors.error,
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.show(
+        context,
+        content: Text(ok
+            ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
+            : 'Cantidad supera el máximo'),
+        backgroundColor: ok ? AppColors.success : AppColors.error,
+        duration: const Duration(seconds: 1),
       );
     });
     _cooldown?.cancel();

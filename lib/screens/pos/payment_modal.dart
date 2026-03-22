@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/transfer_destination_model.dart';
 import '../../providers/auth_provider.dart';
@@ -294,8 +297,8 @@ class _PaymentModalState extends State<PaymentModal> {
         isOffline: !sync.isOnline,
       );
 
-      // Recargar productos desde cache/servidor para reflejar desagregaciones y descuentos
-      await productos.loadProductos(auth.tiendaId);
+      // Existencias ya actualizadas en disco; refrescar listas al instante sin red
+      await productos.refreshFromLocalCache(auth.tiendaId);
 
       // Limpiar carrito y aplicar reglas post-venta (eliminar carrito no principal si aplica, seleccionar primero con ítems)
       await cart.clearActiveCart();
@@ -305,25 +308,25 @@ class _PaymentModalState extends State<PaymentModal> {
         Navigator.pop(context); // Cerrar modal
         Navigator.pop(context); // Volver a categorías
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              sync.isOnline
-                  ? 'Venta registrada y sincronizada'
-                  : 'Venta guardada - se sincronizará al conectarse',
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
+        AppSnackBar.show(
+          context,
+          content: Text(
+            sync.isOnline
+                ? 'Venta guardada. Sincronización con el servidor en segundo plano.'
+                : 'Venta guardada - se sincronizará al conectarse',
           ),
+          backgroundColor: AppColors.success,
         );
       }
+
+      // Reconciliar con servidor cuando responda, sin bloquear el POS ni el indicador de carga
+      unawaited(productos.loadProductos(auth.tiendaId, showLoading: false));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-          ),
+        AppSnackBar.show(
+          context,
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.error,
         );
       }
     }

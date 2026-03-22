@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants/app_colors.dart';
+import '../core/widgets/app_snackbar.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/device_abi.dart';
 import '../data/models/release_model.dart';
@@ -94,13 +95,12 @@ class _VersionScreenState extends State<VersionScreen> {
   void _showDriveFolderFallback() {
     final url = AppConstants.driveFolderUrl;
     Clipboard.setData(ClipboardData(text: url));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'No se pudo abrir el enlace. La URL se ha copiado al portapapeles; pégala en el navegador.',
-        ),
-        duration: Duration(seconds: 4),
+    AppSnackBar.show(
+      context,
+      content: const Text(
+        'No se pudo abrir el enlace. La URL se ha copiado al portapapeles; pégala en el navegador.',
       ),
+      duration: const Duration(seconds: 4),
     );
   }
 
@@ -132,11 +132,11 @@ class _VersionScreenState extends State<VersionScreen> {
 
     if (_remoteRelease == null) return;
     if (!Platform.isAndroid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('La actualización automática solo está disponible en Android.'),
-          backgroundColor: AppColors.warning,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text(
+            'La actualización automática solo está disponible en Android.'),
+        backgroundColor: AppColors.warning,
       );
       return;
     }
@@ -144,11 +144,10 @@ class _VersionScreenState extends State<VersionScreen> {
     final abi = await getAndroidAbi();
     final fileId = _releaseService.getApkFileIdForDevice(_remoteRelease!, androidAbi: abi);
     if (fileId == null || fileId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay APK disponible para este dispositivo.'),
-          backgroundColor: AppColors.error,
-        ),
+      AppSnackBar.show(
+        context,
+        content: const Text('No hay APK disponible para este dispositivo.'),
+        backgroundColor: AppColors.error,
       );
       return;
     }
@@ -169,31 +168,28 @@ class _VersionScreenState extends State<VersionScreen> {
       if (!mounted) return;
       setState(() => _downloading = false);
       if (file == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error al descargar el APK.'),
-            backgroundColor: AppColors.error,
-          ),
+        AppSnackBar.show(
+          context,
+          content: const Text('Error al descargar el APK.'),
+          backgroundColor: AppColors.error,
         );
         return;
       }
       final result = await OpenFilex.open(file.path);
       if (result.type != ResultType.done && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message),
-            backgroundColor: AppColors.warning,
-          ),
+        AppSnackBar.show(
+          context,
+          content: Text(result.message),
+          backgroundColor: AppColors.warning,
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _downloading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-          ),
+        AppSnackBar.show(
+          context,
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.error,
         );
       }
     }

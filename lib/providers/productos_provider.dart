@@ -21,10 +21,13 @@ class ProductosProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get selectedCategoriaId => _selectedCategoriaId;
 
-  /// Carga productos y categorías (network-first)
-  Future<void> loadProductos(String tiendaId) async {
-    _isLoading = true;
-    notifyListeners();
+  /// Carga productos y categorías (network-first).
+  /// [showLoading]: si es false, no bloquea la UI del POS con el indicador de carga.
+  Future<void> loadProductos(String tiendaId, {bool showLoading = true}) async {
+    if (showLoading) {
+      _isLoading = true;
+      notifyListeners();
+    }
 
     try {
       final raw = await _syncService.loadProductos(tiendaId);
@@ -44,8 +47,29 @@ class ProductosProvider extends ChangeNotifier {
       print('❌ Error cargando productos: $e');
     }
 
-    _isLoading = false;
+    if (showLoading) {
+      _isLoading = false;
+    }
     notifyListeners();
+  }
+
+  /// Refresca listas desde la base local (rápido tras registrar una venta).
+  Future<void> refreshFromLocalCache(String tiendaId) async {
+    try {
+      final raw = await _syncService.loadProductosLocalOnly(tiendaId);
+      _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(raw);
+      _categorias = await _syncService.loadCategorias(tiendaId);
+      if (_selectedCategoriaId != null) {
+        _filteredProductos = _allProductos
+            .where((p) => p.categoriaId == _selectedCategoriaId)
+            .toList();
+      } else {
+        _filteredProductos = List.from(_allProductos);
+      }
+      notifyListeners();
+    } catch (e) {
+      print('❌ Error refrescando productos desde caché: $e');
+    }
   }
 
   /// Filtra productos por categoría
