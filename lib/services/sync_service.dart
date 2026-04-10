@@ -519,6 +519,11 @@ class SyncService {
     }
   }
 
+  /// Mueve una venta a un nuevo período y la resetea a pendiente para re-sync.
+  Future<void> updateVentaPeriodo(String syncId, String newPeriodoId) async {
+    await ventasLocal.updateVentaPeriodo(syncId, newPeriodoId);
+  }
+
   /// Info de ventas pendientes
   Future<int> getPendingCount() async {
     return await ventasLocal.countPendientes();

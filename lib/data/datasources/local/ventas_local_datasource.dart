@@ -52,6 +52,34 @@ class VentasLocalDataSource {
     return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
   }
 
+  /// Obtiene ventas en estado error de una tienda sin importar el período.
+  /// Sirve para mostrar ventas con conflicto de período en la vista del período actual.
+  Future<List<VentaLocalModel>> getVentasErrorByTienda(String tiendaId) async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_pendientes',
+      where: 'tiendaId = ? AND syncState = ?',
+      whereArgs: [tiendaId, SyncState.error.name],
+      orderBy: 'createdAt DESC',
+    );
+    return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
+  }
+
+  /// Mueve una venta a un nuevo período y la resetea a pendiente para re-sync.
+  Future<void> updateVentaPeriodo(String syncId, String newPeriodoId) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'ventas_pendientes',
+      {
+        'periodoId': newPeriodoId,
+        'syncState': SyncState.pending.name,
+        'errorMessage': null,
+      },
+      where: 'syncId = ?',
+      whereArgs: [syncId],
+    );
+  }
+
   /// Obtiene una venta por syncId
   Future<VentaLocalModel?> getVentaBySyncId(String syncId) async {
     final db = await dbHelper.database;

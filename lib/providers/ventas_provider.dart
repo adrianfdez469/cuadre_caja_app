@@ -88,7 +88,9 @@ class VentasProvider extends ChangeNotifier {
     return result;
   }
 
-  /// Carga lista unificada de ventas del período (servidor + local), orden por fecha desc
+  /// Carga lista unificada de ventas del período (servidor + local), orden por fecha desc.
+  /// Incluye además ventas en estado error de otros períodos de la misma tienda,
+  /// para que el usuario pueda resolver conflictos de período (ej. venta offline con período cerrado).
   Future<void> loadVentasUnificado(String tiendaId, String periodoId) async {
     _isLoadingVentas = true;
     notifyListeners();
@@ -97,10 +99,20 @@ class VentasProvider extends ChangeNotifier {
       final serverList = await _syncService.loadVentas(tiendaId, periodoId);
       final localList = await _syncService.ventasLocal.getVentasByPeriodo(periodoId);
 
+      // Ventas en error de otros períodos de la misma tienda (conflicto de período offline)
+      final errorOtrosPeriodos = await _syncService.ventasLocal.getVentasErrorByTienda(tiendaId);
+      final currentPeriodSyncIds = localList.map((v) => v.syncId).toSet();
+      final ventasHuerfanas = errorOtrosPeriodos
+          .where((v) => v.periodoId != periodoId && !currentPeriodSyncIds.contains(v.syncId))
+          .toList();
+
       final serverIds = serverList.map((v) => v.syncId ?? v.id).toSet();
       _ventasUnificado = [
         ...serverList.map((v) => VentaUnificadaModel.fromServer(v)),
         ...localList
+            .where((v) => !serverIds.contains(v.syncId))
+            .map((v) => VentaUnificadaModel.fromLocal(v)),
+        ...ventasHuerfanas
             .where((v) => !serverIds.contains(v.syncId))
             .map((v) => VentaUnificadaModel.fromLocal(v)),
       ];
@@ -124,6 +136,13 @@ class VentasProvider extends ChangeNotifier {
   /// Elimina una venta (servidor si synced y hay red; siempre local y restaura stock)
   Future<void> deleteVenta(String syncId, String tiendaId) async {
     await _syncService.deleteVentaAndRestoreStock(syncId, tiendaId);
+    await refreshPendientes();
+    notifyListeners();
+  }
+
+  /// Mueve una venta con conflicto de período al período actual y la resetea a pendiente.
+  Future<void> updateVentaPeriodo(String syncId, String newPeriodoId) async {
+    await _syncService.updateVentaPeriodo(syncId, newPeriodoId);
     await refreshPendientes();
     notifyListeners();
   }

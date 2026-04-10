@@ -16,9 +16,18 @@ class VentasListScreen extends StatefulWidget {
   const VentasListScreen({super.key});
 
   /// Muestra el diálogo con el log de error de sincronización (compartido con detalle de venta).
-  static void showErrorLog(BuildContext context, VentaUnificadaModel venta) {
+  /// Si el error es un conflicto de período y se provee [currentPeriodoId], ofrece la opción
+  /// de mover la venta al período actual para re-sincronizarla.
+  static void showErrorLog(
+    BuildContext context,
+    VentaUnificadaModel venta, {
+    String? currentPeriodoId,
+    VoidCallback? onPeriodoUpdated,
+  }) {
     final title = SyncErrorMessages.title(venta.errorMessage);
     final detail = SyncErrorMessages.detail(venta.errorMessage);
+    final isPeriodConflict = SyncErrorMessages.isPeriodConflict(venta.errorMessage);
+
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -45,6 +54,22 @@ class VentasListScreen extends StatefulWidget {
                   style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ],
+              if (isPeriodConflict && currentPeriodoId != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                  ),
+                  child: Text(
+                    'Esta venta fue registrada en un período que ya fue cerrado. '
+                    'Puedes moverla al período actual para sincronizarla nuevamente.',
+                    style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -53,6 +78,50 @@ class VentasListScreen extends StatefulWidget {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cerrar'),
           ),
+          if (isPeriodConflict && currentPeriodoId != null)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (confirmCtx) => AlertDialog(
+                    title: const Text('Actualizar período'),
+                    content: const Text(
+                      '¿Deseas mover esta venta al período actual para sincronizarla nuevamente?\n\n'
+                      'La venta quedará en estado pendiente y se sincronizará automáticamente al conectarse.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(confirmCtx, false),
+                        child: const Text('Cancelar'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(confirmCtx, true),
+                        child: const Text('Actualizar'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true && context.mounted) {
+                  await context.read<VentasProvider>().updateVentaPeriodo(
+                        venta.identifier,
+                        currentPeriodoId,
+                      );
+                  onPeriodoUpdated?.call();
+                  if (context.mounted) {
+                    AppSnackBar.show(
+                      context,
+                      content: const Text('Venta movida al período actual. Se sincronizará pronto.'),
+                      backgroundColor: AppColors.success,
+                    );
+                  }
+                }
+              },
+              child: Text(
+                'Actualizar período',
+                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+              ),
+            ),
         ],
       ),
     );
@@ -141,8 +210,16 @@ class _VentasListScreenState extends State<VentasListScreen> {
                           await ventasProvider.syncSingleVenta(v.identifier);
                           if (mounted) await _load();
                         },
+                        currentPeriodoId: periodo.periodoId,
                         onViewError: v.syncState == SyncState.error && (v.errorMessage?.isNotEmpty ?? false)
-                            ? () => VentasListScreen.showErrorLog(context, v)
+                            ? () => VentasListScreen.showErrorLog(
+                                  context,
+                                  v,
+                                  currentPeriodoId: periodo.periodoId,
+                                  onPeriodoUpdated: () async {
+                                    if (mounted) await _load();
+                                  },
+                                )
                             : null,
                         onDelete: () => _confirmDelete(context, v, auth.tiendaId, periodo.periodoId, ventasProvider),
                       );
@@ -216,6 +293,7 @@ class _VentasListScreenState extends State<VentasListScreen> {
 class _VentaListItem extends StatelessWidget {
   final VentaUnificadaModel venta;
   final bool isOnline;
+  final String? currentPeriodoId;
   final VoidCallback onTap;
   final VoidCallback onSync;
   final VoidCallback? onViewError;
@@ -224,6 +302,7 @@ class _VentaListItem extends StatelessWidget {
   const _VentaListItem({
     required this.venta,
     required this.isOnline,
+    this.currentPeriodoId,
     required this.onTap,
     required this.onSync,
     this.onViewError,
@@ -236,6 +315,8 @@ class _VentaListItem extends StatelessWidget {
     final syncLabel = _syncStateLabel(venta.syncState);
     final syncColor = _syncStateColor(venta.syncState);
     final canSync = !venta.synced && venta.syncState != SyncState.syncing && isOnline;
+    final isFromOtherPeriod = currentPeriodoId != null &&
+        venta.periodoId != currentPeriodoId;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -247,6 +328,24 @@ class _VentaListItem extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (isFromOtherPeriod)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_toggle_off, size: 14, color: AppColors.warning),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Período anterior — requiere actualización',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Row(
                 children: [
                   Expanded(
@@ -322,18 +421,17 @@ class _VentaListItem extends StatelessWidget {
                       ),
                     ),
                   if (canSync)
-                    TextButton.icon(
+                    IconButton(
                       onPressed: onSync,
-                      icon: const Icon(Icons.sync, size: 18),
-                      label: const Text('Sincronizar'),
+                      icon: const Icon(Icons.sync),
+                      color: AppColors.primary,
+                      tooltip: 'Sincronizar',
                     ),
-                  TextButton.icon(
+                  IconButton(
                     onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.error),
-                    label: Text(
-                      'Eliminar',
-                      style: TextStyle(color: AppColors.error),
-                    ),
+                    icon: const Icon(Icons.delete_outline),
+                    color: AppColors.error,
+                    tooltip: 'Eliminar',
                   ),
                 ],
               ),

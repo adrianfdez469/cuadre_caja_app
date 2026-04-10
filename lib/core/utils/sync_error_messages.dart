@@ -27,4 +27,14 @@ class SyncErrorMessages {
   static String detail(String? rawMessage) {
     return rawMessage?.trim().isNotEmpty == true ? rawMessage! : 'No hay detalles del error.';
   }
+
+  /// Retorna true si el error es un conflicto de período (período cerrado o cambiado).
+  /// En ese caso la UI puede ofrecer la opción de mover la venta al período actual.
+  static bool isPeriodConflict(String? rawMessage) {
+    if (rawMessage == null || rawMessage.isEmpty) return false;
+    final m = rawMessage.toLowerCase();
+    return m.contains('período cerrado o diferente') ||
+        m.contains('no existe un período abierto') ||
+        m.contains('no existe un período con el id');
+  }
 }
