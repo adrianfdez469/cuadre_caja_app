@@ -29,6 +29,9 @@ class ApiConstants {
   static String transferDestinations(String tiendaId) =>
       '/transfer-destinations/$tiendaId';
 
+  // Resumen día (Punto de partida): GET /resumen-dia/{tiendaId}
+  static String resumenDia(String tiendaId) => '/resumen-dia/$tiendaId';
+
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 30);

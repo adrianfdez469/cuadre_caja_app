@@ -16,6 +16,7 @@ import '../login_screen.dart';
 import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
 import 'productos_vendidos_screen.dart';
+import 'punto_de_partida_screen.dart';
 import 'barcode_scanner_screen.dart';
 import '../version_screen.dart';
 import 'widgets/categorias_grid.dart';
@@ -208,6 +209,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   dense: true,
                 ),
               ),
+              const PopupMenuItem(
+                value: 'punto_de_partida',
+                child: ListTile(
+                  leading: Icon(Icons.flag),
+                  title: Text('Punto de partida'),
+                  dense: true,
+                ),
+              ),
               // Oculto hasta decidir si mostrarlo
               // if (auth.locales.length > 1)
               //   const PopupMenuItem(
@@ -255,6 +264,12 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const ProductosVendidosScreen()),
+                  );
+                  break;
+                case 'punto_de_partida':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PuntoDePartidaScreen()),
                   );
                   break;
                 // case 'cambiar_tienda':
