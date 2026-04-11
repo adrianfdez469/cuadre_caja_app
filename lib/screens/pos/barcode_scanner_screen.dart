@@ -37,6 +37,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   late final Animation<double> _ringOpacity;
 
   bool _autoScan = false;
+  bool _asociarEnabled = true;
   bool _isProcessing = false;
 
   // Modo no-automático: producto detectado pendiente de confirmación
@@ -48,6 +49,11 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   Timer? _detectionTimer;
   // Modo automático: cooldown entre detecciones para evitar múltiples registros
   Timer? _autoScanCooldown;
+
+  // Control del bottom sheet de asociación para evitar duplicados
+  bool _isAssociateSheetOpen = false;
+  String? _currentAssociatingCode;
+  String? _nextAssociatingCode;
 
   @override
   void initState() {
@@ -82,6 +88,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (mounted) {
       setState(() {
         _autoScan = prefs.getBool(StorageKeys.scanAutoMode) ?? false;
+        _asociarEnabled = prefs.getBool(StorageKeys.scanAsociarEnabled) ?? true;
       });
     }
   }
@@ -100,6 +107,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         _lastDetectedCode = null;
       });
     }
+  }
+
+  Future<void> _setAsociarEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(StorageKeys.scanAsociarEnabled, value);
+    if (mounted) setState(() => _asociarEnabled = value);
   }
 
   @override
@@ -222,11 +235,24 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
     if (producto == null) {
       final usuario = context.read<AuthProvider>().usuario;
-      final canAssociate = usuario != null &&
+      final canAssociate = _asociarEnabled &&
+          usuario != null &&
           usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
 
       if (canAssociate) {
         if (autoMode) _startAutoScanCooldown();
+
+        if (_isAssociateSheetOpen) {
+          if (_currentAssociatingCode == code) {
+            // Mismo código ya en el modal — ignorar
+            return;
+          }
+          // Código diferente: cerrar modal actual y abrir el nuevo
+          _nextAssociatingCode = code;
+          Navigator.of(context).pop();
+          return;
+        }
+
         _showAsociarCodigoSheet(code);
       } else {
         _playError();
@@ -353,13 +379,29 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   }
 
   /// Abre el bottom sheet de asociación cuando el código no está registrado.
+  /// Gestiona duplicados: mismo código ignorado, código diferente reemplaza el modal.
   /// Tras asociar con éxito, actualiza el estado local y procesa el código.
   Future<void> _showAsociarCodigoSheet(String code) async {
+    _isAssociateSheetOpen = true;
+    _currentAssociatingCode = code;
+
     final producto = await AsociarCodigoSheet.show(
       context,
       scannedCode: code,
       productosRemote: injection.productosRemoteDataSource,
     );
+
+    _isAssociateSheetOpen = false;
+    _currentAssociatingCode = null;
+
+    // Si hay un código pendiente (modal reemplazado por uno diferente), abrirlo
+    final pending = _nextAssociatingCode;
+    _nextAssociatingCode = null;
+    if (pending != null && mounted && producto == null) {
+      _showAsociarCodigoSheet(pending);
+      return;
+    }
+
     if (producto == null || !mounted) return;
 
     _playSuccess();
@@ -383,6 +425,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   Widget build(BuildContext context) {
     final bool canAdd =
         _previewProduct != null && _previewMaxQty > 0 && !_isProcessing;
+
+    final usuario = context.watch<AuthProvider>().usuario;
+    final userCanAssociate = usuario != null &&
+        usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
 
     return Scaffold(
       appBar: AppBar(
@@ -410,6 +456,23 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                   inactiveThumbColor: Colors.white70,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
+                const SizedBox(width: 4),
+                if (userCanAssociate) ...[
+                  Icon(
+                    Icons.add_link,
+                    size: 15,
+                    color: _asociarEnabled
+                        ? Colors.white.withOpacity(0.9)
+                        : Colors.white38,
+                  ),
+                  Switch(
+                    value: _asociarEnabled,
+                    onChanged: _setAsociarEnabled,
+                    activeThumbColor: Colors.amberAccent,
+                    inactiveThumbColor: Colors.white38,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ],
               ],
             ),
           ),
