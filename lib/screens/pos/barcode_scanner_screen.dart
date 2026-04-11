@@ -8,11 +8,14 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/storage_keys.dart';
+import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
+import 'asociar_codigo_sheet.dart';
 
 class BarcodeScannerScreen extends StatefulWidget {
   const BarcodeScannerScreen({super.key});
@@ -218,13 +221,22 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     final producto = productosProvider.findProductByCodigo(code);
 
     if (producto == null) {
-      _playError();
-      AppSnackBar.show(
-        context,
-        content: Text('Producto no encontrado para el código: $code'),
-        backgroundColor: AppColors.error,
-      );
-      if (autoMode) _startAutoScanCooldown();
+      final usuario = context.read<AuthProvider>().usuario;
+      final canAssociate = usuario != null &&
+          usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
+
+      if (canAssociate) {
+        if (autoMode) _startAutoScanCooldown();
+        _showAsociarCodigoSheet(code);
+      } else {
+        _playError();
+        AppSnackBar.show(
+          context,
+          content: Text('Producto no encontrado para el código: $code'),
+          backgroundColor: AppColors.error,
+        );
+        if (autoMode) _startAutoScanCooldown();
+      }
       return;
     }
 
@@ -338,6 +350,29 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     Future.delayed(const Duration(milliseconds: 1200), () {
       if (mounted) setState(() => _isProcessing = false);
     });
+  }
+
+  /// Abre el bottom sheet de asociación cuando el código no está registrado.
+  /// Tras asociar con éxito, actualiza el estado local y procesa el código.
+  Future<void> _showAsociarCodigoSheet(String code) async {
+    final producto = await AsociarCodigoSheet.show(
+      context,
+      scannedCode: code,
+      productosRemote: injection.productosRemoteDataSource,
+    );
+    if (producto == null || !mounted) return;
+
+    _playSuccess();
+    AppSnackBar.show(
+      context,
+      content: Text(
+        'Código asociado a "${ProductoPosRules.nombreParaMostrar(producto)}"',
+      ),
+      backgroundColor: AppColors.success,
+    );
+
+    // El código ya está en la lista local: procesarlo directamente
+    _processCode(code, autoMode: _autoScan);
   }
 
   // ---------------------------------------------------------------------------

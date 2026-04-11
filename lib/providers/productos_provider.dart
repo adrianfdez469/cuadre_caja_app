@@ -137,6 +137,34 @@ class ProductosProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Agrega un nuevo código a un producto en memoria tras una asociación exitosa.
+  void addCodigoToProducto(
+    String productoTiendaId,
+    CodigoProductoModel nuevoCodigo,
+  ) {
+    final idx = _allProductos.indexWhere((p) => p.id == productoTiendaId);
+    if (idx != -1) {
+      final old = _allProductos[idx];
+      _allProductos[idx] = ProductoModel(
+        id: old.id,
+        productoId: old.productoId,
+        nombre: old.nombre,
+        descripcion: old.descripcion,
+        precio: old.precio,
+        costo: old.costo,
+        existencia: old.existencia,
+        permiteDecimal: old.permiteDecimal,
+        categoria: old.categoria,
+        codigos: [...old.codigos, nuevoCodigo],
+        proveedor: old.proveedor,
+        esFraccion: old.esFraccion,
+        fraccionDe: old.fraccionDe,
+        unidadesPorFraccion: old.unidadesPorFraccion,
+      );
+      filterByCategoria(_selectedCategoriaId);
+    }
+  }
+
   /// Actualiza existencia local después de venta
   void updateExistenciaLocal(String productoTiendaId, double cantidad) {
     final idx = _allProductos.indexWhere((p) => p.id == productoTiendaId);

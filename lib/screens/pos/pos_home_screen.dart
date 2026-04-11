@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
@@ -18,6 +19,7 @@ import 'ventas_list_screen.dart';
 import 'productos_vendidos_screen.dart';
 import 'punto_de_partida_screen.dart';
 import 'barcode_scanner_screen.dart';
+import 'asociar_codigo_sheet.dart';
 import '../version_screen.dart';
 import 'widgets/categorias_grid.dart';
 import 'widgets/connection_indicator.dart';
@@ -579,11 +581,35 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     final producto = productosProvider.findProductByCodigo(code);
     _barcodeController.clear();
     if (producto == null) {
-      AppSnackBar.show(
-        context,
-        content: const Text('Producto no encontrado para el código escaneado'),
-        backgroundColor: AppColors.error,
-      );
+      final usuario = context.read<AuthProvider>().usuario;
+      final canAssociate = usuario != null &&
+          usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
+
+      if (canAssociate) {
+        final asociado = await AsociarCodigoSheet.show(
+          context,
+          scannedCode: code,
+          productosRemote: injection.productosRemoteDataSource,
+        );
+        if (!context.mounted) return;
+        if (asociado != null) {
+          AppSnackBar.show(
+            context,
+            content: Text(
+              'Código asociado a "${ProductoPosRules.nombreParaMostrar(asociado)}"',
+            ),
+            backgroundColor: AppColors.success,
+          );
+          // El código ya está en la lista local: procesar nuevamente
+          await _onBarcodeSubmitted(context, code);
+        }
+      } else {
+        AppSnackBar.show(
+          context,
+          content: const Text('Producto no encontrado para el código escaneado'),
+          backgroundColor: AppColors.error,
+        );
+      }
       return;
     }
     final cart = context.read<CartProvider>().activeCart;

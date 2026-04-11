@@ -56,6 +56,11 @@ class UsuarioModel {
   };
 
   bool hasPermiso(String permiso) => permisos.contains(permiso);
+
+  /// Devuelve true si el usuario tiene el permiso explícito
+  /// o si es SUPER_ADMIN (que tiene todos los permisos implícitamente).
+  bool hasPermisoOrAdmin(String permiso) =>
+      rol == 'SUPER_ADMIN' || permisos.contains(permiso);
 }
 
 class NegocioModel {

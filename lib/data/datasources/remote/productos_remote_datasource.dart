@@ -30,4 +30,20 @@ class ProductosRemoteDataSource {
     }
     return productos;
   }
+
+  /// POST /productos/{productoId}/agregar-codigo
+  /// Asocia un código de barras a un producto existente.
+  Future<CodigoProductoModel> asociarCodigo(
+    String productoId,
+    String codigo,
+  ) async {
+    final response = await apiClient.dio.post(
+      ApiConstants.asociarCodigo(productoId),
+      data: {'codigo': codigo},
+    );
+    final body = response.data as Map<String, dynamic>;
+    return CodigoProductoModel.fromJson(
+      body['codigo'] as Map<String, dynamic>,
+    );
+  }
 }

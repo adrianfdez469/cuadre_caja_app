@@ -12,6 +12,10 @@ class ApiConstants {
   // Productos: GET /productos/{tiendaId}
   static String productos(String tiendaId) => '/productos/$tiendaId';
 
+  // Asociar código de barras a producto existente: POST /productos/agregar-codigo/{productoId}
+  static String asociarCodigo(String productoId) =>
+      '/productos/agregar-codigo/$productoId';
+
   // Período: GET/POST /periodo/{tiendaId}/actual|abrir
   static String periodoActual(String tiendaId) => '/periodo/$tiendaId/actual';
   static String periodoAbrir(String tiendaId) => '/periodo/$tiendaId/abrir';
