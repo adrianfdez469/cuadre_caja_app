@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/storage_keys.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
 
@@ -30,16 +33,23 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   late final Animation<double> _ringScale;
   late final Animation<double> _ringOpacity;
 
-  // true mientras esperamos que la cámara capture un código
-  bool _readyToScan = false;
-  // true mientras procesamos el código detectado
+  bool _autoScan = false;
   bool _isProcessing = false;
 
-  Timer? _scanTimeout;
+  // Modo no-automático: producto detectado pendiente de confirmación
+  ProductoModel? _previewProduct;
+  double _previewMaxQty = 0;
+  String? _lastDetectedCode;
+
+  // Se resetea con cada frame detectado; cuando expira, oculta la card
+  Timer? _detectionTimer;
+  // Modo automático: cooldown entre detecciones para evitar múltiples registros
+  Timer? _autoScanCooldown;
 
   @override
   void initState() {
     super.initState();
+    _loadAutoScanPreference();
 
     _pulseController = AnimationController(
       vsync: this,
@@ -64,9 +74,35 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     );
   }
 
+  Future<void> _loadAutoScanPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _autoScan = prefs.getBool(StorageKeys.scanAutoMode) ?? false;
+      });
+    }
+  }
+
+  Future<void> _setAutoScan(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(StorageKeys.scanAutoMode, value);
+    if (mounted) {
+      _detectionTimer?.cancel();
+      _autoScanCooldown?.cancel();
+      _autoScanCooldown = null;
+      setState(() {
+        _autoScan = value;
+        _isProcessing = false;
+        _previewProduct = null;
+        _lastDetectedCode = null;
+      });
+    }
+  }
+
   @override
   void dispose() {
-    _scanTimeout?.cancel();
+    _detectionTimer?.cancel();
+    _autoScanCooldown?.cancel();
     _pulseController.dispose();
     _ringController.dispose();
     _controller.dispose();
@@ -93,40 +129,34 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       }
     }
 
-    // RIFF / WAVE header
     writeStr(0, 'RIFF');
     buffer.setUint32(4, 36 + numSamples * 2, Endian.little);
     writeStr(8, 'WAVE');
-
-    // fmt sub-chunk
     writeStr(12, 'fmt ');
-    buffer.setUint32(16, 16, Endian.little);  // tamaño del sub-chunk
-    buffer.setUint16(20, 1, Endian.little);   // PCM
-    buffer.setUint16(22, 1, Endian.little);   // mono
+    buffer.setUint32(16, 16, Endian.little);
+    buffer.setUint16(20, 1, Endian.little);
+    buffer.setUint16(22, 1, Endian.little);
     buffer.setUint32(24, sampleRate, Endian.little);
-    buffer.setUint32(28, sampleRate * 2, Endian.little); // byteRate
-    buffer.setUint16(32, 2, Endian.little);   // blockAlign
-    buffer.setUint16(34, 16, Endian.little);  // bitsPerSample
-
-    // data sub-chunk
+    buffer.setUint32(28, sampleRate * 2, Endian.little);
+    buffer.setUint16(32, 2, Endian.little);
+    buffer.setUint16(34, 16, Endian.little);
     writeStr(36, 'data');
     buffer.setUint32(40, numSamples * 2, Endian.little);
 
     final maxAmp = (32767 * amplitude).round();
     for (int i = 0; i < numSamples; i++) {
       final t = i / sampleRate;
-      // Envolvente senoidal suaviza el ataque y la caída evitando clicks
       final envelope = math.sin(math.pi * t / durationSeconds);
-      final sample = (envelope * maxAmp * math.sin(2 * math.pi * frequency * t))
-          .round()
-          .clamp(-32768, 32767);
+      final sample =
+          (envelope * maxAmp * math.sin(2 * math.pi * frequency * t))
+              .round()
+              .clamp(-32768, 32767);
       buffer.setInt16(44 + i * 2, sample, Endian.little);
     }
 
     return buffer.buffer.asUint8List();
   }
 
-  /// Dos pitidos cortos ascendentes: escaneo exitoso
   Future<void> _playSuccess() async {
     try {
       await _audioPlayer.play(
@@ -136,53 +166,56 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       await _audioPlayer.play(
         BytesSource(_generateTone(frequency: 1320.0, durationSeconds: 0.14)),
       );
-    } catch (_) {
-      // El audio es complementario — si falla en algún dispositivo no afecta el flujo
-    }
+    } catch (_) {}
   }
 
-  /// Un tono bajo y largo: escaneo fallido o producto no encontrado
   Future<void> _playError() async {
     try {
       await _audioPlayer.play(
         BytesSource(_generateTone(frequency: 210.0, durationSeconds: 0.45)),
       );
-    } catch (_) {
-      // El audio es complementario — si falla en algún dispositivo no afecta el flujo
-    }
+    } catch (_) {}
   }
 
   // ---------------------------------------------------------------------------
   // Lógica de escaneo
   // ---------------------------------------------------------------------------
 
-  void _onScanButtonPressed() {
-    if (_isProcessing || _readyToScan) return;
-    _scanTimeout?.cancel();
-    setState(() => _readyToScan = true);
-    // Si en 4 segundos no se detecta nada, volvemos al estado idle
-    _scanTimeout = Timer(const Duration(seconds: 4), () {
-      if (mounted && _readyToScan) {
-        setState(() => _readyToScan = false);
-      }
-    });
-  }
-
   void _onDetect(BarcodeCapture capture) {
-    if (!_readyToScan || _isProcessing) return;
+    if (_isProcessing) return;
     if (capture.barcodes.isEmpty) return;
     final code = capture.barcodes.first.rawValue?.trim();
     if (code == null || code.isEmpty) return;
 
-    _scanTimeout?.cancel();
-    setState(() {
-      _readyToScan = false;
-      _isProcessing = true;
-    });
+    if (_autoScan) {
+      if (_autoScanCooldown != null) return;
+      _processCode(code, autoMode: true);
+    } else {
+      // Resetear el timer de desaparición con cada frame detectado
+      _detectionTimer?.cancel();
+      _detectionTimer = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          setState(() {
+            _previewProduct = null;
+            _lastDetectedCode = null;
+          });
+        }
+      });
+
+      // Si es el mismo código y ya hay preview, no hace nada (solo se resetó el timer)
+      if (code == _lastDetectedCode) return;
+
+      // Código nuevo o diferente: actualizar preview
+      _lastDetectedCode = code;
+      _processCode(code, autoMode: false);
+    }
+  }
+
+  void _processCode(String code, {required bool autoMode}) {
+    if (!mounted) return;
 
     final productosProvider = context.read<ProductosProvider>();
     final producto = productosProvider.findProductByCodigo(code);
-    if (!mounted) return;
 
     if (producto == null) {
       _playError();
@@ -191,7 +224,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         content: Text('Producto no encontrado para el código: $code'),
         backgroundColor: AppColors.error,
       );
-      _resetAfterDelay();
+      if (autoMode) _startAutoScanCooldown();
       return;
     }
 
@@ -206,23 +239,85 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       cantidadEnCarrito: cantidadEnCarrito,
     );
 
-    if (maxDisp <= 0) {
-      _playError();
-      AppSnackBar.show(
-        context,
-        content: const Text('Sin stock disponible'),
-        backgroundColor: AppColors.warning,
-      );
-      _resetAfterDelay();
-      return;
-    }
+    if (autoMode) {
+      if (maxDisp <= 0) {
+        _playError();
+        _startAutoScanCooldown();
+        AppSnackBar.show(
+          context,
+          content: Text(
+            '${ProductoPosRules.nombreParaMostrar(producto)}: sin existencias disponibles',
+          ),
+          backgroundColor: AppColors.warning,
+        );
+        return;
+      }
 
-    final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
-    context.read<CartProvider>().addToCart(
-      producto,
-      cantidad: qty,
-      allProductos: productosProvider.allProductos,
-    ).then((ok) {
+      setState(() => _isProcessing = true);
+      final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+      context
+          .read<CartProvider>()
+          .addToCart(
+            producto,
+            cantidad: qty,
+            allProductos: productosProvider.allProductos,
+          )
+          .then((ok) {
+        if (!mounted) return;
+        ok ? _playSuccess() : _playError();
+        AppSnackBar.show(
+          context,
+          content: Text(ok
+              ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
+              : 'Cantidad supera el máximo'),
+          backgroundColor: ok ? AppColors.success : AppColors.error,
+          duration: const Duration(seconds: 1),
+        );
+        if (mounted) setState(() => _isProcessing = false);
+        _startAutoScanCooldown();
+      }).catchError((_) {
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          _startAutoScanCooldown();
+        }
+      });
+    } else {
+      setState(() {
+        _previewProduct = producto;
+        _previewMaxQty = maxDisp;
+      });
+    }
+  }
+
+  void _startAutoScanCooldown() {
+    _autoScanCooldown = Timer(const Duration(milliseconds: 1500), () {
+      _autoScanCooldown = null;
+    });
+  }
+
+  void _addPreviewToCart() {
+    final producto = _previewProduct;
+    if (producto == null || _isProcessing || _previewMaxQty <= 0) return;
+
+    _detectionTimer?.cancel();
+    final productosProvider = context.read<ProductosProvider>();
+
+    setState(() {
+      _isProcessing = true;
+      _previewProduct = null;
+      _lastDetectedCode = null;
+    });
+
+    final qty =
+        _previewMaxQty >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+    context
+        .read<CartProvider>()
+        .addToCart(
+          producto,
+          cantidad: qty,
+          allProductos: productosProvider.allProductos,
+        )
+        .then((ok) {
       if (!mounted) return;
       ok ? _playSuccess() : _playError();
       AppSnackBar.show(
@@ -251,12 +346,38 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final bool canAdd =
+        _previewProduct != null && _previewMaxQty > 0 && !_isProcessing;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Escanear código'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Auto',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Switch(
+                  value: _autoScan,
+                  onChanged: _setAutoScan,
+                  activeThumbColor: Colors.greenAccent,
+                  inactiveThumbColor: Colors.white70,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
+          ),
           IconButton(
             icon: ValueListenableBuilder(
               valueListenable: _controller,
@@ -278,22 +399,59 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             onDetect: _onDetect,
           ),
           _buildScanOverlay(),
-          Positioned(
-            bottom: 52,
-            left: 0,
-            right: 0,
-            child: _buildScanButton(),
-          ),
+          // Card de preview: arriba de todo en modo no-automático
+          if (!_autoScan && _previewProduct != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: _buildPreviewCard(),
+            ),
+          // Botón circular abajo: en auto es invisible; en manual es el "Agregar"
+          if (!_autoScan)
+            Positioned(
+              bottom: 52,
+              left: 0,
+              right: 0,
+              child: _buildActionButton(canAdd: canAdd),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildScanOverlay() {
-    final frameColor = _readyToScan
-        ? Colors.greenAccent
-        : Colors.white.withOpacity(0.75);
-    final frameWidth = _readyToScan ? 3.0 : 2.0;
+    final String label;
+    if (_isProcessing) {
+      label = 'Procesando...';
+    } else if (_autoScan) {
+      label = 'Escaneando automáticamente...';
+    } else if (_previewProduct != null) {
+      label = _previewMaxQty > 0
+          ? 'Presiona el botón para agregar'
+          : 'Sin existencias disponibles';
+    } else {
+      label = 'Apunta a un código de barras';
+    }
+
+    final bool activeFrame =
+        _autoScan && !_isProcessing && _autoScanCooldown == null;
+    final bool previewActive = !_autoScan && _previewProduct != null;
+    final Color frameColor;
+    final double frameWidth;
+
+    if (activeFrame) {
+      frameColor = Colors.greenAccent;
+      frameWidth = 3.0;
+    } else if (previewActive) {
+      frameColor = _previewMaxQty > 0
+          ? Colors.greenAccent.withOpacity(0.8)
+          : AppColors.warning.withOpacity(0.8);
+      frameWidth = 2.5;
+    } else {
+      frameColor = Colors.white.withOpacity(0.6);
+      frameWidth = 2.0;
+    }
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -306,18 +464,16 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         Text(
-          _isProcessing
-              ? 'Procesando...'
-              : _readyToScan
-                  ? 'Buscando código...'
-                  : 'Encuadra el código y presiona el botón',
-          style: const TextStyle(
-            color: Colors.white,
+          label,
+          style: TextStyle(
+            color: previewActive && _previewMaxQty <= 0
+                ? AppColors.warning
+                : Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            shadows: [
+            shadows: const [
               Shadow(
                 color: Colors.black87,
                 blurRadius: 6,
@@ -330,12 +486,15 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     );
   }
 
-  Widget _buildScanButton() {
+  /// Botón circular inferior en modo no-automático.
+  /// Cuando hay producto en preview con stock → activo como "Agregar al carrito".
+  /// Cuando no hay preview o sin stock → inactivo/indicativo.
+  Widget _buildActionButton({required bool canAdd}) {
     if (_isProcessing) {
       return Center(
         child: Container(
-          width: 80,
-          height: 80,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.grey.shade700,
@@ -357,70 +516,182 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       );
     }
 
+    final bool noStock = _previewProduct != null && _previewMaxQty <= 0;
+
+    final List<Color> gradientColors;
+    final Color ringColor;
+    final IconData icon;
+
+    if (canAdd) {
+      gradientColors = [Colors.greenAccent.shade700, Colors.green.shade800];
+      ringColor = Colors.greenAccent;
+      icon = Icons.add_shopping_cart;
+    } else if (noStock) {
+      gradientColors = [
+        AppColors.warning.withOpacity(0.7),
+        AppColors.warning.withOpacity(0.5),
+      ];
+      ringColor = AppColors.warning;
+      icon = Icons.remove_shopping_cart_outlined;
+    } else {
+      gradientColors = [
+        Colors.white.withOpacity(0.18),
+        Colors.white.withOpacity(0.08),
+      ];
+      ringColor = Colors.white38;
+      icon = Icons.qr_code_scanner;
+    }
+
     return Center(
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Aro expansivo que llama la atención del usuario
           AnimatedBuilder(
             animation: _ringController,
             builder: (_, __) => Transform.scale(
               scale: _ringScale.value,
               child: Container(
-                width: 80,
-                height: 80,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: (_readyToScan ? Colors.greenAccent : AppColors.primary)
-                        .withOpacity(_ringOpacity.value),
+                    color: ringColor.withOpacity(
+                      canAdd ? _ringOpacity.value : _ringOpacity.value * 0.4,
+                    ),
                     width: 3,
                   ),
                 ),
               ),
             ),
           ),
-
-          // Botón principal con pulsación suave
           AnimatedBuilder(
             animation: _pulseScale,
             builder: (_, child) => Transform.scale(
-              scale: _readyToScan ? 0.96 : _pulseScale.value,
+              scale: canAdd ? _pulseScale.value : 1.0,
               child: child,
             ),
             child: GestureDetector(
-              onTap: _onScanButtonPressed,
+              onTap: canAdd ? _addPreviewToCart : null,
               child: Container(
-                width: 80,
-                height: 80,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: _readyToScan
-                        ? [Colors.greenAccent.shade700, Colors.green.shade800]
-                        : [AppColors.primary, AppColors.primary.withOpacity(0.8)],
+                    colors: gradientColors,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (_readyToScan
-                              ? Colors.greenAccent
-                              : AppColors.primary)
-                          .withOpacity(0.55),
-                      blurRadius: 24,
-                      spreadRadius: 6,
-                    ),
-                  ],
+                  boxShadow: canAdd
+                      ? [
+                          BoxShadow(
+                            color: Colors.greenAccent.withOpacity(0.45),
+                            blurRadius: 20,
+                            spreadRadius: 4,
+                          ),
+                        ]
+                      : [],
                 ),
-                child: Icon(
-                  _readyToScan
-                      ? Icons.center_focus_strong
-                      : Icons.qr_code_scanner,
-                  color: Colors.white,
-                  size: 40,
-                ),
+                child: Icon(icon, color: Colors.white, size: 34),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Card compacta semitransparente que aparece en la parte superior.
+  Widget _buildPreviewCard() {
+    final producto = _previewProduct!;
+    final sinStock = _previewMaxQty <= 0;
+    final nombreProducto = ProductoPosRules.nombreParaMostrar(producto);
+    final existenciaStr = producto.existencia % 1 == 0
+        ? producto.existencia.toInt().toString()
+        : producto.existencia.toStringAsFixed(2);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.52),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: sinStock
+              ? AppColors.warning.withOpacity(0.7)
+              : Colors.white.withOpacity(0.18),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 12,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          // Icono de estado
+          Icon(
+            sinStock
+                ? Icons.warning_amber_rounded
+                : Icons.qr_code_2_outlined,
+            color: sinStock ? AppColors.warning : Colors.greenAccent,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          // Nombre del producto
+          Expanded(
+            child: Text(
+              nombreProducto,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Precio
+          Text(
+            '\$${producto.precio.toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: Colors.greenAccent,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Existencia
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: sinStock
+                  ? AppColors.warning.withOpacity(0.2)
+                  : Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 11,
+                  color: sinStock ? AppColors.warning : Colors.white70,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  existenciaStr,
+                  style: TextStyle(
+                    color: sinStock ? AppColors.warning : Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
