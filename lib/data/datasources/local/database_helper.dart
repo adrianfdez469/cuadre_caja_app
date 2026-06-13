@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 4;
+  static const _databaseVersion = 5;
 
   Database? _database;
 
@@ -62,6 +62,10 @@ class DatabaseHelper {
         syncAttempts INTEGER NOT NULL DEFAULT 0,
         createdAt INTEGER NOT NULL,
         discountCodes TEXT,
+        monedaCobro TEXT NOT NULL DEFAULT 'CUP',
+        pagosDetalleJson TEXT,
+        vueltoDetalleJson TEXT,
+        tasaSnapshotJson TEXT,
         syncState TEXT NOT NULL DEFAULT 'pending',
         errorMessage TEXT,
         serverId TEXT
@@ -146,6 +150,18 @@ class DatabaseHelper {
           )
         ''');
       } catch (_) {}
+    }
+    if (oldVersion < 5) {
+      for (final sql in [
+        "ALTER TABLE ventas_pendientes ADD COLUMN monedaCobro TEXT NOT NULL DEFAULT 'CUP'",
+        'ALTER TABLE ventas_pendientes ADD COLUMN pagosDetalleJson TEXT',
+        'ALTER TABLE ventas_pendientes ADD COLUMN vueltoDetalleJson TEXT',
+        'ALTER TABLE ventas_pendientes ADD COLUMN tasaSnapshotJson TEXT',
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {}
+      }
     }
   }
 

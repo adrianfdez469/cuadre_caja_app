@@ -80,6 +80,7 @@ class VentaLocalModel {
   });
 
   VentaLocalModel copyWith({
+    List<VentaProducto>? productos,
     SyncState? syncState,
     int? syncAttempts,
     String? errorMessage,
@@ -92,7 +93,7 @@ class VentaLocalModel {
     syncId: syncId,
     tiendaId: tiendaId,
     periodoId: periodoId,
-    productos: productos,
+    productos: productos ?? this.productos,
     total: total,
     totalcash: totalcash,
     totaltransfer: totaltransfer,

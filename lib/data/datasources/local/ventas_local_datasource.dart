@@ -102,6 +102,17 @@ class VentasLocalDataSource {
     );
   }
 
+  /// Actualiza una venta pendiente existente (p. ej. tras parche de migración).
+  Future<void> updateVentaPendiente(VentaLocalModel venta) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'ventas_pendientes',
+      venta.toMap(),
+      where: 'syncId = ?',
+      whereArgs: [venta.syncId],
+    );
+  }
+
   /// Actualiza el estado de sincronización de una venta
   Future<void> updateSyncState(
     String syncId, {

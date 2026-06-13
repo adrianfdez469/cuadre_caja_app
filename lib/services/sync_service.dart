@@ -17,6 +17,7 @@ import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
 import '../core/utils/producto_pos_rules.dart';
+import 'venta_sync_payload_patcher.dart';
 
 enum ConnectionStatus { online, offline }
 
@@ -313,17 +314,35 @@ class SyncService {
     try {
       // Puede ya estar en syncing (p. ej. tras crearVenta en segundo plano).
       final actual = await ventasLocal.getVentaBySyncId(venta.syncId);
-      if (actual?.syncState != SyncState.syncing) {
+      var toSync = actual ?? venta;
+
+      // Parche para ventas de APK antigua (payload pre-multimoneda / datos incompletos).
+      toSync = await _prepareVentaForSync(toSync);
+      if (!VentaSyncPayloadPatcher.isPayloadReady(toSync)) {
+        const msg =
+            'Datos insuficientes para crear la venta: no se pudo completar el payload de sincronización';
+        print('❌ Venta ${toSync.syncId} con payload incompleto tras parche');
         await ventasLocal.updateSyncState(
-          venta.syncId,
+          toSync.syncId,
+          syncState: SyncState.error,
+          syncAttempts: toSync.syncAttempts + 1,
+          errorMessage: msg,
+        );
+        onSyncEvent?.call('Venta con datos incompletos');
+        return false;
+      }
+
+      if (toSync.syncState != SyncState.syncing) {
+        await ventasLocal.updateSyncState(
+          toSync.syncId,
           syncState: SyncState.syncing,
         );
       }
 
-      final result = await ventasRemote.crearVenta(venta);
+      final result = await ventasRemote.crearVenta(toSync);
 
       await ventasLocal.updateSyncState(
-        venta.syncId,
+        toSync.syncId,
         syncState: SyncState.synced,
         serverId: result.venta.id,
       );
@@ -348,6 +367,31 @@ class SyncService {
       onSyncEvent?.call('Error sincronizando venta');
       return false;
     }
+  }
+
+  /// Parchea ventas pendientes de APK antigua y persiste los cambios localmente.
+  Future<VentaLocalModel> _prepareVentaForSync(VentaLocalModel venta) async {
+    if (!VentaSyncPayloadPatcher.needsPatch(venta)) return venta;
+
+    final productos = await productosLocal.getProductos(venta.tiendaId);
+    final patchResult = VentaSyncPayloadPatcher.patch(
+      venta,
+      productos: productos,
+    );
+
+    if (!patchResult.wasPatched) return venta;
+
+    var patched = patchResult.venta;
+    if (patched.syncState == SyncState.error) {
+      patched = patched.copyWith(errorMessage: null);
+    }
+
+    await ventasLocal.updateVentaPendiente(patched);
+    print(
+      '🔧 Venta ${patched.syncId} parcheada (${patchResult.fixesApplied.join(", ")})',
+    );
+    onSyncEvent?.call('Venta actualizada para sincronizar');
+    return patched;
   }
 
   /// Sincroniza todas las ventas pendientes
