@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'pago_multimoneda_model.dart';
+
 /// Estado de sincronización de una venta local
 enum SyncState { pending, syncing, synced, error }
 
@@ -47,6 +49,10 @@ class VentaLocalModel {
   final int syncAttempts;
   final int createdAt; // milliseconds
   final List<String>? discountCodes;
+  final String monedaCobro;
+  final List<PagoLinea> pagosDetalle;
+  final List<VueltoLinea> vueltoDetalle;
+  final Map<String, double> tasaSnapshot;
   final SyncState syncState;
   final String? errorMessage;
   final String? serverId;
@@ -64,6 +70,10 @@ class VentaLocalModel {
     this.syncAttempts = 0,
     required this.createdAt,
     this.discountCodes,
+    this.monedaCobro = VentaMultimonedaBuilder.monedaDefault,
+    this.pagosDetalle = const [],
+    this.vueltoDetalle = const [],
+    this.tasaSnapshot = const {},
     this.syncState = SyncState.pending,
     this.errorMessage,
     this.serverId,
@@ -74,6 +84,10 @@ class VentaLocalModel {
     int? syncAttempts,
     String? errorMessage,
     String? serverId,
+    String? monedaCobro,
+    List<PagoLinea>? pagosDetalle,
+    List<VueltoLinea>? vueltoDetalle,
+    Map<String, double>? tasaSnapshot,
   }) => VentaLocalModel(
     syncId: syncId,
     tiendaId: tiendaId,
@@ -87,26 +101,40 @@ class VentaLocalModel {
     syncAttempts: syncAttempts ?? this.syncAttempts,
     createdAt: createdAt,
     discountCodes: discountCodes,
+    monedaCobro: monedaCobro ?? this.monedaCobro,
+    pagosDetalle: pagosDetalle ?? this.pagosDetalle,
+    vueltoDetalle: vueltoDetalle ?? this.vueltoDetalle,
+    tasaSnapshot: tasaSnapshot ?? this.tasaSnapshot,
     syncState: syncState ?? this.syncState,
     errorMessage: errorMessage ?? this.errorMessage,
     serverId: serverId ?? this.serverId,
   );
 
-  /// Body para POST /venta/{tiendaId}/{periodoId}. Pasar [usuarioId] al sincronizar si no está en el modelo.
-  Map<String, dynamic> toApiJson({String? usuarioId}) => {
-    if (usuarioId != null) 'usuarioId': usuarioId,
-    'syncId': syncId,
-    'createdAt': createdAt,
-    'productos': productos.map((p) => p.toJson()).toList(),
-    'total': total,
-    'totalcash': totalcash,
-    'totaltransfer': totaltransfer,
-    'transferDestinationId': transferDestinationId,
-    'wasOffline': wasOffline,
-    'syncAttempts': syncAttempts,
-    if (discountCodes != null && discountCodes!.isNotEmpty)
-      'discountCodes': discountCodes,
-  };
+  /// Body para POST /venta/{tiendaId}/{periodoId} (API v2 multimoneda).
+  Map<String, dynamic> toApiJson() {
+    final venta = VentaMultimonedaBuilder.ensureMultimoneda(
+      this,
+      tasaSnapshot: tasaSnapshot,
+      monedaCobro: monedaCobro,
+    );
+    return {
+      'syncId': venta.syncId,
+      'createdAt': venta.createdAt,
+      'productos': venta.productos.map((p) => p.toJson()).toList(),
+      'total': venta.total,
+      'totalcash': venta.totalcash,
+      'totaltransfer': venta.totaltransfer,
+      'transferDestinationId': venta.transferDestinationId,
+      'wasOffline': venta.wasOffline,
+      'syncAttempts': venta.syncAttempts,
+      if (venta.discountCodes != null && venta.discountCodes!.isNotEmpty)
+        'discountCodes': venta.discountCodes,
+      'monedaCobro': venta.monedaCobro,
+      'pagosDetalle': venta.pagosDetalle.map((p) => p.toJson()).toList(),
+      'vueltoDetalle': venta.vueltoDetalle.map((v) => v.toJson()).toList(),
+      'tasaSnapshot': venta.tasaSnapshot,
+    };
+  }
 
   /// Para SQLite
   Map<String, dynamic> toMap() => {
@@ -122,6 +150,14 @@ class VentaLocalModel {
     'syncAttempts': syncAttempts,
     'createdAt': createdAt,
     'discountCodes': discountCodes != null ? jsonEncode(discountCodes) : null,
+    'monedaCobro': monedaCobro,
+    'pagosDetalleJson': pagosDetalle.isEmpty
+        ? null
+        : jsonEncode(pagosDetalle.map((p) => p.toJson()).toList()),
+    'vueltoDetalleJson': vueltoDetalle.isEmpty
+        ? null
+        : jsonEncode(vueltoDetalle.map((v) => v.toJson()).toList()),
+    'tasaSnapshotJson': tasaSnapshot.isEmpty ? null : jsonEncode(tasaSnapshot),
     'syncState': syncState.name,
     'errorMessage': errorMessage,
     'serverId': serverId,
@@ -130,6 +166,33 @@ class VentaLocalModel {
   factory VentaLocalModel.fromMap(Map<String, dynamic> map) {
     final productosJson = jsonDecode(map['productosJson'] as String) as List;
     final discountCodesRaw = map['discountCodes'] as String?;
+    final pagosRaw = map['pagosDetalleJson'] as String?;
+    final vueltoRaw = map['vueltoDetalleJson'] as String?;
+    final tasaRaw = map['tasaSnapshotJson'] as String?;
+
+    List<PagoLinea> pagos = [];
+    if (pagosRaw != null && pagosRaw.isNotEmpty) {
+      final decoded = jsonDecode(pagosRaw) as List;
+      pagos = decoded
+          .map((p) => PagoLinea.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+
+    List<VueltoLinea> vuelto = [];
+    if (vueltoRaw != null && vueltoRaw.isNotEmpty) {
+      final decoded = jsonDecode(vueltoRaw) as List;
+      vuelto = decoded
+          .map((v) => VueltoLinea.fromJson(v as Map<String, dynamic>))
+          .toList();
+    }
+
+    Map<String, double> tasaSnapshot = {};
+    if (tasaRaw != null && tasaRaw.isNotEmpty) {
+      final decoded = jsonDecode(tasaRaw) as Map<String, dynamic>;
+      tasaSnapshot = decoded.map(
+        (k, v) => MapEntry(k, (v as num).toDouble()),
+      );
+    }
 
     return VentaLocalModel(
       syncId: map['syncId'] as String,
@@ -148,12 +211,91 @@ class VentaLocalModel {
       discountCodes: discountCodesRaw != null
           ? (jsonDecode(discountCodesRaw) as List).cast<String>()
           : null,
+      monedaCobro: map['monedaCobro'] as String? ??
+          VentaMultimonedaBuilder.monedaDefault,
+      pagosDetalle: pagos,
+      vueltoDetalle: vuelto,
+      tasaSnapshot: tasaSnapshot,
       syncState: SyncState.values.firstWhere(
         (e) => e.name == (map['syncState'] as String? ?? 'pending'),
         orElse: () => SyncState.pending,
       ),
       errorMessage: map['errorMessage'] as String?,
       serverId: map['serverId'] as String?,
+    );
+  }
+}
+
+/// Construye payloads multimoneda (migración CUP-only y cobro actual).
+class VentaMultimonedaBuilder {
+  VentaMultimonedaBuilder._();
+
+  static const String monedaDefault = 'CUP';
+
+  static List<PagoLinea> buildPagosCupOnly({
+    required double totalcash,
+    required double totaltransfer,
+    String? transferDestinationId,
+    String moneda = monedaDefault,
+  }) {
+    final pagos = <PagoLinea>[];
+    if (totalcash > 0) {
+      pagos.add(PagoLinea(
+        tipo: 'cash',
+        moneda: moneda,
+        monto: totalcash,
+        equivalenteBase: totalcash,
+      ));
+    }
+    if (totaltransfer > 0) {
+      pagos.add(PagoLinea(
+        tipo: 'transfer',
+        moneda: moneda,
+        monto: totaltransfer,
+        equivalenteBase: totaltransfer,
+        transferDestinationId: transferDestinationId,
+      ));
+    }
+    return pagos;
+  }
+
+  static List<VueltoLinea> buildVueltoCupOnly(
+    double cambio, {
+    String moneda = monedaDefault,
+  }) {
+    if (cambio <= 0) return [];
+    return [VueltoLinea(moneda: moneda, monto: cambio)];
+  }
+
+  /// Rellena campos multimoneda faltantes (ventas pendientes pre-v2).
+  static VentaLocalModel ensureMultimoneda(
+    VentaLocalModel venta, {
+    Map<String, double>? tasaSnapshot,
+    String monedaCobro = monedaDefault,
+  }) {
+    if (venta.pagosDetalle.isNotEmpty) return venta;
+
+    final pagos = buildPagosCupOnly(
+      totalcash: venta.totalcash,
+      totaltransfer: venta.totaltransfer,
+      transferDestinationId: venta.transferDestinationId,
+      moneda: monedaCobro,
+    );
+
+    if (pagos.isEmpty && venta.total > 0) {
+      pagos.add(PagoLinea(
+        tipo: 'cash',
+        moneda: monedaCobro,
+        monto: venta.total,
+        equivalenteBase: venta.total,
+      ));
+    }
+
+    return venta.copyWith(
+      monedaCobro: monedaCobro,
+      pagosDetalle: pagos,
+      vueltoDetalle: const [],
+      tasaSnapshot: tasaSnapshot ?? const {},
     );
   }
 }

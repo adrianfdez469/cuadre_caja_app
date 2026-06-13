@@ -320,12 +320,7 @@ class SyncService {
         );
       }
 
-      String? usuarioId;
-      try {
-        final user = await storageService.getUser();
-        if (user != null) usuarioId = user['id'] as String?;
-      } catch (_) {}
-      final result = await ventasRemote.crearVenta(venta, usuarioId: usuarioId);
+      final result = await ventasRemote.crearVenta(venta);
 
       await ventasLocal.updateSyncState(
         venta.syncId,

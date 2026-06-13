@@ -17,16 +17,12 @@ class VentasRemoteDataSource {
 
   VentasRemoteDataSource(this.apiClient);
 
-  /// POST /venta/{tiendaId}/{periodoId}. [usuarioId] opcional para el body.
-  /// En 4xx/5xx lanza [SyncVentaException] con el mensaje del API (campo "error").
-  Future<VentaCreateResult> crearVenta(
-    VentaLocalModel ventaLocal, {
-    String? usuarioId,
-  }) async {
+  /// POST /venta/{tiendaId}/{periodoId}. En 4xx/5xx lanza [SyncVentaException].
+  Future<VentaCreateResult> crearVenta(VentaLocalModel ventaLocal) async {
     try {
       final response = await apiClient.dio.post(
         ApiConstants.ventas(ventaLocal.tiendaId, ventaLocal.periodoId),
-        data: ventaLocal.toApiJson(usuarioId: usuarioId),
+        data: ventaLocal.toApiJson(),
       );
 
       final data = response.data as Map<String, dynamic>;
