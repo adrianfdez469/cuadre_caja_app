@@ -117,6 +117,20 @@ class ReleaseService {
         release.apks.values.firstOrNull;
   }
 
+  /// Verifica que un archivo descargado parece un APK válido (cabecera ZIP + tamaño mínimo).
+  static bool looksLikeApk(File file) {
+    if (!file.existsSync()) return false;
+    if (file.lengthSync() < 100 * 1024) return false;
+    try {
+      final raf = file.openSync(mode: FileMode.read);
+      final header = raf.readSync(2);
+      raf.closeSync();
+      return header.length == 2 && header[0] == 0x50 && header[1] == 0x4B;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Descarga el APK al directorio temporal y devuelve el File.
   /// Usa la URL para archivos grandes para evitar la página de advertencia de Drive (~2 KB).
   Future<File?> downloadApk(String fileId, {void Function(int, int)? onProgress}) async {
@@ -130,11 +144,9 @@ class ReleaseService {
       );
       final f = File(path);
       if (!f.existsSync()) return null;
-      // Si el archivo es muy pequeño, Drive devolvió HTML en lugar del APK
-      final len = f.lengthSync();
-      if (len < 100 * 1024) {
+      if (!looksLikeApk(f)) {
         f.deleteSync();
-        print('ReleaseService.downloadApk: file too small ($len bytes), likely Drive warning page');
+        print('ReleaseService.downloadApk: invalid APK file (bad header or too small)');
         return null;
       }
       return f;

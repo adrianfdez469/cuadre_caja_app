@@ -4,7 +4,11 @@ La app puede comprobar si hay una versión nueva en una carpeta de Google Drive 
 
 ## Configuración
 
-1. **Versión de la app**: La versión que ve el usuario es la de `pubspec.yaml` (`version: 0.0.3+1`). Mantén aquí la versión que quieras mostrar (y que coincida con los nombres de los APK).
+1. **Versión de la app**: La versión que ve el usuario es la de `pubspec.yaml` (ej. `version: 1.0.10+10`).
+   - La parte **antes del +** (`1.0.10`) es `versionName` (visible al usuario).
+   - La parte **después del +** (`10`) es `versionCode` (número interno de Android).
+   - **CRÍTICO:** cada APK nuevo debe tener un `versionCode` **mayor** que el anterior. Si bajas ese número, Android muestra *"No se instaló la app"* aunque la descarga funcione.
+   - Ejemplo de historial: `1.0.7+7` → `1.0.10+10` ✅ · `1.0.9+1` ❌ (regresión, no instala sobre `+7`).
 
 2. **Carpeta de Drive**:  
    Carpeta actual: https://drive.google.com/drive/folders/16LfxLzdav-PUsn97EcSnTdcNZcZnYukd  
@@ -78,4 +82,11 @@ Para obtener el ID: sube el APK a la carpeta, ábrelo en Drive y en la URL verá
 - Se muestra la versión actual y hay un botón **Comprobar actualizaciones**.
 - Si la versión en Drive es mayor, se muestra la lista de mejoras (changelog) y **Actualizar aplicación**.
 - Si hay ventas pendientes, se muestra un aviso antes de continuar con la actualización.
-- Al actualizar, se descarga el APK adecuado a la arquitectura del dispositivo y se abre el instalador de Android.
+- Al actualizar, se descarga el APK adecuado a la arquitectura del dispositivo, se valida y se abre el instalador de Android.
+
+## Si falla la instalación ("No se instaló la app")
+
+1. **versionCode menor** (causa más común): el APK en Drive se generó con un número después del `+` menor o igual al instalado. Regenera con `flutter build apk --release` tras subir el `+N` en `pubspec.yaml`.
+2. **Firma distinta**: el APK nuevo debe firmarse con la misma clave que la app instalada (misma máquina / mismo keystore).
+3. **Permiso de orígenes desconocidos**: en Android 8+, Ajustes → Instalar apps desconocidas → permitir para Cuadre de Caja.
+4. **APK corrupto en Drive**: si el archivo pesa pocos KB, Drive devolvió HTML; vuelve a subir el APK y actualiza el ID en `releases.json`.

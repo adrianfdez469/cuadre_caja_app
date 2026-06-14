@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/constants/app_colors.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../core/constants/app_constants.dart';
+import '../core/utils/apk_install_helper.dart';
 import '../core/utils/device_abi.dart';
 import '../data/models/release_model.dart';
 import '../providers/ventas_provider.dart';
@@ -24,6 +24,7 @@ class VersionScreen extends StatefulWidget {
 
 class _VersionScreenState extends State<VersionScreen> {
   String _currentVersion = AppConstants.appVersion;
+  String _currentBuildNumber = '';
   ReleaseInfo? _remoteRelease;
   bool _loading = false;
   bool _error = false;
@@ -46,6 +47,7 @@ class _VersionScreenState extends State<VersionScreen> {
       if (mounted) {
         setState(() {
           _currentVersion = info.version;
+          _currentBuildNumber = info.buildNumber;
         });
       }
     } catch (_) {
@@ -170,16 +172,65 @@ class _VersionScreenState extends State<VersionScreen> {
       if (file == null) {
         AppSnackBar.show(
           context,
-          content: const Text('Error al descargar el APK.'),
+          content: const Text(
+            'Error al descargar el APK. Descárgalo manualmente desde la carpeta de Drive.',
+          ),
           backgroundColor: AppColors.error,
         );
         return;
       }
-      final result = await OpenFilex.open(file.path);
-      if (result.type != ResultType.done && mounted) {
+
+      final validation = await ApkInstallHelper.validateForUpdate(file.path);
+      if (!mounted) return;
+
+      if (validation != null && !validation.canInstall) {
+        if (validation.reason == 'unknown_sources_blocked') {
+          final openSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Permiso necesario'),
+              content: Text(validation.userMessage()),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Abrir ajustes'),
+                ),
+              ],
+            ),
+          );
+          if (openSettings == true) {
+            await ApkInstallHelper.openUnknownSourcesSettings();
+          }
+          return;
+        }
+
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('No se puede instalar'),
+            content: Text(validation.userMessage()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final installed = await ApkInstallHelper.installApk(file.path);
+      if (!installed && mounted) {
         AppSnackBar.show(
           context,
-          content: Text(result.message),
+          content: const Text(
+            'No se pudo abrir el instalador. Descarga el APK manualmente desde Drive.',
+          ),
           backgroundColor: AppColors.warning,
         );
       }
@@ -221,7 +272,9 @@ class _VersionScreenState extends State<VersionScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'v$_currentVersion',
+                    _currentBuildNumber.isNotEmpty
+                        ? 'v$_currentVersion (build $_currentBuildNumber)'
+                        : 'v$_currentVersion',
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
