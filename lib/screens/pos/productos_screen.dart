@@ -7,6 +7,7 @@ import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
+import '../../services/hardware_scanner_gate.dart';
 import '../../providers/cart_provider.dart';
 
 class ProductosScreen extends StatefulWidget {
@@ -279,6 +280,7 @@ class _ProductCard extends StatelessWidget {
       return 'Disponibles: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
     }
 
+    HardwareScannerGate.instance.block('product_dialog');
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -412,6 +414,8 @@ class _ProductCard extends StatelessWidget {
           );
         },
       ),
+    ).whenComplete(
+      () => HardwareScannerGate.instance.unblock('product_dialog'),
     );
   }
 }

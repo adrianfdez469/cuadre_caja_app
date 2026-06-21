@@ -6,6 +6,7 @@ import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/productos_provider.dart';
+import '../../services/hardware_scanner_gate.dart';
 import 'payment_modal.dart';
 
 class CartScreen extends StatelessWidget {
@@ -315,10 +316,13 @@ class CartScreen extends StatelessWidget {
   }
 
   void _showPaymentModal(BuildContext context) {
+    HardwareScannerGate.instance.block('payment');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (_) => const PaymentModal(),
+    ).whenComplete(
+      () => HardwareScannerGate.instance.unblock('payment'),
     );
   }
 

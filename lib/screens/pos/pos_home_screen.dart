@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
@@ -13,13 +12,14 @@ import '../../providers/periodo_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
+import '../../services/hardware_scanner_gate.dart';
+import '../../widgets/hardware_scanner_listener.dart';
 import '../login_screen.dart';
 import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
 import 'productos_vendidos_screen.dart';
 import 'punto_de_partida_screen.dart';
 import 'barcode_scanner_screen.dart';
-import 'asociar_codigo_sheet.dart';
 import '../version_screen.dart';
 import 'widgets/categorias_grid.dart';
 import 'widgets/connection_indicator.dart';
@@ -35,13 +35,22 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   bool _isInitialized = false;
   String? _initError;
   final _searchController = TextEditingController();
-  final _barcodeController = TextEditingController();
+  final _searchFocusNode = FocusNode();
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(_onSearchFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+  }
+
+  void _onSearchFocusChanged() {
+    if (_searchFocusNode.hasFocus) {
+      HardwareScannerGate.instance.block('search');
+    } else {
+      HardwareScannerGate.instance.unblock('search');
+    }
   }
 
   Future<void> _initialize() async {
@@ -116,8 +125,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   @override
   void dispose() {
     context.read<SyncProvider>().stopMonitoring();
+    _searchFocusNode.removeListener(_onSearchFocusChanged);
+    _searchFocusNode.dispose();
     _searchController.dispose();
-    _barcodeController.dispose();
+    HardwareScannerGate.instance.unblock('search');
     super.dispose();
   }
 
@@ -130,7 +141,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     final syncProvider = context.watch<SyncProvider>();
     final ventasProvider = context.watch<VentasProvider>();
 
-    return Scaffold(
+    return HardwareScannerListener(
+      enabled: _isInitialized && periodoProvider.hasActivePeriodo,
+      child: Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -296,6 +309,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         ],
       ),
       body: _buildBody(productosProvider, periodoProvider, syncProvider),
+    ),
     );
   }
 
@@ -331,47 +345,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       return _buildNoPeriodoView(periodoProvider);
     }
 
-    // Escáner + pistola arriba | contenido | solo buscador por nombre abajo
+    // Contenido | buscador por nombre + escáner de cámara (parte inferior)
     return Column(
       children: [
-        // Campo pistola + icono escáner en la misma fila
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _barcodeController,
-                  decoration: InputDecoration(
-                    hintText: 'Código (pistola): escanee y pulse Enter',
-                    prefixIcon: const Icon(Icons.qr_code_2, size: 20),
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  onSubmitted: (value) => _onBarcodeSubmitted(context, value),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
-                ),
-                icon: const Icon(Icons.qr_code_scanner),
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-
         // Sync status bar
         if (syncProvider.lastMessage.isNotEmpty)
           Container(
@@ -408,32 +384,52 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 ),
         ),
 
-        // Solo buscador por nombre (parte inferior)
+        // Buscador por nombre + escáner de cámara
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: 'Buscar por nombre...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Buscar por nombre...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
               ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            onChanged: (value) => setState(() => _searchQuery = value),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                ),
+                icon: const Icon(Icons.qr_code_scanner),
+                tooltip: 'Escanear con cámara',
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -575,77 +571,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     );
   }
 
-  Future<void> _onBarcodeSubmitted(BuildContext context, String code) async {
-    if (code.trim().isEmpty) return;
-    final productosProvider = context.read<ProductosProvider>();
-    final producto = productosProvider.findProductByCodigo(code);
-    _barcodeController.clear();
-    if (producto == null) {
-      final usuario = context.read<AuthProvider>().usuario;
-      final canAssociate = usuario != null &&
-          usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
-
-      if (canAssociate) {
-        final asociado = await AsociarCodigoSheet.show(
-          context,
-          scannedCode: code,
-          productosRemote: injection.productosRemoteDataSource,
-        );
-        if (!context.mounted) return;
-        if (asociado != null) {
-          AppSnackBar.show(
-            context,
-            content: Text(
-              'Código asociado a "${ProductoPosRules.nombreParaMostrar(asociado)}"',
-            ),
-            backgroundColor: AppColors.success,
-          );
-          // El código ya está en la lista local: procesar nuevamente
-          await _onBarcodeSubmitted(context, code);
-        }
-      } else {
-        AppSnackBar.show(
-          context,
-          content: const Text('Producto no encontrado para el código escaneado'),
-          backgroundColor: AppColors.error,
-        );
-      }
-      return;
-    }
-    final cart = context.read<CartProvider>().activeCart;
-    final cantidadEnCarrito = cart?.items
-            .where((i) => i.productoTiendaId == producto.id)
-            .fold<double>(0, (s, i) => s + i.cantidad) ??
-        0;
-    final maxDisp = ProductoPosRules.getMaxQuantity(
-      producto,
-      productosProvider.allProductos,
-      cantidadEnCarrito: cantidadEnCarrito,
-    );
-    if (maxDisp <= 0) {
-      AppSnackBar.show(
-        context,
-        content: const Text('Sin stock'),
-        backgroundColor: AppColors.warning,
-      );
-      return;
-    }
-    final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
-    final ok = await context.read<CartProvider>().addToCart(
-          producto,
-          cantidad: qty,
-          allProductos: productosProvider.allProductos,
-        );
-    if (ok) {
-      AppSnackBar.show(
-        context,
-        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 1),
-      );
-    }
-  }
-
   /// Agregar 1 unidad al carrito desde el icono de acceso rápido (buscador).
   Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
     final productosProvider = context.read<ProductosProvider>();
@@ -713,6 +638,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       return 'Disponibles: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
     }
 
+    HardwareScannerGate.instance.block('product_dialog');
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -845,6 +771,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           );
         },
       ),
+    ).whenComplete(
+      () => HardwareScannerGate.instance.unblock('product_dialog'),
     );
   }
 }

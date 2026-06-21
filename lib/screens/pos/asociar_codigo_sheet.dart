@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../services/hardware_scanner_gate.dart';
 import '../../data/datasources/remote/productos_remote_datasource.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
@@ -36,6 +37,7 @@ class AsociarCodigoSheet extends StatefulWidget {
     required String scannedCode,
     required ProductosRemoteDataSource productosRemote,
   }) {
+    HardwareScannerGate.instance.block('asociar');
     return showModalBottomSheet<ProductoModel>(
       context: context,
       isScrollControlled: true,
@@ -45,6 +47,8 @@ class AsociarCodigoSheet extends StatefulWidget {
         scannedCode: scannedCode,
         productosRemote: productosRemote,
       ),
+    ).whenComplete(
+      () => HardwareScannerGate.instance.unblock('asociar'),
     );
   }
 
