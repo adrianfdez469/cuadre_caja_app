@@ -25,6 +25,7 @@ class ProductoModel {
   final String? descripcion;
   final double precio;
   final double costo;
+  final String? monedaPrecioCode;
   final double existencia;
   final bool permiteDecimal;
   final CategoriaModel? categoria;
@@ -41,6 +42,7 @@ class ProductoModel {
     this.descripcion,
     required this.precio,
     required this.costo,
+    this.monedaPrecioCode,
     required this.existencia,
     this.permiteDecimal = false,
     this.categoria,
@@ -65,6 +67,7 @@ class ProductoModel {
       descripcion: _stringOrMap(json['descripcion']),
       precio: (json['precio'] as num?)?.toDouble() ?? 0.0,
       costo: (json['costo'] as num?)?.toDouble() ?? 0.0,
+      monedaPrecioCode: json['monedaPrecioCode'] as String?,
       existencia: (json['existencia'] as num?)?.toDouble() ?? 0.0,
       permiteDecimal: json['permiteDecimal'] as bool? ?? false,
       categoria: json['categoria'] != null
@@ -90,6 +93,7 @@ class ProductoModel {
     'descripcion': descripcion,
     'precio': precio,
     'costo': costo,
+    'monedaPrecioCode': monedaPrecioCode,
     'existencia': existencia,
     'permiteDecimal': permiteDecimal,
     'categoria': categoria?.toJson(),
@@ -108,6 +112,7 @@ class ProductoModel {
     'descripcion': descripcion,
     'precio': precio,
     'costo': costo,
+    'monedaPrecioCode': monedaPrecioCode,
     'existencia': existencia,
     'permiteDecimal': permiteDecimal ? 1 : 0,
     'categoriaId': categoriaId,
@@ -155,6 +160,7 @@ class ProductoModel {
             )
           : null,
       unidadesPorFraccion: map['unidadesPorFraccion'] as int?,
+      monedaPrecioCode: map['monedaPrecioCode'] as String?,
       codigos: codigosList,
     );
   }

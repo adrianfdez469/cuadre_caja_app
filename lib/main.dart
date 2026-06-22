@@ -9,6 +9,7 @@ import 'providers/productos_provider.dart';
 import 'providers/cart_provider.dart';
 import 'providers/ventas_provider.dart';
 import 'providers/periodo_provider.dart';
+import 'providers/monedas_provider.dart';
 import 'providers/sync_provider.dart';
 import 'services/sync_service.dart';
 import 'screens/splash_screen.dart';
@@ -62,6 +63,10 @@ class MyApp extends StatelessWidget {
 
         ChangeNotifierProvider(
           create: (_) => PeriodoProvider(injection.syncService),
+        ),
+
+        ChangeNotifierProvider(
+          create: (_) => MonedasProvider(injection.syncService),
         ),
 
         ChangeNotifierProvider(

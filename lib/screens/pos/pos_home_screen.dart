@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_snackbar.dart';
-import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
@@ -10,10 +9,12 @@ import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/periodo_provider.dart';
 import '../../providers/sync_provider.dart';
+import '../../providers/monedas_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../widgets/hardware_scanner_listener.dart';
+import '../../widgets/multi_currency_amount.dart';
 import '../login_screen.dart';
 import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
@@ -106,10 +107,17 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         context.read<PeriodoProvider>().loadPeriodo(tiendaId),
         context.read<CartProvider>().init(tiendaId),
         context.read<VentasProvider>().refreshPendientes(),
+        context.read<MonedasProvider>().load(
+          auth.negocioId,
+          fallbackMonedaBase: auth.monedaBase,
+        ),
       ]);
 
-      // Full sync si hay conexión (ventas pendientes + productos, período, destinos)
-      context.read<SyncProvider>().fullSync(tiendaId);
+      // Full sync si hay conexión (ventas pendientes + productos, período, destinos, monedas)
+      context.read<SyncProvider>().fullSync(
+        tiendaId,
+        negocioId: auth.negocioId,
+      );
 
       // Cargar y guardar listado unificado de ventas (servidor + local) para no depender de abrir "Ventas y sincronización"
       final periodoId = context.read<PeriodoProvider>().periodoId;
@@ -673,13 +681,12 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  Formatters.formatCurrency(producto.precio),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
+                MultiCurrencyAmount(
+                  amount: context.read<MonedasProvider>().precioEnBase(
+                        producto.precio,
+                        producto.monedaPrecioCode,
+                      ),
+                  variant: MultiCurrencyVariant.total,
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -794,6 +801,7 @@ class _BuildSearchResults extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final results = productosProvider.searchByName(query, limit: 15);
+    final monedas = context.watch<MonedasProvider>();
 
     if (results.isEmpty) {
       return Center(
@@ -846,9 +854,18 @@ class _BuildSearchResults extends StatelessWidget {
                 color: hasStock ? null : AppColors.textSecondary,
               ),
             ),
-            subtitle: Text(
-              '${Formatters.formatCurrency(p.precio)}  •  $stockText',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MultiCurrencyAmount(
+                  amount: monedas.precioEnBase(p.precio, p.monedaPrecioCode),
+                  variant: MultiCurrencyVariant.compact,
+                ),
+                Text(
+                  stockText,
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ],
             ),
             trailing: hasStock
                 ? IconButton(

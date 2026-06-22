@@ -26,6 +26,7 @@ class VentaSyncPayloadPatcher {
   static bool needsPatch(VentaLocalModel venta) {
     if (venta.pagosDetalle.isEmpty) return true;
     if (venta.monedaCobro.isEmpty) return true;
+    if (venta.tasaSnapshot.isEmpty && venta.pagosDetalle.isNotEmpty) return true;
     if (_productosNeedFix(venta.productos)) return true;
     if (_totalsNeedFix(venta)) return true;
     return false;
@@ -49,6 +50,8 @@ class VentaSyncPayloadPatcher {
   static VentaSyncPatchResult patch(
     VentaLocalModel venta, {
     List<ProductoModel> productos = const [],
+    String? monedaBase,
+    Map<String, double>? tasaSnapshot,
   }) {
     final fixes = <String>[];
     var patched = venta;
@@ -59,7 +62,11 @@ class VentaSyncPayloadPatcher {
     }
 
     final beforeMultimoneda = patched;
-    patched = VentaMultimonedaBuilder.ensureMultimoneda(patched);
+    patched = VentaMultimonedaBuilder.ensureMultimoneda(
+      patched,
+      monedaBase: monedaBase ?? patched.monedaCobro,
+      tasaSnapshot: tasaSnapshot ?? patched.tasaSnapshot,
+    );
     if (patched.pagosDetalle.isNotEmpty &&
         beforeMultimoneda.pagosDetalle.isEmpty) {
       fixes.add('multimoneda');

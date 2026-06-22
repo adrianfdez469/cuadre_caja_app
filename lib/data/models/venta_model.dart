@@ -70,7 +70,7 @@ class VentaLocalModel {
     this.syncAttempts = 0,
     required this.createdAt,
     this.discountCodes,
-    this.monedaCobro = VentaMultimonedaBuilder.monedaDefault,
+    this.monedaCobro = 'CUP',
     this.pagosDetalle = const [],
     this.vueltoDetalle = const [],
     this.tasaSnapshot = const {},
@@ -116,7 +116,7 @@ class VentaLocalModel {
     final venta = VentaMultimonedaBuilder.ensureMultimoneda(
       this,
       tasaSnapshot: tasaSnapshot,
-      monedaCobro: monedaCobro,
+      monedaBase: monedaCobro.isNotEmpty ? monedaCobro : 'CUP',
     );
     return {
       'syncId': venta.syncId,
@@ -212,8 +212,7 @@ class VentaLocalModel {
       discountCodes: discountCodesRaw != null
           ? (jsonDecode(discountCodesRaw) as List).cast<String>()
           : null,
-      monedaCobro: map['monedaCobro'] as String? ??
-          VentaMultimonedaBuilder.monedaDefault,
+      monedaCobro: map['monedaCobro'] as String? ?? 'CUP',
       pagosDetalle: pagos,
       vueltoDetalle: vuelto,
       tasaSnapshot: tasaSnapshot,
@@ -227,23 +226,21 @@ class VentaLocalModel {
   }
 }
 
-/// Construye payloads multimoneda (migración CUP-only y cobro actual).
+/// Construye payloads multimoneda para ventas.
 class VentaMultimonedaBuilder {
   VentaMultimonedaBuilder._();
 
-  static const String monedaDefault = 'CUP';
-
-  static List<PagoLinea> buildPagosCupOnly({
+  static List<PagoLinea> buildPagosMonedaBase({
     required double totalcash,
     required double totaltransfer,
     String? transferDestinationId,
-    String moneda = monedaDefault,
+    required String monedaBase,
   }) {
     final pagos = <PagoLinea>[];
     if (totalcash > 0) {
       pagos.add(PagoLinea(
         tipo: 'cash',
-        moneda: moneda,
+        moneda: monedaBase,
         monto: totalcash,
         equivalenteBase: totalcash,
       ));
@@ -251,7 +248,7 @@ class VentaMultimonedaBuilder {
     if (totaltransfer > 0) {
       pagos.add(PagoLinea(
         tipo: 'transfer',
-        moneda: moneda,
+        moneda: monedaBase,
         monto: totaltransfer,
         equivalenteBase: totaltransfer,
         transferDestinationId: transferDestinationId,
@@ -260,43 +257,54 @@ class VentaMultimonedaBuilder {
     return pagos;
   }
 
-  static List<VueltoLinea> buildVueltoCupOnly(
+  static List<VueltoLinea> buildVueltoMonedaBase(
     double cambio, {
-    String moneda = monedaDefault,
+    required String monedaBase,
   }) {
     if (cambio <= 0) return [];
-    return [VueltoLinea(moneda: moneda, monto: cambio)];
+    return [VueltoLinea(moneda: monedaBase, monto: cambio)];
   }
 
-  /// Rellena campos multimoneda faltantes (ventas pendientes pre-v2).
+  /// Rellena campos multimoneda faltantes (cobro simple en moneda base).
   static VentaLocalModel ensureMultimoneda(
     VentaLocalModel venta, {
     Map<String, double>? tasaSnapshot,
-    String monedaCobro = monedaDefault,
+    String monedaBase = 'CUP',
   }) {
-    if (venta.pagosDetalle.isNotEmpty) return venta;
+    final snapshot = tasaSnapshot ?? venta.tasaSnapshot;
+    final cobro = venta.monedaCobro.isNotEmpty ? venta.monedaCobro : monedaBase;
 
-    final pagos = buildPagosCupOnly(
+    if (venta.pagosDetalle.isNotEmpty) {
+      return venta.copyWith(
+        monedaCobro: cobro,
+        tasaSnapshot: snapshot,
+        vueltoDetalle: venta.vueltoDetalle,
+      );
+    }
+
+    final pagos = buildPagosMonedaBase(
       totalcash: venta.totalcash,
       totaltransfer: venta.totaltransfer,
       transferDestinationId: venta.transferDestinationId,
-      moneda: monedaCobro,
+      monedaBase: cobro,
     );
 
     if (pagos.isEmpty && venta.total > 0) {
       pagos.add(PagoLinea(
         tipo: 'cash',
-        moneda: monedaCobro,
+        moneda: cobro,
         monto: venta.total,
         equivalenteBase: venta.total,
       ));
     }
 
+    final cambio = (venta.totalcash + venta.totaltransfer) - venta.total;
+
     return venta.copyWith(
-      monedaCobro: monedaCobro,
+      monedaCobro: cobro,
       pagosDetalle: pagos,
-      vueltoDetalle: const [],
-      tasaSnapshot: tasaSnapshot ?? const {},
+      vueltoDetalle: buildVueltoMonedaBase(cambio, monedaBase: cobro),
+      tasaSnapshot: snapshot,
     );
   }
 }

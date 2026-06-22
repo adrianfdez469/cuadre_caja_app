@@ -92,6 +92,7 @@ class CartProvider extends ChangeNotifier {
         productoTiendaId: producto.id,
         nombre: ProductoPosRules.nombreParaMostrar(producto),
         precio: producto.precio,
+        monedaPrecioCode: producto.monedaPrecioCode,
         cantidad: cantidad,
       ));
     }

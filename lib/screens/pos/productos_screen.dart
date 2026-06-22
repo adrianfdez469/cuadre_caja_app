@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_snackbar.dart';
-import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/monedas_provider.dart';
+import '../../widgets/multi_currency_amount.dart';
 
 class ProductosScreen extends StatefulWidget {
   final CategoriaModel categoria;
@@ -127,6 +128,7 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final monedas = context.watch<MonedasProvider>();
     final disponible = ProductoPosRules.disponibleParaMostrar(
       producto,
       allProductos,
@@ -172,13 +174,15 @@ class _ProductCard extends StatelessWidget {
                     ],
                     const SizedBox(height: 6),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          Formatters.formatCurrency(producto.precio),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                        Expanded(
+                          child: MultiCurrencyAmount(
+                            amount: monedas.precioEnBase(
+                              producto.precio,
+                              producto.monedaPrecioCode,
+                            ),
+                            variant: MultiCurrencyVariant.product,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -315,13 +319,12 @@ class _ProductCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  Formatters.formatCurrency(producto.precio),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
+                MultiCurrencyAmount(
+                  amount: context.read<MonedasProvider>().precioEnBase(
+                        producto.precio,
+                        producto.monedaPrecioCode,
+                      ),
+                  variant: MultiCurrencyVariant.total,
                 ),
                 const SizedBox(height: 8),
                 Text(

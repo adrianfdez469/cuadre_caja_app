@@ -6,12 +6,17 @@ import '../data/datasources/local/productos_local_datasource.dart';
 import '../data/datasources/local/periodos_local_datasource.dart';
 import '../data/datasources/local/ventas_local_datasource.dart';
 import '../data/datasources/local/transfer_destinations_local_datasource.dart';
+import '../data/datasources/local/multimoneda_local_datasource.dart';
 import '../data/datasources/remote/productos_remote_datasource.dart';
 import '../data/datasources/remote/periodos_remote_datasource.dart';
 import '../data/datasources/remote/ventas_remote_datasource.dart';
 import '../data/datasources/remote/transfer_destinations_remote_datasource.dart';
+import '../data/datasources/remote/monedas_remote_datasource.dart';
+import '../data/datasources/remote/tasas_remote_datasource.dart';
 import '../data/models/producto_model.dart';
 import '../data/models/periodo_model.dart';
+import '../data/models/moneda_model.dart';
+import '../data/models/tasa_model.dart';
 import '../core/errors/exceptions.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
@@ -31,12 +36,15 @@ class SyncService {
   final PeriodosRemoteDataSource periodosRemote;
   final VentasRemoteDataSource ventasRemote;
   final TransferDestinationsRemoteDataSource transferRemote;
+  final MonedasRemoteDataSource monedasRemote;
+  final TasasRemoteDataSource tasasRemote;
 
   // Local
   final ProductosLocalDataSource productosLocal;
   final PeriodosLocalDataSource periodosLocal;
   final VentasLocalDataSource ventasLocal;
   final TransferDestinationsLocalDataSource transferLocal;
+  final MultimonedaLocalDataSource multimonedaLocal;
 
   // State
   ConnectionStatus _connectionStatus = ConnectionStatus.offline;
@@ -60,10 +68,13 @@ class SyncService {
     required this.periodosRemote,
     required this.ventasRemote,
     required this.transferRemote,
+    required this.monedasRemote,
+    required this.tasasRemote,
     required this.productosLocal,
     required this.periodosLocal,
     required this.ventasLocal,
     required this.transferLocal,
+    required this.multimonedaLocal,
   });
 
   ConnectionStatus get connectionStatus => _connectionStatus;
@@ -369,14 +380,19 @@ class SyncService {
     }
   }
 
-  /// Parchea ventas pendientes de APK antigua y persiste los cambios localmente.
+  /// Parchea ventas pendientes con payload incompleto y persiste los cambios localmente.
   Future<VentaLocalModel> _prepareVentaForSync(VentaLocalModel venta) async {
     if (!VentaSyncPayloadPatcher.needsPatch(venta)) return venta;
 
     final productos = await productosLocal.getProductos(venta.tiendaId);
+    final multimoneda = await multimonedaLocal.getConfig(
+      (await storageService.getUser())?['negocio']?['id'] as String? ?? '',
+    );
     final patchResult = VentaSyncPayloadPatcher.patch(
       venta,
       productos: productos,
+      monedaBase: multimoneda?.monedaBase,
+      tasaSnapshot: multimoneda?.tasasVigentes,
     );
 
     if (!patchResult.wasPatched) return venta;
@@ -529,11 +545,68 @@ class SyncService {
   }
 
   // ==========================================
+  // MULTIMONEDA - Network-First Cache
+  // ==========================================
+
+  /// Lee config multimoneda desde SQLite (sin red).
+  Future<MultimonedaConfig?> getMultimonedaConfigLocal(String negocioId) =>
+      multimonedaLocal.getConfig(negocioId);
+
+  /// Carga monedas + tasas: intenta API primero, fallback a cache.
+  Future<MultimonedaConfig> loadMultimonedaConfig(
+    String negocioId, {
+    String? fallbackMonedaBase,
+  }) async {
+    final baseFallback = fallbackMonedaBase ?? 'CUP';
+
+    if (isOnline) {
+      try {
+        final results = await Future.wait([
+          monedasRemote.getMonedas(negocioId),
+          tasasRemote.getTasasCambio(negocioId),
+        ]);
+        final monedasResp = results[0] as MonedasNegocioResponse;
+        final tasasResp = results[1] as TasasVigentesResponse;
+
+        final config = MultimonedaConfig(
+          negocioId: negocioId,
+          monedaBase: tasasResp.monedaBase.isNotEmpty
+              ? tasasResp.monedaBase
+              : baseFallback,
+          tasasVigentes: tasasResp.vigentes,
+          tasasConversion: tasasResp.tasasCup,
+          monedas: monedasResp.monedas,
+          tasasActualizadoEn: tasasResp.actualizadoEn,
+        );
+        await multimonedaLocal.saveConfig(config);
+        onSyncEvent?.call(
+          '${config.monedasActivas.length} monedas · base ${config.monedaBase}',
+        );
+        return config;
+      } catch (e) {
+        print('⚠️ Error cargando multimoneda del servidor: $e');
+        onSyncEvent?.call('Error de red, usando monedas en cache');
+      }
+    }
+
+    final cached = await multimonedaLocal.getConfig(negocioId);
+    if (cached != null) {
+      onSyncEvent?.call('Usando monedas en cache (${cached.monedaBase})');
+      return cached;
+    }
+
+    return MultimonedaConfig(
+      negocioId: negocioId,
+      monedaBase: baseFallback,
+    );
+  }
+
+  // ==========================================
   // SYNC COMPLETO (al iniciar o reconectar)
   // ==========================================
 
   /// Sincronización completa: ventas pendientes + refrescar datos
-  Future<void> fullSync(String tiendaId) async {
+  Future<void> fullSync(String tiendaId, {String? negocioId}) async {
     if (!isOnline) {
       onSyncEvent?.call('Sin conexión - usando datos locales');
       return;
@@ -544,13 +617,17 @@ class SyncService {
     // 1. Ventas pendientes primero
     await _syncPendingVentas();
 
-    // 2. Refrescar productos y período en paralelo
+    // 2. Refrescar productos, período, destinos y multimoneda en paralelo
     try {
-      await Future.wait([
-        loadProductos(tiendaId),
-        loadPeriodoActual(tiendaId),
-        loadTransferDestinations(tiendaId),
-      ]);
+      final futures = <Future<void>>[
+        loadProductos(tiendaId).then((_) {}),
+        loadPeriodoActual(tiendaId).then((_) {}),
+        loadTransferDestinations(tiendaId).then((_) {}),
+      ];
+      if (negocioId != null && negocioId.isNotEmpty) {
+        futures.add(loadMultimonedaConfig(negocioId).then((_) {}));
+      }
+      await Future.wait(futures);
       onSyncEvent?.call('Datos actualizados ✓');
     } catch (e) {
       print('⚠️ Error en sincronización completa: $e');

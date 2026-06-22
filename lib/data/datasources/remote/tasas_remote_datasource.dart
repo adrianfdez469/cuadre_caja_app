@@ -7,10 +7,10 @@ class TasasRemoteDataSource {
 
   TasasRemoteDataSource(this.apiClient);
 
-  /// GET /api/negocio/{negocioId}/tasas-cambio (mismo JWT, fuera de /api/app).
+  /// GET /api/app/tasas-cambio/{negocioId}
   Future<TasasVigentesResponse> getTasasCambio(String negocioId) async {
     final response = await apiClient.dio.get(
-      ApiConstants.tasasCambioUrl(negocioId),
+      ApiConstants.tasasCambio(negocioId),
     );
     return TasasVigentesResponse.fromJson(
       response.data as Map<String, dynamic>,

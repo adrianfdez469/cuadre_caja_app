@@ -49,11 +49,11 @@ class SyncProvider extends ChangeNotifier {
   Future<void> startMonitoring() => _syncService.startMonitoring();
   void stopMonitoring() => _syncService.stopMonitoring();
 
-  Future<void> fullSync(String tiendaId) async {
+  Future<void> fullSync(String tiendaId, {String? negocioId}) async {
     _isSyncing = true;
     notifyListeners();
 
-    await _syncService.fullSync(tiendaId);
+    await _syncService.fullSync(tiendaId, negocioId: negocioId);
     await _refreshPendingCount();
 
     _isSyncing = false;

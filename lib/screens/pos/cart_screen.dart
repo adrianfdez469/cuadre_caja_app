@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../services/hardware_scanner_gate.dart';
+import '../../providers/monedas_provider.dart';
+import '../../widgets/multi_currency_amount.dart';
 import 'payment_modal.dart';
 
 class CartScreen extends StatelessWidget {
@@ -113,6 +114,7 @@ class CartScreen extends StatelessWidget {
   Widget _buildCartContent(BuildContext context, CartProvider cartProvider) {
     final items = cartProvider.activeCart!.items;
     final allProductos = context.watch<ProductosProvider>().allProductos;
+    final monedas = context.watch<MonedasProvider>();
 
     return ListView.builder(
       padding: const EdgeInsets.all(12),
@@ -142,6 +144,15 @@ class CartScreen extends StatelessWidget {
             ? (item.cantidad - 0.1).clamp(0.1, double.infinity)
             : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
 
+        final monedaItem =
+            item.monedaPrecioCode ?? producto?.monedaPrecioCode;
+        final precioUnitBase =
+            monedas.precioEnBase(item.precio, monedaItem);
+        final subtotalBase = monedas.convertToBase(
+          item.subtotal,
+          monedaItem ?? monedas.monedaBase,
+        );
+
         return Dismissible(
           key: Key(item.productoTiendaId),
           direction: DismissDirection.endToStart,
@@ -167,12 +178,9 @@ class CartScreen extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          '${Formatters.formatCurrency(item.precio)} c/u',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
-                          ),
+                        MultiCurrencyAmount(
+                          amount: precioUnitBase,
+                          variant: MultiCurrencyVariant.compact,
                         ),
                       ],
                     ),
@@ -233,14 +241,11 @@ class CartScreen extends StatelessWidget {
                   ),
                   // Subtotal
                   SizedBox(
-                    width: 80,
-                    child: Text(
-                      Formatters.formatCurrency(item.subtotal),
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
+                    width: 100,
+                    child: MultiCurrencyAmount(
+                      amount: subtotalBase,
+                      variant: MultiCurrencyVariant.compact,
+                      textAlign: TextAlign.end,
                     ),
                   ),
                 ],
@@ -253,6 +258,9 @@ class CartScreen extends StatelessWidget {
   }
 
   Widget _buildBottomBar(BuildContext context, CartProvider cartProvider) {
+    final monedas = context.watch<MonedasProvider>();
+    final totalBase = monedas.cartTotal(cartProvider.activeCart?.items ?? []);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -279,13 +287,9 @@ class CartScreen extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                Text(
-                  Formatters.formatCurrency(cartProvider.activeTotal),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
+                MultiCurrencyAmount(
+                  amount: totalBase,
+                  variant: MultiCurrencyVariant.total,
                 ),
               ],
             ),

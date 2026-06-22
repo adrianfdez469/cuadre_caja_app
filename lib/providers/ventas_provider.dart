@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../core/utils/currency.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/cart_model.dart';
+import '../data/models/pago_multimoneda_model.dart';
+import '../data/models/moneda_model.dart';
 import '../services/sync_service.dart';
 
 class VentasProvider extends ChangeNotifier {
@@ -33,8 +36,29 @@ class VentasProvider extends ChangeNotifier {
     String? transferDestinationId,
     List<String>? discountCodes,
     required bool isOffline,
+    MultimonedaConfig? multimoneda,
+    List<PagoLinea>? pagosDetalle,
+    List<VueltoLinea>? vueltoDetalle,
+    Map<String, double>? tasaSnapshot,
+    String? monedaCobro,
   }) async {
-    final venta = VentaLocalModel(
+    final monedaBase = monedaCobro ?? multimoneda?.monedaBase ?? 'CUP';
+    final snapshot = tasaSnapshot ?? multimoneda?.tasasVigentes ?? const {};
+    final totalBase = multimoneda != null
+        ? cart.items.fold<double>(
+            0,
+            (sum, item) =>
+                sum +
+                CurrencyUtils.convertToBase(
+                  item.precio * item.cantidad,
+                  item.monedaPrecioCode ?? multimoneda.monedaBase,
+                  multimoneda.tasasConversion,
+                  multimoneda.monedaBase,
+                ),
+          )
+        : cart.total;
+
+    var venta = VentaLocalModel(
       syncId: _uuid.v4(),
       tiendaId: tiendaId,
       periodoId: periodoId,
@@ -44,14 +68,26 @@ class VentasProvider extends ChangeNotifier {
         name: item.nombre,
         precio: item.precio,
       )).toList(),
-      total: cart.total,
+      total: totalBase,
       totalcash: totalcash,
       totaltransfer: totaltransfer,
       transferDestinationId: transferDestinationId,
       wasOffline: isOffline,
       createdAt: DateTime.now().millisecondsSinceEpoch,
       discountCodes: discountCodes,
+      monedaCobro: monedaBase,
+      pagosDetalle: pagosDetalle ?? const [],
+      vueltoDetalle: vueltoDetalle ?? const [],
+      tasaSnapshot: snapshot,
     );
+
+    if (pagosDetalle == null || pagosDetalle.isEmpty) {
+      venta = VentaMultimonedaBuilder.ensureMultimoneda(
+        venta,
+        monedaBase: monedaBase,
+        tasaSnapshot: snapshot,
+      );
+    }
 
     final result = await _syncService.crearVenta(venta);
     await refreshPendientes();

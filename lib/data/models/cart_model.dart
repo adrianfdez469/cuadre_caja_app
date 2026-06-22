@@ -4,12 +4,14 @@ class CartItemModel {
   final String productoTiendaId;
   final String nombre;
   final double precio;
+  final String? monedaPrecioCode;
   double cantidad;
 
   CartItemModel({
     required this.productoTiendaId,
     required this.nombre,
     required this.precio,
+    this.monedaPrecioCode,
     this.cantidad = 1,
   });
 
@@ -19,6 +21,7 @@ class CartItemModel {
     'productoTiendaId': productoTiendaId,
     'nombre': nombre,
     'precio': precio,
+    if (monedaPrecioCode != null) 'monedaPrecioCode': monedaPrecioCode,
     'cantidad': cantidad,
   };
 
@@ -26,6 +29,7 @@ class CartItemModel {
     productoTiendaId: json['productoTiendaId'] as String,
     nombre: json['nombre'] as String,
     precio: (json['precio'] as num).toDouble(),
+    monedaPrecioCode: json['monedaPrecioCode'] as String?,
     cantidad: (json['cantidad'] as num).toDouble(),
   );
 }

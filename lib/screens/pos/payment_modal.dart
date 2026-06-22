@@ -1,18 +1,37 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/bill_denominations.dart';
 import '../../core/widgets/app_snackbar.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/models/moneda_model.dart';
+import '../../data/models/pago_multimoneda_model.dart';
 import '../../data/models/transfer_destination_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/monedas_provider.dart';
 import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
-import '../../providers/ventas_provider.dart';
 import '../../providers/sync_provider.dart';
+import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
+import '../../widgets/bill_breakdown_input.dart';
+
+class _PagoMoneda {
+  double cash;
+  double transfer;
+  String transferDestId;
+
+  _PagoMoneda({
+    this.cash = 0,
+    this.transfer = 0,
+    this.transferDestId = '',
+  });
+}
 
 class PaymentModal extends StatefulWidget {
   const PaymentModal({super.key});
@@ -22,252 +41,924 @@ class PaymentModal extends StatefulWidget {
 }
 
 class _PaymentModalState extends State<PaymentModal> {
-  final _cashController = TextEditingController();
-  final _transferController = TextEditingController();
   bool _isProcessing = false;
-  String _paymentMethod = 'cash'; // cash, transfer, mixed
+  bool _initialized = false;
+
   List<TransferDestinationModel> _transferDestinations = [];
-  bool _transferDestinationsLoaded = false;
-  String? _selectedTransferDestinationId;
+  Map<String, _PagoMoneda> _pagosMap = {};
+  Map<String, bool> _showPayBreakdown = {};
+  Map<String, int> _payBreakdownKeys = {};
+  /// Por moneda: cash | transfer | mixed
+  Map<String, String> _paymentMode = {};
+  Map<String, double> _vueltoMap = {};
+  bool _vueltoLocked = false;
+  bool _showBaseBreakdown = false;
+  int _baseBreakdownKey = 0;
+
+  final Map<String, TextEditingController> _cashControllers = {};
+  final Map<String, TextEditingController> _transferControllers = {};
+  final Map<String, TextEditingController> _vueltoControllers = {};
 
   @override
   void initState() {
     super.initState();
-    final total = context.read<CartProvider>().activeTotal;
-    _cashController.text = total.toStringAsFixed(2);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTransferDestinations());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
   }
 
-  Future<void> _loadTransferDestinations() async {
+  Future<void> _initialize() async {
     final auth = context.read<AuthProvider>();
-    final tiendaId = auth.tiendaId;
-    if (tiendaId.isEmpty) return;
+    final monedas = context.read<MonedasProvider>();
+    final cart = context.read<CartProvider>();
+    final total = monedas.cartTotal(cart.activeCart?.items ?? []);
+    final monedaBase = monedas.monedaBase.isNotEmpty
+        ? monedas.monedaBase
+        : auth.monedaBase;
+
     final sync = context.read<SyncService>();
-    final destinos = await sync.loadTransferDestinations(tiendaId);
+    final destinos = await sync.loadTransferDestinations(auth.tiendaId);
     if (!mounted) return;
+
+    final defaultDestId = _defaultDestId(destinos);
+    _transferDestinations = destinos;
+
+    _initMoneda(monedaBase, cash: total, transferDestId: defaultDestId);
+
+    setState(() => _initialized = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(_syncVueltoAuto);
+    });
+  }
+
+  String _defaultDestId(List<TransferDestinationModel> destinos) {
+    if (destinos.isEmpty) return '';
+    if (destinos.length == 1) return destinos.first.id;
+    try {
+      return destinos.firstWhere((d) => d.isDefault).id;
+    } catch (_) {
+      return destinos.first.id;
+    }
+  }
+
+  bool _admiteEfectivoMoneda(String moneda) {
+    if (moneda == _monedaBase) return true;
+    final info = _monedaInfo(moneda);
+    return info?.admiteEfectivo ?? true;
+  }
+
+  bool _admiteTransferMoneda(String moneda) {
+    if (moneda == _monedaBase) return true;
+    final info = _monedaInfo(moneda);
+    return info?.admiteTransferencia ?? false;
+  }
+
+  double _montoObjetivoMoneda(String moneda) {
+    if (moneda == _monedaBase) return _total;
+    return _suggestCash(moneda, excludeMoneda: moneda);
+  }
+
+  void _initMoneda(String moneda, {double cash = 0, String transferDestId = ''}) {
+    final soloTransfer =
+        !_admiteEfectivoMoneda(moneda) && _admiteTransferMoneda(moneda);
+
+    if (soloTransfer) {
+      _paymentMode[moneda] = 'transfer';
+      _pagosMap[moneda] = _PagoMoneda(
+        cash: 0,
+        transfer: cash,
+        transferDestId: transferDestId,
+      );
+      _cashControllers[moneda] = TextEditingController(text: '');
+      _transferControllers[moneda] = TextEditingController(
+        text: cash > 0 ? cash.toStringAsFixed(2) : '',
+      );
+    } else {
+      _paymentMode[moneda] = 'cash';
+      _pagosMap[moneda] = _PagoMoneda(
+        cash: cash,
+        transfer: 0,
+        transferDestId: transferDestId,
+      );
+      _cashControllers[moneda] = TextEditingController(
+        text: cash > 0 ? cash.toStringAsFixed(2) : '',
+      );
+      _transferControllers[moneda] = TextEditingController(text: '');
+    }
+  }
+
+  void _setPaymentMode(String moneda, String mode) {
+    final pago = _pagosMap[moneda];
+    if (pago == null) return;
+    final objetivo = _montoObjetivoMoneda(moneda);
+
     setState(() {
-      _transferDestinations = destinos;
-      _transferDestinationsLoaded = true;
-      if (_selectedTransferDestinationId == null && destinos.isNotEmpty) {
-        try {
-          _selectedTransferDestinationId =
-              destinos.firstWhere((d) => d.isDefault).id;
-        } catch (_) {
-          _selectedTransferDestinationId = destinos.first.id;
-        }
+      _paymentMode[moneda] = mode;
+      if (mode == 'transfer') {
+        _showPayBreakdown[moneda] = false;
+        if (moneda == _monedaBase) _showBaseBreakdown = false;
       }
+
+      if (mode == 'transfer') {
+        pago.cash = 0;
+        pago.transfer = objetivo;
+        _cashControllers[moneda]?.text = '';
+        _transferControllers[moneda]?.text =
+            objetivo > 0 ? objetivo.toStringAsFixed(2) : '';
+      } else if (mode == 'mixed') {
+        pago.cash = 0;
+        pago.transfer = 0;
+        _cashControllers[moneda]?.text = '';
+        _transferControllers[moneda]?.text = '';
+      } else {
+        pago.cash = objetivo;
+        pago.transfer = 0;
+        _cashControllers[moneda]?.text =
+            objetivo > 0 ? objetivo.toStringAsFixed(2) : '';
+        _transferControllers[moneda]?.text = '';
+      }
+      _syncVueltoAuto();
     });
   }
 
   @override
   void dispose() {
-    _cashController.dispose();
-    _transferController.dispose();
+    for (final c in _cashControllers.values) {
+      c.dispose();
+    }
+    for (final c in _transferControllers.values) {
+      c.dispose();
+    }
+    for (final c in _vueltoControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  double get _total => context.read<CartProvider>().activeTotal;
+  double get _total {
+    final cart = context.read<CartProvider>();
+    final monedas = context.read<MonedasProvider>();
+    return monedas.cartTotal(cart.activeCart?.items ?? []);
+  }
 
-  double get _cashAmount =>
-      double.tryParse(_cashController.text) ?? 0;
+  MultimonedaConfig get _config {
+    final auth = context.read<AuthProvider>();
+    final monedas = context.read<MonedasProvider>();
+    return monedas.config.negocioId.isNotEmpty
+        ? monedas.config
+        : MultimonedaConfig(
+            negocioId: auth.negocioId,
+            monedaBase: auth.monedaBase,
+          );
+  }
 
-  double get _transferAmount =>
-      double.tryParse(_transferController.text) ?? 0;
+  String get _monedaBase => _config.monedaBase;
+  Map<String, double> get _tasas => _config.tasasConversion;
+  Map<String, double> get _tasasSnapshot => _config.tasasVigentes;
 
-  double get _totalPaid => _cashAmount + _transferAmount;
+  Map<String, List<double>> get _denominaciones {
+    final map = Map<String, List<double>>.from(_config.denominacionesPorMoneda);
+    map.putIfAbsent('CUP', () => List<double>.from(BillDenominations.cup));
+    if (!map.containsKey(_monedaBase) || map[_monedaBase]!.isEmpty) {
+      if (_monedaBase == 'CUP') {
+        map['CUP'] = List<double>.from(BillDenominations.cup);
+      }
+    }
+    return map;
+  }
 
-  double get _cambio => _totalPaid - _total;
+  List<NegocioMonedaModel> get _monedasActivas => _config.monedasActivas;
 
-  bool get _canPay => _totalPaid >= _total && _total > 0;
+  bool get _hasExtraCurrencies =>
+      _monedasActivas.any((m) => m.monedaCode != _monedaBase);
+
+  List<String> get _todasMonedas {
+    final codes = <String>{_monedaBase};
+    for (final m in _monedasActivas) {
+      codes.add(m.monedaCode);
+    }
+    return codes.toList();
+  }
+
+  List<String> get _monedasDisponibles =>
+      _todasMonedas.where((c) => !_pagosMap.containsKey(c)).toList();
+
+  NegocioMonedaModel? _monedaInfo(String code) {
+    try {
+      return _monedasActivas.firstWhere((m) => m.monedaCode == code);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  double _convertToBase(double monto, String moneda) =>
+      CurrencyUtils.convertToBase(monto, moneda, _tasas, _monedaBase);
+
+  double _convertFromBase(double montoBase, String moneda) =>
+      CurrencyUtils.convertFromBase(montoBase, moneda, _tasas, _monedaBase);
+
+  String _fmtBase(double amount) =>
+      Formatters.formatMonedaAmount(amount, code: _monedaBase);
+
+  List<PagoLinea> get _pagosLinea {
+    final lines = <PagoLinea>[];
+    for (final entry in _pagosMap.entries) {
+      final moneda = entry.key;
+      final pago = entry.value;
+      if (pago.cash > 0) {
+        lines.add(PagoLinea(
+          tipo: 'cash',
+          moneda: moneda,
+          monto: pago.cash,
+          equivalenteBase: _convertToBase(pago.cash, moneda),
+        ));
+      }
+      if (pago.transfer > 0) {
+        lines.add(PagoLinea(
+          tipo: 'transfer',
+          moneda: moneda,
+          monto: pago.transfer,
+          equivalenteBase: _convertToBase(pago.transfer, moneda),
+          transferDestinationId: pago.transferDestId.isNotEmpty
+              ? pago.transferDestId
+              : null,
+        ));
+      }
+    }
+    return lines;
+  }
+
+  double get _totalPagadoBase => _pagosLinea.fold<double>(
+        0,
+        (sum, p) => sum + p.equivalenteBase,
+      );
+
+  bool get _falta =>
+      (_totalPagadoBase * 100).round() < (_total * 100).round();
+
+  double get _vueltoTotalBase =>
+      _falta ? 0 : (_totalPagadoBase - _total).clamp(0, double.infinity);
+
+  List<String> get _monedasEligiblesVuelto => _todasMonedas
+      .where((m) =>
+          !_vueltoMap.containsKey(m) && (_denominaciones[m]?.isNotEmpty ?? false))
+      .toList();
+
+  void _syncVueltoAuto() {
+    if (_falta) {
+      if (_vueltoMap.isNotEmpty || _vueltoControllers.isNotEmpty) {
+        for (final c in _vueltoControllers.values) {
+          c.dispose();
+        }
+        _vueltoControllers.clear();
+        _vueltoMap = {};
+        _vueltoLocked = false;
+      }
+      return;
+    }
+    if (_vueltoLocked) return;
+
+    final cashPagos = _pagosLinea.where((p) => p.tipo == 'cash').toList()
+      ..sort((a, b) => b.equivalenteBase.compareTo(a.equivalenteBase));
+    final mainCurrency =
+        cashPagos.isNotEmpty ? cashPagos.first.moneda : _monedaBase;
+
+    final auto = CurrencyUtils.calcularVuelto(
+      totalBase: _total,
+      pagos: _pagosLinea,
+      monedaCobro: mainCurrency,
+      monedaBase: _monedaBase,
+      tasas: _tasas,
+      denominaciones: _denominaciones,
+    );
+
+    for (final c in _vueltoControllers.values) {
+      c.dispose();
+    }
+    _vueltoControllers.clear();
+    _vueltoMap = {
+      for (final v in auto)
+        if (v.monto > 0) v.moneda: v.monto,
+    };
+    for (final entry in _vueltoMap.entries) {
+      _vueltoControllers[entry.key] = TextEditingController(
+        text: entry.value.toStringAsFixed(2),
+      );
+    }
+  }
+
+  double _suggestCash(String moneda, {String? excludeMoneda}) {
+    final otherPaid = _pagosMap.entries
+        .where((e) => e.key != excludeMoneda)
+        .fold<double>(
+          0,
+          (s, e) =>
+              s + _convertToBase(e.value.cash + e.value.transfer, e.key),
+        );
+    final rem = (_total - otherPaid).clamp(0, double.infinity).toDouble();
+    if (rem <= 0) return 0;
+    return double.parse(_convertFromBase(rem, moneda).toStringAsFixed(2));
+  }
+
+  void _updatePago(String moneda, {double? cash, double? transfer, String? transferDestId}) {
+    final pago = _pagosMap[moneda];
+    if (pago == null) return;
+    setState(() {
+      if (cash != null) {
+        pago.cash = cash;
+        _cashControllers[moneda]?.text =
+            cash > 0 ? cash.toStringAsFixed(2) : '';
+      }
+      if (transfer != null) {
+        pago.transfer = transfer;
+        _transferControllers[moneda]?.text =
+            transfer > 0 ? transfer.toStringAsFixed(2) : '';
+      }
+      if (transferDestId != null) pago.transferDestId = transferDestId;
+      _syncVueltoAuto();
+    });
+  }
+
+  void _addCurrency(String moneda) {
+    final cash = _suggestCash(moneda);
+    setState(() {
+      _initMoneda(
+        moneda,
+        cash: cash,
+        transferDestId: _defaultDestId(_transferDestinations),
+      );
+      _syncVueltoAuto();
+    });
+  }
+
+  void _removeCurrency(String moneda) {
+    if (moneda == _monedaBase) return;
+    setState(() {
+      _cashControllers[moneda]?.dispose();
+      _transferControllers[moneda]?.dispose();
+      _cashControllers.remove(moneda);
+      _transferControllers.remove(moneda);
+      _pagosMap.remove(moneda);
+      _showPayBreakdown.remove(moneda);
+      _payBreakdownKeys.remove(moneda);
+      _paymentMode.remove(moneda);
+      _syncVueltoAuto();
+    });
+  }
+
+  void _togglePayBreakdown(String moneda) {
+    setState(() {
+      final next = !(_showPayBreakdown[moneda] ?? false);
+      _showPayBreakdown[moneda] = next;
+      if (next) {
+        _payBreakdownKeys[moneda] = (_payBreakdownKeys[moneda] ?? 0) + 1;
+      } else {
+        final pago = _pagosMap[moneda];
+        if (pago != null) _updatePago(moneda, cash: pago.cash);
+      }
+    });
+  }
+
+  void _toggleBaseBreakdown() {
+    setState(() {
+      if (!_showBaseBreakdown) {
+        _baseBreakdownKey++;
+      } else {
+        final pago = _pagosMap[_monedaBase];
+        if (pago != null) {
+          final transfer = pago.transfer;
+          _updatePago(
+            _monedaBase,
+            cash: double.parse((_total - transfer).clamp(0, double.infinity).toStringAsFixed(2)),
+          );
+        }
+      }
+      _showBaseBreakdown = !_showBaseBreakdown;
+    });
+  }
+
+  void _updateVuelto(String moneda, double monto) {
+    setState(() {
+      _vueltoLocked = true;
+      _vueltoMap[moneda] = monto;
+      _vueltoControllers[moneda]?.text =
+          monto > 0 ? monto.toStringAsFixed(2) : '';
+    });
+  }
+
+  void _removeVueltoMoneda(String moneda) {
+    setState(() {
+      _vueltoLocked = true;
+      _vueltoControllers[moneda]?.dispose();
+      _vueltoControllers.remove(moneda);
+      _vueltoMap.remove(moneda);
+    });
+  }
+
+  void _addVueltoMoneda(String moneda) {
+    setState(() {
+      _vueltoLocked = true;
+      final distBase = _vueltoMap.entries.fold<double>(
+        0,
+        (s, e) => s + _convertToBase(e.value, e.key),
+      );
+      final rem = (_vueltoTotalBase - distBase).clamp(0, double.infinity).toDouble();
+      final suggested = rem > 0
+          ? double.parse(_convertFromBase(rem, moneda).toStringAsFixed(2))
+          : 0.0;
+      _vueltoMap[moneda] = suggested;
+      _vueltoControllers[moneda] = TextEditingController(
+        text: suggested > 0 ? suggested.toStringAsFixed(2) : '',
+      );
+    });
+  }
+
+  bool get _canConfirm {
+    if (_total <= 0) return _pagosMap.isNotEmpty;
+    if (_falta || _totalPagadoBase <= 0) return false;
+    for (final p in _pagosLinea) {
+      if (p.tipo == 'transfer' &&
+          p.monto > 0 &&
+          (p.transferDestinationId == null ||
+              p.transferDestinationId!.isEmpty)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _pickMoneda(
+    BuildContext context,
+    List<String> options,
+    ValueChanged<String> onPick,
+  ) async {
+    if (options.length == 1) {
+      onPick(options.first);
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: options
+              .map(
+                (code) => ListTile(
+                  title: Text(code),
+                  onTap: () => Navigator.pop(ctx, code),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+    if (picked != null) onPick(picked);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final cartProvider = context.watch<CartProvider>();
+    if (!_initialized) {
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: const SizedBox(
+          height: 200,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    final monedasKeys = _pagosMap.keys.toList();
 
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Cobrar',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const Divider(),
-
-            // Total
-            Center(
-              child: Text(
-                Formatters.formatCurrency(cartProvider.activeTotal),
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Payment method selector
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'cash', label: Text('Efectivo')),
-                ButtonSegment(value: 'transfer', label: Text('Transfer.')),
-                ButtonSegment(value: 'mixed', label: Text('Mixto')),
-              ],
-              selected: {_paymentMethod},
-              onSelectionChanged: (selected) {
-                setState(() {
-                  _paymentMethod = selected.first;
-                  if (_paymentMethod == 'cash') {
-                    _cashController.text = _total.toStringAsFixed(2);
-                    _transferController.text = '0';
-                  } else if (_paymentMethod == 'transfer') {
-                    _cashController.text = '0';
-                    _transferController.text = _total.toStringAsFixed(2);
-                  } else {
-                    _cashController.text = '';
-                    _transferController.text = '';
-                  }
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Cash input
-            if (_paymentMethod != 'transfer')
-              TextField(
-                controller: _cashController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'Efectivo',
-                  prefixText: '\$ ',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-
-            if (_paymentMethod == 'mixed') const SizedBox(height: 12),
-
-            // Transfer input
-            if (_paymentMethod != 'cash')
-              TextField(
-                controller: _transferController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'Transferencia',
-                  prefixText: '\$ ',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-
-            // Destino de transferencia (si paga algo por transferencia y hay destinos)
-            if (_paymentMethod != 'cash' &&
-                _transferAmount > 0 &&
-                _transferDestinationsLoaded &&
-                _transferDestinations.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedTransferDestinationId,
-                decoration: InputDecoration(
-                  labelText: 'Destino de transferencia',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                items: _transferDestinations
-                    .map((d) => DropdownMenuItem<String>(
-                          value: d.id,
-                          child: Text(d.nombre),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() => _selectedTransferDestinationId = value);
-                },
-              ),
-            ],
-
-            const SizedBox(height: 16),
-
-            // Cambio
-            if (_paymentMethod != 'transfer' && _cambio > 0)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.92,
+        ),
+        child: Material(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Cambio:', style: TextStyle(fontSize: 16)),
-                    Text(
-                      Formatters.formatCurrency(_cambio),
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.success,
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: DefaultTextStyle.of(context).style,
+                          children: [
+                            const TextSpan(
+                              text: 'Cobrar: ',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            TextSpan(
+                              text: _fmtBase(_total),
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    ...monedasKeys.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final moneda = entry.value;
+                      return _buildMonedaSection(moneda, idx > 0);
+                    }),
+                    if (_hasExtraCurrencies && _monedasDisponibles.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickMoneda(
+                            context,
+                            _monedasDisponibles,
+                            _addCurrency,
+                          ),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Agregar moneda'),
+                        ),
+                      ),
+                    if (!_falta && _vueltoTotalBase >= 0.0001) ...[
+                      const Divider(height: 32),
+                      _buildVueltoSection(),
+                    ],
+                    const Divider(height: 32),
+                    _buildSummary(),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed:
+                            _canConfirm && !_isProcessing ? _processPayment : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.success,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isProcessing
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Confirmar Venta',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                       ),
                     ),
                   ],
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-            const SizedBox(height: 20),
+  Widget _buildMonedaSection(String moneda, bool showDivider) {
+    final isBase = moneda == _monedaBase;
+    final pago = _pagosMap[moneda]!;
+    final admiteEfectivo = _admiteEfectivoMoneda(moneda);
+    final admiteTransfer = _admiteTransferMoneda(moneda);
+    final mode = _paymentMode[moneda] ?? 'cash';
+    final showCash = admiteEfectivo && mode != 'transfer';
+    final showTransfer = admiteTransfer && mode != 'cash';
+    final totalMoneda = pago.cash + pago.transfer;
+    final eqBase = !isBase && totalMoneda > 0
+        ? _convertToBase(totalMoneda, moneda)
+        : null;
+    final denoms = _denominaciones[moneda] ?? [];
+    final breakdownActive = isBase
+        ? _showBaseBreakdown
+        : (_showPayBreakdown[moneda] ?? false);
 
-            // Confirm button
-            SizedBox(
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _canPay && !_isProcessing ? _processPayment : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: _isProcessing
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text(
-                        'Confirmar Venta',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showDivider) const Divider(height: 20),
+        Row(
+          children: [
+            Chip(
+              label: Text(moneda),
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              backgroundColor: isBase ? AppColors.primary : null,
+              labelStyle: TextStyle(
+                color: isBase ? Colors.white : null,
+                fontWeight: FontWeight.w600,
               ),
+            ),
+            const Spacer(),
+            if (!isBase)
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () => _removeCurrency(moneda),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (admiteEfectivo && admiteTransfer) ...[
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'cash', label: Text('Efectivo')),
+              ButtonSegment(value: 'transfer', label: Text('Transfer.')),
+              ButtonSegment(value: 'mixed', label: Text('Mixto')),
+            ],
+            selected: {mode},
+            onSelectionChanged: (selected) =>
+                _setPaymentMode(moneda, selected.first),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (showCash) ...[
+          TextField(
+            controller: _cashControllers[moneda],
+            readOnly: breakdownActive,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
+            decoration: InputDecoration(
+              labelText: 'Efectivo',
+              hintText: '0.00',
+              prefixText: '$moneda ',
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              filled: breakdownActive,
+              fillColor: breakdownActive
+                  ? AppColors.textHint.withValues(alpha: 0.08)
+                  : null,
+            ),
+            onTap: () {
+              _cashControllers[moneda]?.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: _cashControllers[moneda]!.text.length,
+              );
+            },
+            onChanged: breakdownActive
+                ? null
+                : (v) {
+                    final amount = double.tryParse(v) ?? 0;
+                    _updatePago(moneda, cash: amount);
+                  },
+          ),
+          if (denoms.isNotEmpty)
+            TextButton.icon(
+              onPressed: () =>
+                  isBase ? _toggleBaseBreakdown() : _togglePayBreakdown(moneda),
+              icon: Icon(
+                breakdownActive ? Icons.expand_less : Icons.expand_more,
+              ),
+              label: Text(
+                breakdownActive ? 'Ocultar desglose' : 'Desglosar billetes',
+              ),
+            ),
+          if (breakdownActive && denoms.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.textHint.withValues(alpha: 0.4)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: BillBreakdownInput(
+                denominations: denoms,
+                targetAmount: isBase ? _total : pago.cash,
+                resetKey: isBase
+                    ? _baseBreakdownKey
+                    : (_payBreakdownKeys[moneda] ?? 0),
+                onChange: (total) => _updatePago(moneda, cash: total),
+              ),
+            ),
+        ],
+        if (showTransfer) ...[
+          if (showCash) const SizedBox(height: 8),
+          TextField(
+            controller: _transferControllers[moneda],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
+            decoration: InputDecoration(
+              labelText: 'Transferencia',
+              hintText: '0.00',
+              prefixText: '$moneda ',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onChanged: (v) {
+              final newTransfer = double.tryParse(v) ?? 0;
+              if (mode == 'mixed') {
+                final newCash = (pago.cash + pago.transfer - newTransfer)
+                    .clamp(0, double.infinity);
+                setState(() {
+                  pago.transfer = newTransfer;
+                  pago.cash = double.parse(newCash.toStringAsFixed(2));
+                  _transferControllers[moneda]?.text =
+                      newTransfer > 0 ? newTransfer.toStringAsFixed(2) : '';
+                  _cashControllers[moneda]?.text =
+                      pago.cash > 0 ? pago.cash.toStringAsFixed(2) : '';
+                  _syncVueltoAuto();
+                });
+              } else {
+                _updatePago(moneda, transfer: newTransfer, cash: 0);
+              }
+            },
+          ),
+          if (pago.transfer > 0 && _transferDestinations.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: pago.transferDestId.isNotEmpty ? pago.transferDestId : null,
+              decoration: InputDecoration(
+                labelText: 'Destino de transferencia',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              items: _transferDestinations
+                  .map(
+                    (d) => DropdownMenuItem<String>(
+                      value: d.id,
+                      child: Text(d.nombre),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) _updatePago(moneda, transferDestId: value);
+              },
+            ),
+          ],
+        ],
+        if (eqBase != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '≈ ${_fmtBase(eqBase)}',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            ),
+          ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  Widget _buildVueltoSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Cambio a dar',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            Text(
+              '${_vueltoTotalBase.toStringAsFixed(2)} $_monedaBase equiv.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 8),
+        ..._vueltoMap.entries.map((entry) {
+          final moneda = entry.key;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Chip(label: Text(moneda), visualDensity: VisualDensity.compact),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _vueltoControllers[moneda],
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d*\.?\d{0,2}'),
+                      ),
+                    ],
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onChanged: (v) =>
+                        _updateVuelto(moneda, double.tryParse(v) ?? 0),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => _removeVueltoMoneda(moneda),
+                ),
+              ],
+            ),
+          );
+        }),
+        if (_monedasEligiblesVuelto.isNotEmpty)
+          OutlinedButton.icon(
+            onPressed: () => _pickMoneda(
+              context,
+              _monedasEligiblesVuelto,
+              _addVueltoMoneda,
+            ),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Dar cambio en otra moneda'),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSummary() {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Total:', style: TextStyle(fontSize: 18)),
+            Text(
+              _fmtBase(_total),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_falta)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Falta:', style: TextStyle(fontSize: 18, color: AppColors.error)),
+              Text(
+                _fmtBase(_total - _totalPagadoBase),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.error,
+                ),
+              ),
+            ],
+          )
+        else
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Cambio:',
+                style: TextStyle(fontSize: 18, color: AppColors.success),
+              ),
+              Text(
+                _fmtBase(_vueltoTotalBase),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.success,
+                ),
+              ),
+            ],
+          ),
+      ],
     );
   }
 
@@ -286,28 +977,64 @@ class _PaymentModalState extends State<PaymentModal> {
         throw Exception('No hay carrito o período activo');
       }
 
+      final pagos = _pagosLinea;
+      if (pagos.isEmpty) {
+        throw Exception('Debe ingresar al menos un pago');
+      }
+
+      for (final p in pagos) {
+        if (p.tipo == 'transfer' &&
+            p.monto > 0 &&
+            (p.transferDestinationId == null ||
+                p.transferDestinationId!.isEmpty)) {
+          throw Exception('Seleccione destino de transferencia');
+        }
+      }
+
+      final vuelto = _vueltoMap.entries
+          .where((e) => e.value > 0)
+          .map((e) => VueltoLinea(moneda: e.key, monto: e.value))
+          .toList();
+
+      final totalcashBase = pagos
+          .where((p) => p.tipo == 'cash')
+          .fold<double>(0, (s, p) => s + p.equivalenteBase);
+      final totalTransferBase = pagos
+          .where((p) => p.tipo == 'transfer')
+          .fold<double>(0, (s, p) => s + p.equivalenteBase);
+      final firstTransferDest = pagos
+          .where((p) =>
+              p.tipo == 'transfer' &&
+              p.transferDestinationId != null &&
+              p.transferDestinationId!.isNotEmpty)
+          .map((p) => p.transferDestinationId)
+          .cast<String?>()
+          .firstOrNull;
+
+      final tasaSnapshot = Map<String, double>.from(_tasasSnapshot);
+
       await ventas.crearVenta(
         tiendaId: auth.tiendaId,
         periodoId: periodo.periodoId!,
         cart: cart.activeCart!,
-        totalcash: _cashAmount,
-        totaltransfer: _transferAmount,
-        transferDestinationId:
-            _transferAmount > 0 ? _selectedTransferDestinationId : null,
+        totalcash: totalcashBase,
+        totaltransfer: totalTransferBase,
+        transferDestinationId: firstTransferDest,
         isOffline: !sync.isOnline,
+        multimoneda: _config,
+        pagosDetalle: pagos,
+        vueltoDetalle: vuelto,
+        tasaSnapshot: tasaSnapshot,
+        monedaCobro: _monedaBase,
       );
 
-      // Existencias ya actualizadas en disco; refrescar listas al instante sin red
       await productos.refreshFromLocalCache(auth.tiendaId);
-
-      // Limpiar carrito y aplicar reglas post-venta (eliminar carrito no principal si aplica, seleccionar primero con ítems)
       await cart.clearActiveCart();
       await cart.onPurchaseCompleted();
 
       if (mounted) {
-        Navigator.pop(context); // Cerrar modal
-        Navigator.pop(context); // Volver a categorías
-
+        Navigator.pop(context);
+        Navigator.pop(context);
         AppSnackBar.show(
           context,
           content: Text(
@@ -319,7 +1046,6 @@ class _PaymentModalState extends State<PaymentModal> {
         );
       }
 
-      // Reconciliar con servidor cuando responda, sin bloquear el POS ni el indicador de carga
       unawaited(productos.loadProductos(auth.tiendaId, showLoading: false));
     } catch (e) {
       if (mounted) {

@@ -70,6 +70,8 @@ class NegocioModel {
   final String? limitTime;
   final int locallimit;
   final int productlimit;
+  final String monedaBase;
+  final String monedaFuerte;
 
   NegocioModel({
     required this.id,
@@ -78,6 +80,8 @@ class NegocioModel {
     this.limitTime,
     required this.locallimit,
     required this.productlimit,
+    this.monedaBase = 'CUP',
+    this.monedaFuerte = 'CUP',
   });
 
   factory NegocioModel.fromJson(Map<String, dynamic> json) => NegocioModel(
@@ -87,6 +91,8 @@ class NegocioModel {
     limitTime: json['limitTime'] as String?,
     locallimit: (json['locallimit'] as num?)?.toInt() ?? 0,
     productlimit: (json['productlimit'] as num?)?.toInt() ?? 0,
+    monedaBase: json['monedaBase'] as String? ?? 'CUP',
+    monedaFuerte: json['monedaFuerte'] as String? ?? 'CUP',
   );
 
   Map<String, dynamic> toJson() => {
@@ -96,6 +102,8 @@ class NegocioModel {
     'limitTime': limitTime,
     'locallimit': locallimit,
     'productlimit': productlimit,
+    'monedaBase': monedaBase,
+    'monedaFuerte': monedaFuerte,
   };
 }
 

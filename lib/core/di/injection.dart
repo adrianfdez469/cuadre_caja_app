@@ -8,11 +8,14 @@ import '../../data/datasources/local/ventas_local_datasource.dart';
 import '../../data/datasources/local/periodos_local_datasource.dart';
 import '../../data/datasources/local/cart_local_datasource.dart';
 import '../../data/datasources/local/transfer_destinations_local_datasource.dart';
+import '../../data/datasources/local/multimoneda_local_datasource.dart';
 import '../../data/datasources/remote/auth_remote_datasource.dart';
 import '../../data/datasources/remote/productos_remote_datasource.dart';
 import '../../data/datasources/remote/periodos_remote_datasource.dart';
 import '../../data/datasources/remote/ventas_remote_datasource.dart';
 import '../../data/datasources/remote/transfer_destinations_remote_datasource.dart';
+import '../../data/datasources/remote/monedas_remote_datasource.dart';
+import '../../data/datasources/remote/tasas_remote_datasource.dart';
 import '../../services/sync_service.dart';
 
 class Injection {
@@ -28,6 +31,8 @@ class Injection {
   late final PeriodosRemoteDataSource periodosRemoteDataSource;
   late final VentasRemoteDataSource ventasRemoteDataSource;
   late final TransferDestinationsRemoteDataSource transferRemoteDataSource;
+  late final MonedasRemoteDataSource monedasRemoteDataSource;
+  late final TasasRemoteDataSource tasasRemoteDataSource;
 
   // Local
   late final ProductosLocalDataSource productosLocalDataSource;
@@ -35,6 +40,7 @@ class Injection {
   late final PeriodosLocalDataSource periodosLocalDataSource;
   late final CartLocalDataSource cartLocalDataSource;
   late final TransferDestinationsLocalDataSource transferLocalDataSource;
+  late final MultimonedaLocalDataSource multimonedaLocalDataSource;
 
   // Services
   late final SyncService syncService;
@@ -60,6 +66,8 @@ class Injection {
     periodosRemoteDataSource = PeriodosRemoteDataSource(apiClient);
     ventasRemoteDataSource = VentasRemoteDataSource(apiClient);
     transferRemoteDataSource = TransferDestinationsRemoteDataSource(apiClient);
+    monedasRemoteDataSource = MonedasRemoteDataSource(apiClient);
+    tasasRemoteDataSource = TasasRemoteDataSource(apiClient);
 
     // Local datasources
     productosLocalDataSource = ProductosLocalDataSource(databaseHelper);
@@ -67,6 +75,7 @@ class Injection {
     periodosLocalDataSource = PeriodosLocalDataSource(databaseHelper);
     cartLocalDataSource = CartLocalDataSource(databaseHelper);
     transferLocalDataSource = TransferDestinationsLocalDataSource(databaseHelper);
+    multimonedaLocalDataSource = MultimonedaLocalDataSource(databaseHelper);
 
     // Sync service
     syncService = SyncService(
@@ -77,10 +86,13 @@ class Injection {
       periodosRemote: periodosRemoteDataSource,
       ventasRemote: ventasRemoteDataSource,
       transferRemote: transferRemoteDataSource,
+      monedasRemote: monedasRemoteDataSource,
+      tasasRemote: tasasRemoteDataSource,
       productosLocal: productosLocalDataSource,
       periodosLocal: periodosLocalDataSource,
       ventasLocal: ventasLocalDataSource,
       transferLocal: transferLocalDataSource,
+      multimonedaLocal: multimonedaLocalDataSource,
     );
 
     print('✅ Dependencias inicializadas');

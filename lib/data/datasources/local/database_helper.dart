@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 5;
+  static const _databaseVersion = 6;
 
   Database? _database;
 
@@ -43,6 +43,7 @@ class DatabaseHelper {
         fraccionDeId TEXT,
         fraccionDeNombre TEXT,
         unidadesPorFraccion INTEGER,
+        monedaPrecioCode TEXT,
         tiendaId TEXT NOT NULL,
         codigosJson TEXT
       )
@@ -114,6 +115,14 @@ class DatabaseHelper {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE multimoneda_cache (
+        negocioId TEXT PRIMARY KEY,
+        configJson TEXT NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )
+    ''');
+
     // Índices para queries frecuentes
     await db.execute(
         'CREATE INDEX idx_productos_tienda ON productos(tiendaId)');
@@ -163,6 +172,22 @@ class DatabaseHelper {
         } catch (_) {}
       }
     }
+    if (oldVersion < 6) {
+      try {
+        await db.execute(
+          'ALTER TABLE productos ADD COLUMN monedaPrecioCode TEXT',
+        );
+      } catch (_) {}
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS multimoneda_cache (
+            negocioId TEXT PRIMARY KEY,
+            configJson TEXT NOT NULL,
+            updatedAt INTEGER NOT NULL
+          )
+        ''');
+      } catch (_) {}
+    }
   }
 
   Future<void> clearAllData() async {
@@ -171,6 +196,7 @@ class DatabaseHelper {
     await db.delete('periodo_cache');
     await db.delete('transfer_destinations');
     await db.delete('carritos');
+    await db.delete('multimoneda_cache');
     // No borrar ventas_pendientes para no perder ventas sin sincronizar
   }
 }

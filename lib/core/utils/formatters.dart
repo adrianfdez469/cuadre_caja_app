@@ -33,5 +33,18 @@ class Formatters {
   static String formatNumber(double number, {int decimals = 2}) {
     return number.toStringAsFixed(decimals);
   }
+
+  /// Monto con símbolo de moneda o código (ej. US$10.00 o 10.00 EUR).
+  static String formatMonedaAmount(
+    double amount, {
+    String? simbolo,
+    String? code,
+    int decimals = 2,
+  }) {
+    final formatted = formatNumber(amount, decimals: decimals);
+    if (simbolo != null && simbolo.isNotEmpty) return '$simbolo$formatted';
+    if (code != null && code.isNotEmpty) return '$formatted $code';
+    return formatCurrency(amount);
+  }
 }
 

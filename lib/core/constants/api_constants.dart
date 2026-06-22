@@ -36,12 +36,9 @@ class ApiConstants {
   // Resumen día (Punto de partida): GET /resumen-dia/{tiendaId}
   static String resumenDia(String tiendaId) => '/resumen-dia/$tiendaId';
 
-  // Tasas de cambio (fuera de /api/app): GET /api/negocio/{negocioId}/tasas-cambio
-  static String get negocioApiBaseUrl =>
-      baseUrl.replaceAll('/api/app', '/api/negocio');
-
-  static String tasasCambioUrl(String negocioId) =>
-      '$negocioApiBaseUrl/$negocioId/tasas-cambio';
+  // Multimoneda: GET /monedas/{negocioId} · GET /tasas-cambio/{negocioId}
+  static String monedas(String negocioId) => '/monedas/$negocioId';
+  static String tasasCambio(String negocioId) => '/tasas-cambio/$negocioId';
 
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);
