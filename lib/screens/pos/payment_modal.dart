@@ -47,13 +47,14 @@ class _PaymentModalState extends State<PaymentModal> {
   List<TransferDestinationModel> _transferDestinations = [];
   Map<String, _PagoMoneda> _pagosMap = {};
   Map<String, bool> _showPayBreakdown = {};
-  Map<String, int> _payBreakdownKeys = {};
+  Map<String, int> _payBreakdownResetKeys = {};
+  Map<String, Map<double, int>> _savedBillBreakdowns = {};
   /// Por moneda: cash | transfer | mixed
   Map<String, String> _paymentMode = {};
   Map<String, double> _vueltoMap = {};
   bool _vueltoLocked = false;
   bool _showBaseBreakdown = false;
-  int _baseBreakdownKey = 0;
+  int _baseBreakdownResetKey = 0;
 
   final Map<String, TextEditingController> _cashControllers = {};
   final Map<String, TextEditingController> _transferControllers = {};
@@ -156,6 +157,7 @@ class _PaymentModalState extends State<PaymentModal> {
         _showPayBreakdown[moneda] = false;
         if (moneda == _monedaBase) _showBaseBreakdown = false;
       }
+      _clearSavedBreakdown(moneda);
 
       if (mode == 'transfer') {
         pago.cash = 0;
@@ -358,19 +360,91 @@ class _PaymentModalState extends State<PaymentModal> {
     return double.parse(_convertFromBase(rem, moneda).toStringAsFixed(2));
   }
 
-  void _updatePago(String moneda, {double? cash, double? transfer, String? transferDestId}) {
+  void _bumpBreakdownResetKey(String moneda) {
+    if (moneda == _monedaBase) {
+      _baseBreakdownResetKey++;
+    } else {
+      _payBreakdownResetKeys[moneda] =
+          (_payBreakdownResetKeys[moneda] ?? 0) + 1;
+    }
+  }
+
+  void _saveBreakdownCounts(String moneda, Map<double, int> counts) {
+    final filtered = Map<double, int>.fromEntries(
+      counts.entries.where((e) => e.value > 0),
+    );
+    if (filtered.isEmpty) {
+      _savedBillBreakdowns.remove(moneda);
+    } else {
+      _savedBillBreakdowns[moneda] = filtered;
+    }
+  }
+
+  void _clearSavedBreakdown(String moneda) {
+    if (!_savedBillBreakdowns.containsKey(moneda)) return;
+    _savedBillBreakdowns.remove(moneda);
+    _bumpBreakdownResetKey(moneda);
+  }
+
+  void _onCashManualEdit(String moneda, String value) {
+    final amount = double.tryParse(value) ?? 0;
+    setState(() {
+      _clearSavedBreakdown(moneda);
+      final pago = _pagosMap[moneda];
+      if (pago != null) pago.cash = amount;
+      _syncVueltoAuto();
+    });
+  }
+
+  void _setAmountControllerText(TextEditingController? controller, double value) {
+    final text = value > 0 ? value.toStringAsFixed(2) : '';
+    if (controller != null && controller.text != text) {
+      controller.text = text;
+    }
+  }
+
+  void _formatCashField(String moneda) {
+    final pago = _pagosMap[moneda];
+    if (pago != null) {
+      _setAmountControllerText(_cashControllers[moneda], pago.cash);
+    }
+  }
+
+  void _formatTransferField(String moneda) {
+    final pago = _pagosMap[moneda];
+    if (pago != null) {
+      _setAmountControllerText(_transferControllers[moneda], pago.transfer);
+    }
+  }
+
+  void _formatVueltoField(String moneda) {
+    _setAmountControllerText(
+      _vueltoControllers[moneda],
+      _vueltoMap[moneda] ?? 0,
+    );
+  }
+
+  void _updatePago(
+    String moneda, {
+    double? cash,
+    double? transfer,
+    String? transferDestId,
+    bool syncControllers = true,
+  }) {
     final pago = _pagosMap[moneda];
     if (pago == null) return;
     setState(() {
       if (cash != null) {
         pago.cash = cash;
-        _cashControllers[moneda]?.text =
-            cash > 0 ? cash.toStringAsFixed(2) : '';
+        if (syncControllers) {
+          _setAmountControllerText(_cashControllers[moneda], cash);
+        }
       }
       if (transfer != null) {
         pago.transfer = transfer;
-        _transferControllers[moneda]?.text =
-            transfer > 0 ? transfer.toStringAsFixed(2) : '';
+        if (syncControllers) {
+          _setAmountControllerText(_transferControllers[moneda], transfer);
+        }
       }
       if (transferDestId != null) pago.transferDestId = transferDestId;
       _syncVueltoAuto();
@@ -398,7 +472,8 @@ class _PaymentModalState extends State<PaymentModal> {
       _transferControllers.remove(moneda);
       _pagosMap.remove(moneda);
       _showPayBreakdown.remove(moneda);
-      _payBreakdownKeys.remove(moneda);
+      _payBreakdownResetKeys.remove(moneda);
+      _savedBillBreakdowns.remove(moneda);
       _paymentMode.remove(moneda);
       _syncVueltoAuto();
     });
@@ -406,41 +481,23 @@ class _PaymentModalState extends State<PaymentModal> {
 
   void _togglePayBreakdown(String moneda) {
     setState(() {
-      final next = !(_showPayBreakdown[moneda] ?? false);
-      _showPayBreakdown[moneda] = next;
-      if (next) {
-        _payBreakdownKeys[moneda] = (_payBreakdownKeys[moneda] ?? 0) + 1;
-      } else {
-        final pago = _pagosMap[moneda];
-        if (pago != null) _updatePago(moneda, cash: pago.cash);
-      }
+      _showPayBreakdown[moneda] = !(_showPayBreakdown[moneda] ?? false);
     });
   }
 
   void _toggleBaseBreakdown() {
     setState(() {
-      if (!_showBaseBreakdown) {
-        _baseBreakdownKey++;
-      } else {
-        final pago = _pagosMap[_monedaBase];
-        if (pago != null) {
-          final transfer = pago.transfer;
-          _updatePago(
-            _monedaBase,
-            cash: double.parse((_total - transfer).clamp(0, double.infinity).toStringAsFixed(2)),
-          );
-        }
-      }
       _showBaseBreakdown = !_showBaseBreakdown;
     });
   }
 
-  void _updateVuelto(String moneda, double monto) {
+  void _updateVuelto(String moneda, double monto, {bool syncController = true}) {
     setState(() {
       _vueltoLocked = true;
       _vueltoMap[moneda] = monto;
-      _vueltoControllers[moneda]?.text =
-          monto > 0 ? monto.toStringAsFixed(2) : '';
+      if (syncController) {
+        _setAmountControllerText(_vueltoControllers[moneda], monto);
+      }
     });
   }
 
@@ -733,12 +790,11 @@ class _PaymentModalState extends State<PaymentModal> {
                 extentOffset: _cashControllers[moneda]!.text.length,
               );
             },
+            onEditingComplete: () => _formatCashField(moneda),
+            onTapOutside: (_) => _formatCashField(moneda),
             onChanged: breakdownActive
                 ? null
-                : (v) {
-                    final amount = double.tryParse(v) ?? 0;
-                    _updatePago(moneda, cash: amount);
-                  },
+                : (v) => _onCashManualEdit(moneda, v),
           ),
           if (denoms.isNotEmpty)
             TextButton.icon(
@@ -761,9 +817,12 @@ class _PaymentModalState extends State<PaymentModal> {
               child: BillBreakdownInput(
                 denominations: denoms,
                 targetAmount: isBase ? _total : pago.cash,
+                initialCounts: _savedBillBreakdowns[moneda],
                 resetKey: isBase
-                    ? _baseBreakdownKey
-                    : (_payBreakdownKeys[moneda] ?? 0),
+                    ? _baseBreakdownResetKey
+                    : (_payBreakdownResetKeys[moneda] ?? 0),
+                onCountsChange: (counts) =>
+                    _saveBreakdownCounts(moneda, counts),
                 onChange: (total) => _updatePago(moneda, cash: total),
               ),
             ),
@@ -784,6 +843,8 @@ class _PaymentModalState extends State<PaymentModal> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
+            onEditingComplete: () => _formatTransferField(moneda),
+            onTapOutside: (_) => _formatTransferField(moneda),
             onChanged: (v) {
               final newTransfer = double.tryParse(v) ?? 0;
               if (mode == 'mixed') {
@@ -792,14 +853,16 @@ class _PaymentModalState extends State<PaymentModal> {
                 setState(() {
                   pago.transfer = newTransfer;
                   pago.cash = double.parse(newCash.toStringAsFixed(2));
-                  _transferControllers[moneda]?.text =
-                      newTransfer > 0 ? newTransfer.toStringAsFixed(2) : '';
-                  _cashControllers[moneda]?.text =
-                      pago.cash > 0 ? pago.cash.toStringAsFixed(2) : '';
+                  _setAmountControllerText(_cashControllers[moneda], pago.cash);
                   _syncVueltoAuto();
                 });
               } else {
-                _updatePago(moneda, transfer: newTransfer, cash: 0);
+                _updatePago(
+                  moneda,
+                  transfer: newTransfer,
+                  cash: 0,
+                  syncControllers: false,
+                );
               }
             },
           ),
@@ -885,8 +948,13 @@ class _PaymentModalState extends State<PaymentModal> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    onChanged: (v) =>
-                        _updateVuelto(moneda, double.tryParse(v) ?? 0),
+                    onEditingComplete: () => _formatVueltoField(moneda),
+                    onTapOutside: (_) => _formatVueltoField(moneda),
+                    onChanged: (v) => _updateVuelto(
+                      moneda,
+                      double.tryParse(v) ?? 0,
+                      syncController: false,
+                    ),
                   ),
                 ),
                 IconButton(

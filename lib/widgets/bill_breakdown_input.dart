@@ -7,6 +7,8 @@ class BillBreakdownInput extends StatefulWidget {
   final List<double> denominations;
   final double? targetAmount;
   final ValueChanged<double> onChange;
+  final ValueChanged<Map<double, int>>? onCountsChange;
+  final Map<double, int>? initialCounts;
   final int resetKey;
 
   const BillBreakdownInput({
@@ -14,6 +16,8 @@ class BillBreakdownInput extends StatefulWidget {
     required this.denominations,
     this.targetAmount,
     required this.onChange,
+    this.onCountsChange,
+    this.initialCounts,
     this.resetKey = 0,
   });
 
@@ -27,7 +31,9 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
   @override
   void initState() {
     super.initState();
-    _notifyTotal();
+    if (widget.initialCounts != null) {
+      _counts.addAll(widget.initialCounts!);
+    }
   }
 
   @override
@@ -35,6 +41,7 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.resetKey != widget.resetKey) {
       _counts.clear();
+      widget.onCountsChange?.call(const {});
       _notifyTotal();
     }
   }
@@ -52,8 +59,14 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
 
   void _setCount(double denomination, int count) {
     setState(() {
-      _counts[denomination] = count.clamp(0, 9999);
+      final next = count.clamp(0, 9999);
+      if (next == 0) {
+        _counts.remove(denomination);
+      } else {
+        _counts[denomination] = next;
+      }
     });
+    widget.onCountsChange?.call(Map<double, int>.from(_counts));
     widget.onChange(_total);
   }
 
