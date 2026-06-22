@@ -6,10 +6,12 @@ import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
+import '../../providers/sync_provider.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/monedas_provider.dart';
 import '../../widgets/multi_currency_amount.dart';
+import '../../widgets/stock_local_badge.dart';
 
 class ProductosScreen extends StatefulWidget {
   final CategoriaModel categoria;
@@ -129,43 +131,75 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final monedas = context.watch<MonedasProvider>();
+    final isOnline = context.watch<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
     final disponible = ProductoPosRules.disponibleParaMostrar(
       producto,
       allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
-    final hasStock = disponible > 0;
-    final esFraccion = ProductoPosRules.isFraccion(producto);
-    final existenciaReal = ProductoPosRules.existenciaReal(producto);
-    final stockText = esFraccion
-        ? 'Stock: ${existenciaReal.toStringAsFixed(producto.permiteDecimal ? 1 : 0)} | Máx: ${disponible.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}'
-        : 'Cant: ${disponible.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
+    final puedeAgregar = ProductoPosRules.puedeAgregar(
+      producto,
+      allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
+    );
+    final sinStockLocal = offlineMode &&
+        !ProductoPosRules.tieneStockLocalEfectivo(
+          producto,
+          allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+        );
+    final hasStock = isOnline
+        ? disponible > 0
+        : ProductoPosRules.tieneStockLocalEfectivo(
+            producto,
+            allProductos,
+            cantidadEnCarrito: cantidadEnCarrito,
+          );
+    final stockText = ProductoPosRules.textoStockEnCard(
+      producto,
+      allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
+      color: SinStockLocalStyles.cardColor(sinStockLocal: sinStockLocal),
+      shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
       child: InkWell(
-        onTap: hasStock ? () => _showQuantityDialog(context) : null,
+        onTap: puedeAgregar ? () => _showQuantityDialog(context, isOnline) : null,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Info
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       ProductoPosRules.nombreParaMostrar(producto),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
                       ),
                     ),
+                    if (sinStockLocal) ...[
+                      const SizedBox(height: 6),
+                      const StockLocalBadge(compact: true),
+                    ],
                     if (producto.descripcion?.isNotEmpty ?? false) ...[
                       const SizedBox(height: 2),
                       Text(
                         producto.descripcion!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -173,54 +207,60 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 6),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Expanded(
-                          child: MultiCurrencyAmount(
-                            amount: monedas.precioEnBase(
-                              producto.precio,
-                              producto.monedaPrecioCode,
-                            ),
-                            variant: MultiCurrencyVariant.product,
+                        MultiCurrencyAmount(
+                          amount: monedas.precioEnBase(
+                            producto.precio,
+                            producto.monedaPrecioCode,
                           ),
+                          variant: MultiCurrencyVariant.product,
                         ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: hasStock
-                                ? AppColors.success.withOpacity(0.1)
-                                : AppColors.error.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            stockText,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                        if (stockText.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
                               color: hasStock
-                                  ? AppColors.success
-                                  : AppColors.error,
+                                  ? AppColors.success.withOpacity(0.1)
+                                  : AppColors.error.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              stockText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: hasStock
+                                    ? AppColors.success
+                                    : AppColors.error,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-
-              // Add button
               IconButton(
+                constraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
+                padding: EdgeInsets.zero,
                 icon: Icon(
                   Icons.add_shopping_cart,
-                  color: hasStock ? AppColors.success : AppColors.textHint,
+                  color: puedeAgregar ? AppColors.success : AppColors.textHint,
                 ),
-                onPressed: hasStock ? () => _addToCart(context) : null,
+                onPressed:
+                    puedeAgregar ? () => _addToCart(context, isOnline) : null,
               ),
             ],
           ),
@@ -229,16 +269,18 @@ class _ProductCard extends StatelessWidget {
     );
   }
 
-  void _addToCart(BuildContext context) async {
+  void _addToCart(BuildContext context, bool isOnline) async {
     final cart = context.read<CartProvider>().activeCart;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
             .fold<double>(0, (s, i) => s + i.cantidad) ??
         0;
+    final offlineMode = !isOnline;
     final maxDisp = ProductoPosRules.getMaxQuantity(
       producto,
       allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
     final qty = (maxDisp >= 1) ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
     if (qty > maxDisp) return;
@@ -246,6 +288,7 @@ class _ProductCard extends StatelessWidget {
           producto,
           cantidad: qty,
           allProductos: allProductos,
+          isOnline: isOnline,
         );
     if (!context.mounted) return;
     if (ok) {
@@ -255,12 +298,26 @@ class _ProductCard extends StatelessWidget {
         backgroundColor: AppColors.success,
         duration: const Duration(seconds: 1),
       );
+      if (offlineMode &&
+          !ProductoPosRules.tieneStockLocalEfectivo(
+            producto,
+            allProductos,
+            cantidadEnCarrito: cantidadEnCarrito + qty,
+          )) {
+        AppSnackBar.show(
+          context,
+          content: const Text('Venta sin stock local — se validará al sincronizar'),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        );
+      }
     }
   }
 
-  void _showQuantityDialog(BuildContext context) {
+  void _showQuantityDialog(BuildContext context, bool isOnline) {
     final productosProvider = context.read<ProductosProvider>();
     final cart = context.read<CartProvider>().activeCart;
+    final offlineMode = !isOnline;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
             .fold<double>(0, (s, i) => s + i.cantidad) ??
@@ -269,20 +326,20 @@ class _ProductCard extends StatelessWidget {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
-    final esFraccion = ProductoPosRules.isFraccion(producto);
-    final existenciaReal = ProductoPosRules.existenciaReal(producto);
+    if (!offlineMode && maxDisp <= 0) return;
     final initialQty = producto.permiteDecimal ? 0.1 : 1.0;
     final controller = TextEditingController(
       text: initialQty.toStringAsFixed(producto.permiteDecimal ? 1 : 0),
     );
 
-    String stockLabel() {
-      if (esFraccion) {
-        return 'Stock: ${existenciaReal.toStringAsFixed(producto.permiteDecimal ? 1 : 0)} | Máx. por venta: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
-      }
-      return 'Disponibles: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
-    }
+    String stockLabel() => ProductoPosRules.textoStockEnDialogo(
+          producto,
+          productosProvider.allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: offlineMode,
+        );
 
     HardwareScannerGate.instance.block('product_dialog');
     showDialog(
@@ -307,7 +364,7 @@ class _ProductCard extends StatelessWidget {
               next = next.roundToDouble();
               if (next < 1) next = 1;
             }
-            if (next > maxDisp) next = maxDisp;
+            if (maxDisp.isFinite && next > maxDisp) next = maxDisp;
             controller.text =
                 next.toStringAsFixed(producto.permiteDecimal ? 2 : 0);
             setState(() {});
@@ -380,13 +437,14 @@ class _ProductCard extends StatelessWidget {
                   if (producto.permiteDecimal) {
                     cantidad = double.parse(cantidad.toStringAsFixed(2));
                   }
-                  if (cantidad > maxDisp) return;
+                  if (maxDisp.isFinite && cantidad > maxDisp) return;
 
                   Navigator.pop(ctx);
                   final ok = await context.read<CartProvider>().addToCart(
                         producto,
                         cantidad: cantidad,
                         allProductos: productosProvider.allProductos,
+                        isOnline: isOnline,
                       );
 
                   if (!context.mounted) return;

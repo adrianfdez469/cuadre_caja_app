@@ -23,27 +23,37 @@ class CategoriasGrid extends StatelessWidget {
     }).toList();
 
     if (categoriasConProductos.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.category, size: 64, color: AppColors.textHint),
-            const SizedBox(height: 16),
-            Text(
-              categorias.isEmpty
-                  ? 'No hay categorías disponibles'
-                  : 'No hay categorías con productos',
-              style: TextStyle(color: AppColors.textSecondary),
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.category, size: 64, color: AppColors.textHint),
+                    const SizedBox(height: 16),
+                    Text(
+                      categorias.isEmpty
+                          ? 'No hay categorías disponibles'
+                          : 'No hay categorías con productos',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      categorias.isEmpty
+                          ? 'Desliza hacia abajo para sincronizar'
+                          : 'Las categorías con 0 productos no se muestran',
+                      style: TextStyle(fontSize: 12, color: AppColors.textHint),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              categorias.isEmpty
-                  ? 'Sincroniza para cargar productos'
-                  : 'Las categorías con 0 productos no se muestran',
-              style: TextStyle(fontSize: 12, color: AppColors.textHint),
-            ),
-          ],
-        ),
+          );
+        },
       );
     }
 
@@ -54,6 +64,7 @@ class CategoriasGrid extends StatelessWidget {
         children: [
           Expanded(
             child: GridView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,

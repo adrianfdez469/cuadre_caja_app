@@ -61,11 +61,13 @@ class CartProvider extends ChangeNotifier {
 
   /// Agrega producto al carrito activo.
   /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
+  /// [isOnline]: con conexión valida stock local; offline permite vender sin stock.
   /// Retorna true si se agregó, false si la cantidad supera el máximo permitido.
   Future<bool> addToCart(
     ProductoModel producto, {
     double cantidad = 1,
     List<ProductoModel>? allProductos,
+    bool isOnline = true,
   }) async {
     final cart = activeCart;
     if (cart == null) return false;
@@ -79,6 +81,7 @@ class CartProvider extends ChangeNotifier {
         producto,
         allProductos,
         cantidadEnCarrito: cantidadYaEnCarrito,
+        offlineMode: !isOnline,
       );
       if (cantidad > maxPermitido) return false;
     }
@@ -104,12 +107,14 @@ class CartProvider extends ChangeNotifier {
 
   /// Actualiza cantidad de un item.
   /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
+  /// [isOnline]: con conexión valida stock local; offline permite vender sin stock.
   /// Retorna true si se actualizó, false si la cantidad supera el máximo.
   Future<bool> updateItemCantidad(
     int itemIndex,
     double cantidad, {
     List<ProductoModel>? allProductos,
     ProductoModel? producto,
+    bool isOnline = true,
   }) async {
     final cart = activeCart;
     if (cart == null || itemIndex >= cart.items.length) return false;
@@ -129,6 +134,7 @@ class CartProvider extends ChangeNotifier {
         producto,
         allProductos,
         cantidadEnCarrito: cantidadOtrosItems,
+        offlineMode: !isOnline,
       );
       if (cantidad > maxPermitido) return false;
     }

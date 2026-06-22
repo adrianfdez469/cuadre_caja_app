@@ -51,11 +51,16 @@ class SyncService {
   StreamSubscription? _connectivitySubscription;
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _isFullSyncRunning = false;
+  String? _lastTiendaId;
+  String? _lastNegocioId;
+  Future<void>? _connectionRestoreFuture;
 
   // Callbacks
   void Function(ConnectionStatus)? onConnectionChanged;
   void Function(String message)? onSyncEvent;
-  void Function()? onDataRefreshed;
+  /// Llamado tras fullSync al reconectar para refrescar la UI (sin volver a sincronizar).
+  Future<void> Function()? onDataRefreshed;
   void Function(bool needsLogin)? onAuthRequired;
   /// Llamado cuando se refresca el token al reconectar (para actualizar AuthProvider).
   void Function()? onTokenRefreshed;
@@ -101,7 +106,7 @@ class SyncService {
 
     // Sincronización periódica cada 30 segundos si hay conexión
     _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (isOnline && !_isSyncing) {
+      if (isOnline && !_isSyncing && !_isFullSyncRunning) {
         _syncPendingVentas();
       }
     });
@@ -129,8 +134,16 @@ class SyncService {
         : ConnectionStatus.offline;
   }
 
-  /// Se ejecuta cuando la conexión se restaura
-  Future<void> _onConnectionRestored() async {
+  /// Se ejecuta cuando la conexión se restaura.
+  /// Ventas primero; inventario del servidor al final (vía fullSync).
+  Future<void> _onConnectionRestored() {
+    _connectionRestoreFuture ??= _runConnectionRestored().whenComplete(() {
+      _connectionRestoreFuture = null;
+    });
+    return _connectionRestoreFuture!;
+  }
+
+  Future<void> _runConnectionRestored() async {
     // 1. Refrescar token para tener uno nuevo válido
     try {
       final refreshed = await apiClient.tryRefreshToken();
@@ -149,12 +162,23 @@ class SyncService {
       return;
     }
 
-    // 3. Sincronizar ventas pendientes PRIMERO
-    await _syncPendingVentas();
+    // 3. fullSync: ventas pendientes, inventario al final y refresco de UI
+    final ctx = await _resolveSyncContext();
+    if (ctx != null) {
+      await fullSync(ctx.tiendaId, negocioId: ctx.negocioId);
+    }
+  }
 
-    // 4. Refrescar datos del servidor
-    onSyncEvent?.call('Actualizando datos...');
-    onDataRefreshed?.call();
+  Future<({String tiendaId, String? negocioId})?> _resolveSyncContext() async {
+    if (_lastTiendaId != null && _lastTiendaId!.isNotEmpty) {
+      return (tiendaId: _lastTiendaId!, negocioId: _lastNegocioId);
+    }
+    final user = await storageService.getUser();
+    if (user == null) return null;
+    final tiendaId = user['localActual']?['id'] as String?;
+    if (tiendaId == null || tiendaId.isEmpty) return null;
+    final negocioId = user['negocio']?['id'] as String?;
+    return (tiendaId: tiendaId, negocioId: negocioId);
   }
 
   /// Verifica que el token sea válido, intenta refresh si no
@@ -312,7 +336,10 @@ class SyncService {
         syncState: SyncState.syncing,
       );
       // No esperar al servidor: la venta ya está guardada y el stock actualizado.
-      unawaited(_syncSingleVenta(venta));
+      unawaited(() async {
+        await _syncSingleVenta(venta);
+        await _refreshInventarioFromServer(venta.tiendaId);
+      }());
     } else {
       onSyncEvent?.call('Venta guardada offline - se sincronizará al conectarse');
     }
@@ -347,6 +374,7 @@ class SyncService {
         await ventasLocal.updateSyncState(
           toSync.syncId,
           syncState: SyncState.syncing,
+          errorMessage: '',
         );
       }
 
@@ -410,18 +438,23 @@ class SyncService {
     return patched;
   }
 
-  /// Sincroniza todas las ventas pendientes
-  Future<SyncResult> _syncPendingVentas() async {
+  /// Sincroniza todas las ventas pendientes.
+  /// Tras el intento (éxito o fallo), actualiza inventario del servidor si hubo pendientes.
+  /// [refreshInventarioAfter]: en fullSync se desactiva porque el inventario se refresca al final.
+  Future<SyncResult> _syncPendingVentas({
+    String? inventarioTiendaId,
+    bool refreshInventarioAfter = true,
+  }) async {
     if (_isSyncing) return SyncResult(synced: 0, failed: 0, pending: 0);
 
     _isSyncing = true;
     int synced = 0;
     int failed = 0;
+    String? tiendaId = inventarioTiendaId;
 
     try {
       final pendientes = await ventasLocal.getVentasPendientes();
       if (pendientes.isEmpty) {
-        _isSyncing = false;
         return SyncResult(synced: 0, failed: 0, pending: 0);
       }
 
@@ -429,6 +462,7 @@ class SyncService {
       onSyncEvent?.call('Sincronizando ${pendientes.length} ventas...');
 
       for (final venta in pendientes) {
+        tiendaId ??= venta.tiendaId;
         final ok = await _syncSingleVenta(venta);
         if (ok) {
           synced++;
@@ -439,10 +473,15 @@ class SyncService {
 
       if (synced > 0) {
         onSyncEvent?.call('$synced ventas sincronizadas');
-        // No borrar ventas sincronizadas para poder mostrarlas en lista unificada
       }
       if (failed > 0) {
         onSyncEvent?.call('$failed ventas con error');
+      }
+
+      if (refreshInventarioAfter &&
+          tiendaId != null &&
+          tiendaId.isNotEmpty) {
+        await _refreshInventarioFromServer(tiendaId);
       }
     } finally {
       _isSyncing = false;
@@ -450,6 +489,18 @@ class SyncService {
 
     final remaining = await ventasLocal.countPendientes();
     return SyncResult(synced: synced, failed: failed, pending: remaining);
+  }
+
+  /// Inventario del servidor → BD local. Siempre el último paso tras sync de ventas.
+  Future<void> _refreshInventarioFromServer(String tiendaId) async {
+    if (!isOnline || tiendaId.isEmpty) return;
+    onSyncEvent?.call('Actualizando inventario...');
+    await loadProductos(tiendaId);
+    try {
+      await onDataRefreshed?.call();
+    } catch (e) {
+      print('⚠️ Error refrescando UI tras sync de venta: $e');
+    }
   }
 
   /// Fuerza sincronización manual
@@ -468,7 +519,9 @@ class SyncService {
       return SyncResult(synced: 0, failed: 0, pending: 0);
     }
 
-    return await _syncPendingVentas();
+    return await _syncPendingVentas(
+      inventarioTiendaId: (await _resolveSyncContext())?.tiendaId,
+    );
   }
 
   /// Obtiene ventas del servidor para el período actual
@@ -503,7 +556,9 @@ class SyncService {
     if (venta.syncState == SyncState.synced || venta.syncState == SyncState.syncing) {
       return true;
     }
-    return await _syncSingleVenta(venta);
+    final ok = await _syncSingleVenta(venta);
+    await _refreshInventarioFromServer(venta.tiendaId);
+    return ok;
   }
 
   /// Elimina una venta: en servidor si está sincronizada y hay red; siempre en local y restaura stock
@@ -605,33 +660,53 @@ class SyncService {
   // SYNC COMPLETO (al iniciar o reconectar)
   // ==========================================
 
-  /// Sincronización completa: ventas pendientes + refrescar datos
+  /// Sincronización completa: período/destinos/monedas → ventas pendientes → inventario.
   Future<void> fullSync(String tiendaId, {String? negocioId}) async {
     if (!isOnline) {
       onSyncEvent?.call('Sin conexión - usando datos locales');
       return;
     }
 
-    onSyncEvent?.call('Sincronizando...');
+    _lastTiendaId = tiendaId;
+    if (negocioId != null && negocioId.isNotEmpty) {
+      _lastNegocioId = negocioId;
+    }
 
-    // 1. Ventas pendientes primero
-    await _syncPendingVentas();
+    if (_isFullSyncRunning) {
+      print('⏳ fullSync ya en curso, omitiendo duplicado');
+      return;
+    }
 
-    // 2. Refrescar productos, período, destinos y multimoneda en paralelo
+    _isFullSyncRunning = true;
     try {
-      final futures = <Future<void>>[
-        loadProductos(tiendaId).then((_) {}),
-        loadPeriodoActual(tiendaId).then((_) {}),
-        loadTransferDestinations(tiendaId).then((_) {}),
-      ];
-      if (negocioId != null && negocioId.isNotEmpty) {
-        futures.add(loadMultimonedaConfig(negocioId).then((_) {}));
+      onSyncEvent?.call('Sincronizando...');
+
+      // 1. Período, destinos y multimoneda (sin inventario)
+      try {
+        final futures = <Future<void>>[
+          loadPeriodoActual(tiendaId).then((_) {}),
+          loadTransferDestinations(tiendaId).then((_) {}),
+        ];
+        if (negocioId != null && negocioId.isNotEmpty) {
+          futures.add(loadMultimonedaConfig(negocioId).then((_) {}));
+        }
+        await Future.wait(futures);
+        onSyncEvent?.call('Datos actualizados ✓');
+      } catch (e) {
+        print('⚠️ Error en sincronización completa: $e');
+        onSyncEvent?.call('Error parcial en sincronización');
       }
-      await Future.wait(futures);
-      onSyncEvent?.call('Datos actualizados ✓');
-    } catch (e) {
-      print('⚠️ Error en sincronización completa: $e');
-      onSyncEvent?.call('Error parcial en sincronización');
+
+      // 2. Ventas pendientes (sin refrescar inventario aquí)
+      await _syncPendingVentas(
+        inventarioTiendaId: tiendaId,
+        refreshInventarioAfter: false,
+      );
+
+      // 3. Inventario del servidor — último paso para reflejar cantidades reales
+      await _refreshInventarioFromServer(tiendaId);
+    } finally {
+      _isFullSyncRunning = false;
     }
   }
 

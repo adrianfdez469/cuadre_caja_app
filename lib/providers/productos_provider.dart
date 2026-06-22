@@ -7,11 +7,13 @@ import '../services/sync_service.dart';
 class ProductosProvider extends ChangeNotifier {
   final SyncService _syncService;
 
+  List<ProductoModel> _rawProductos = [];
   List<ProductoModel> _allProductos = [];
   List<ProductoModel> _filteredProductos = [];
   List<CategoriaModel> _categorias = [];
   bool _isLoading = false;
   String? _selectedCategoriaId;
+  bool _offlineMode = false;
 
   ProductosProvider(this._syncService);
 
@@ -20,6 +22,30 @@ class ProductosProvider extends ChangeNotifier {
   List<CategoriaModel> get categorias => _categorias;
   bool get isLoading => _isLoading;
   String? get selectedCategoriaId => _selectedCategoriaId;
+  bool get offlineMode => _offlineMode;
+
+  /// Re-aplica el filtro de catálogo según el estado de conexión.
+  void applyConnectionFilter(bool isOnline) {
+    final offlineMode = !isOnline;
+    if (_offlineMode == offlineMode) return;
+    _offlineMode = offlineMode;
+    _rebuildProductLists();
+    notifyListeners();
+  }
+
+  void _rebuildProductLists() {
+    _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(
+      _rawProductos,
+      offlineMode: _offlineMode,
+    );
+    if (_selectedCategoriaId != null) {
+      _filteredProductos = _allProductos
+          .where((p) => p.categoriaId == _selectedCategoriaId)
+          .toList();
+    } else {
+      _filteredProductos = List.from(_allProductos);
+    }
+  }
 
   /// Carga productos y categorías (network-first).
   /// [showLoading]: si es false, no bloquea la UI del POS con el indicador de carga.
@@ -31,18 +57,9 @@ class ProductosProvider extends ChangeNotifier {
 
     try {
       final raw = await _syncService.loadProductos(tiendaId);
-      // Especificaciones POS: solo precio > 0, existencia (con excepción fracción), orden alfabético
-      _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(raw);
+      _rawProductos = raw;
+      _rebuildProductLists();
       _categorias = await _syncService.loadCategorias(tiendaId);
-
-      // Si ya hay una categoría seleccionada, filtrar
-      if (_selectedCategoriaId != null) {
-        _filteredProductos = _allProductos
-            .where((p) => p.categoriaId == _selectedCategoriaId)
-            .toList();
-      } else {
-        _filteredProductos = List.from(_allProductos);
-      }
     } catch (e) {
       print('❌ Error cargando productos: $e');
     }
@@ -57,15 +74,9 @@ class ProductosProvider extends ChangeNotifier {
   Future<void> refreshFromLocalCache(String tiendaId) async {
     try {
       final raw = await _syncService.loadProductosLocalOnly(tiendaId);
-      _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(raw);
+      _rawProductos = raw;
+      _rebuildProductLists();
       _categorias = await _syncService.loadCategorias(tiendaId);
-      if (_selectedCategoriaId != null) {
-        _filteredProductos = _allProductos
-            .where((p) => p.categoriaId == _selectedCategoriaId)
-            .toList();
-      } else {
-        _filteredProductos = List.from(_allProductos);
-      }
       notifyListeners();
     } catch (e) {
       print('❌ Error refrescando productos desde caché: $e');
@@ -167,10 +178,10 @@ class ProductosProvider extends ChangeNotifier {
 
   /// Actualiza existencia local después de venta
   void updateExistenciaLocal(String productoTiendaId, double cantidad) {
-    final idx = _allProductos.indexWhere((p) => p.id == productoTiendaId);
-    if (idx != -1) {
-      final old = _allProductos[idx];
-      _allProductos[idx] = ProductoModel(
+    final rawIdx = _rawProductos.indexWhere((p) => p.id == productoTiendaId);
+    if (rawIdx != -1) {
+      final old = _rawProductos[rawIdx];
+      _rawProductos[rawIdx] = ProductoModel(
         id: old.id,
         productoId: old.productoId,
         nombre: old.nombre,
@@ -187,7 +198,7 @@ class ProductosProvider extends ChangeNotifier {
         unidadesPorFraccion: old.unidadesPorFraccion,
       );
     }
-    // Re-aplicar filtro
-    filterByCategoria(_selectedCategoriaId);
+    _rebuildProductLists();
+    notifyListeners();
   }
 }

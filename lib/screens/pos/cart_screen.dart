@@ -5,9 +5,11 @@ import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/productos_provider.dart';
+import '../../providers/sync_provider.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../providers/monedas_provider.dart';
 import '../../widgets/multi_currency_amount.dart';
+import '../../widgets/stock_local_badge.dart';
 import 'payment_modal.dart';
 
 class CartScreen extends StatelessWidget {
@@ -115,6 +117,8 @@ class CartScreen extends StatelessWidget {
     final items = cartProvider.activeCart!.items;
     final allProductos = context.watch<ProductosProvider>().allProductos;
     final monedas = context.watch<MonedasProvider>();
+    final isOnline = context.watch<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
 
     return ListView.builder(
       padding: const EdgeInsets.all(12),
@@ -135,11 +139,27 @@ class CartScreen extends StatelessWidget {
                 producto,
                 allProductos,
                 cantidadEnCarrito: cantidadEnCarrito,
+                offlineMode: offlineMode,
               )
             : double.infinity;
-        final maxTotalPermitido =
-            producto != null ? cantidadEnCarrito + disponible : double.infinity;
-        final canIncrement = item.cantidad < maxTotalPermitido;
+        final maxTotalPermitido = producto != null
+            ? (disponible.isFinite
+                ? cantidadEnCarrito + disponible
+                : double.infinity)
+            : double.infinity;
+        final canIncrement = maxTotalPermitido.isInfinite ||
+            item.cantidad < maxTotalPermitido;
+        final cantidadTotalProducto = cartProvider.activeCart?.items
+                .where((i) => i.productoTiendaId == item.productoTiendaId)
+                .fold<double>(0, (s, i) => s + i.cantidad) ??
+            cantidadEnCarrito;
+        final sinStockLocal = offlineMode &&
+            producto != null &&
+            !ProductoPosRules.tieneStockLocalEfectivo(
+              producto,
+              allProductos,
+              cantidadEnCarrito: cantidadTotalProducto,
+            );
         final decrementQty = producto?.permiteDecimal == true
             ? (item.cantidad - 0.1).clamp(0.1, double.infinity)
             : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
@@ -165,56 +185,81 @@ class CartScreen extends StatelessWidget {
           onDismissed: (_) => cartProvider.removeItem(index),
           child: Card(
             margin: const EdgeInsets.only(bottom: 8),
+            color: SinStockLocalStyles.cardColor(sinStockLocal: sinStockLocal),
+            shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
             child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
                           item.nombre,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(height: 4),
-                        MultiCurrencyAmount(
+                      ),
+                      const SizedBox(width: 8),
+                      MultiCurrencyAmount(
+                        amount: subtotalBase,
+                        variant: MultiCurrencyVariant.compact,
+                        textAlign: TextAlign.end,
+                      ),
+                    ],
+                  ),
+                  if (sinStockLocal) ...[
+                    const SizedBox(height: 6),
+                    const StockLocalBadge(compact: true),
+                  ],
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: MultiCurrencyAmount(
                           amount: precioUnitBase,
                           variant: MultiCurrencyVariant.compact,
                         ),
-                      ],
-                    ),
-                  ),
-                  // Cantidad
-                  Row(
-                    children: [
+                      ),
                       IconButton(
                         icon: const Icon(Icons.remove_circle_outline),
                         onPressed: () {
-                          if (item.cantidad <= (producto?.permiteDecimal == true ? 0.1 : 1)) {
+                          if (item.cantidad <=
+                              (producto?.permiteDecimal == true ? 0.1 : 1)) {
                             cartProvider.removeItem(index);
                           } else {
                             cartProvider.updateItemCantidad(
                               index,
                               decrementQty,
-                              allProductos: producto != null ? allProductos : null,
+                              allProductos:
+                                  producto != null ? allProductos : null,
                               producto: producto,
+                              isOnline: isOnline,
                             );
                           }
                         },
-                        iconSize: 28,
+                        iconSize: 26,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
                         color: AppColors.error,
                       ),
                       SizedBox(
-                        width: 40,
+                        width: 36,
                         child: Text(
                           item.cantidad.toStringAsFixed(
-                              item.cantidad == item.cantidad.roundToDouble()
-                                  ? 0
-                                  : 1),
+                            item.cantidad == item.cantidad.roundToDouble()
+                                ? 0
+                                : 1,
+                          ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -224,29 +269,30 @@ class CartScreen extends StatelessWidget {
                         onPressed: canIncrement
                             ? () async {
                                 final newQty = producto?.permiteDecimal == true
-                                    ? double.parse((item.cantidad + 0.1).toStringAsFixed(2))
+                                    ? double.parse(
+                                        (item.cantidad + 0.1)
+                                            .toStringAsFixed(2),
+                                      )
                                     : item.cantidad + 1;
                                 await cartProvider.updateItemCantidad(
                                   index,
                                   newQty,
-                                  allProductos: producto != null ? allProductos : null,
+                                  allProductos:
+                                      producto != null ? allProductos : null,
                                   producto: producto,
+                                  isOnline: isOnline,
                                 );
                               }
                             : null,
-                        iconSize: 28,
+                        iconSize: 26,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
                         color: AppColors.success,
                       ),
                     ],
-                  ),
-                  // Subtotal
-                  SizedBox(
-                    width: 100,
-                    child: MultiCurrencyAmount(
-                      amount: subtotalBase,
-                      variant: MultiCurrencyVariant.compact,
-                      textAlign: TextAlign.end,
-                    ),
                   ),
                 ],
               ),

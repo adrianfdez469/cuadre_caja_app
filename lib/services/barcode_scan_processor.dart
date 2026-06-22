@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/periodo_provider.dart';
 import '../providers/productos_provider.dart';
+import '../providers/sync_provider.dart';
 import '../screens/pos/asociar_codigo_sheet.dart';
 import 'scan_audio_service.dart';
 
@@ -26,6 +27,8 @@ class BarcodeScanProcessor {
     if (!context.read<PeriodoProvider>().hasActivePeriodo) return;
 
     final productosProvider = context.read<ProductosProvider>();
+    final isOnline = context.read<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
     final producto = productosProvider.findProductByCodigo(code);
 
     if (producto == null) {
@@ -73,9 +76,10 @@ class BarcodeScanProcessor {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
 
-    if (maxDisp <= 0) {
+    if (isOnline && maxDisp <= 0) {
       await ScanAudioService.instance.playError();
       AppSnackBar.show(
         context,
@@ -87,11 +91,27 @@ class BarcodeScanProcessor {
       return;
     }
 
+    if (!isOnline && !ProductoPosRules.puedeAgregar(
+          producto,
+          productosProvider.allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: true,
+        )) {
+      await ScanAudioService.instance.playError();
+      AppSnackBar.show(
+        context,
+        content: const Text('Cantidad supera el máximo permitido'),
+        backgroundColor: AppColors.error,
+      );
+      return;
+    }
+
     final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
     final ok = await context.read<CartProvider>().addToCart(
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
+          isOnline: isOnline,
         );
 
     if (!context.mounted) return;
@@ -104,6 +124,19 @@ class BarcodeScanProcessor {
         backgroundColor: AppColors.success,
         duration: const Duration(seconds: 1),
       );
+      if (offlineMode &&
+          !ProductoPosRules.tieneStockLocalEfectivo(
+            producto,
+            productosProvider.allProductos,
+            cantidadEnCarrito: cantidadEnCarrito + qty,
+          )) {
+        AppSnackBar.show(
+          context,
+          content: const Text('Sin stock local — se validará al sincronizar'),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        );
+      }
     } else {
       await ScanAudioService.instance.playError();
       AppSnackBar.show(

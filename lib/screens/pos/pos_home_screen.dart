@@ -15,6 +15,7 @@ import '../../services/sync_service.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
+import '../../widgets/stock_local_badge.dart';
 import '../login_screen.dart';
 import 'cart_screen.dart';
 import 'ventas_list_screen.dart';
@@ -38,6 +39,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   String _searchQuery = '';
+  bool? _lastOnline;
 
   @override
   void initState() {
@@ -75,9 +77,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       }
     };
 
-    syncService.onDataRefreshed = () {
+    syncService.onDataRefreshed = () async {
       if (mounted) {
-        _loadData();
+        await _refreshUiAfterSync();
       }
     };
 
@@ -113,21 +115,85 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         ),
       ]);
 
-      // Full sync si hay conexión (ventas pendientes + productos, período, destinos, monedas)
-      context.read<SyncProvider>().fullSync(
-        tiendaId,
-        negocioId: auth.negocioId,
+      if (!mounted) return;
+
+      context.read<ProductosProvider>().applyConnectionFilter(
+        context.read<SyncProvider>().isOnline,
       );
 
-      // Cargar y guardar listado unificado de ventas (servidor + local) para no depender de abrir "Ventas y sincronización"
+      // Full sync si hay conexión (ventas primero, inventario al final)
+      if (context.read<SyncProvider>().isOnline) {
+        await context.read<SyncProvider>().fullSync(
+          tiendaId,
+          negocioId: auth.negocioId,
+        );
+      }
+
+      if (!mounted) return;
+
+      // Cargar listado unificado de ventas
       final periodoId = context.read<PeriodoProvider>().periodoId;
       if (periodoId != null && periodoId.isNotEmpty) {
         await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
       }
     } catch (e) {
       print('⚠️ Error inicializando: $e');
-      setState(() => _initError = e.toString());
+      if (mounted) setState(() => _initError = e.toString());
     }
+  }
+
+  /// Refresca providers tras una sincronización (reconexión o manual), sin repetir fullSync.
+  Future<void> _refreshUiAfterSync() async {
+    final auth = context.read<AuthProvider>();
+    final tiendaId = auth.tiendaId;
+    if (tiendaId.isEmpty) return;
+
+    try {
+      await Future.wait([
+        context.read<ProductosProvider>().loadProductos(tiendaId, showLoading: false),
+        context.read<PeriodoProvider>().loadPeriodo(tiendaId),
+        context.read<VentasProvider>().refreshPendientes(),
+        context.read<MonedasProvider>().load(
+          auth.negocioId,
+          fallbackMonedaBase: auth.monedaBase,
+        ),
+      ]);
+
+      if (!mounted) return;
+
+      context.read<ProductosProvider>().applyConnectionFilter(
+        context.read<SyncProvider>().isOnline,
+      );
+
+      final periodoId = context.read<PeriodoProvider>().periodoId;
+      if (periodoId != null && periodoId.isNotEmpty) {
+        await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
+      }
+    } catch (e) {
+      print('⚠️ Error refrescando UI: $e');
+    }
+  }
+
+  /// Sincronización manual (menú o pull-to-refresh).
+  Future<void> _performSync() async {
+    final auth = context.read<AuthProvider>();
+    final syncProvider = context.read<SyncProvider>();
+
+    if (!syncProvider.isOnline) {
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          content: const Text('Sin conexión — no se puede sincronizar'),
+          backgroundColor: AppColors.warning,
+        );
+      }
+      return;
+    }
+
+    await syncProvider.fullSync(
+      auth.tiendaId,
+      negocioId: auth.negocioId,
+    );
   }
 
   @override
@@ -148,6 +214,17 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     final periodoProvider = context.watch<PeriodoProvider>();
     final syncProvider = context.watch<SyncProvider>();
     final ventasProvider = context.watch<VentasProvider>();
+
+    if (_lastOnline != syncProvider.isOnline) {
+      _lastOnline = syncProvider.isOnline;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<ProductosProvider>().applyConnectionFilter(
+            syncProvider.isOnline,
+          );
+        }
+      });
+    }
 
     return HardwareScannerListener(
       enabled: _isInitialized && periodoProvider.hasActivePeriodo,
@@ -299,8 +376,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 //   _showCambiarTiendaDialog();
                 //   break;
                 case 'sync':
-                  await syncProvider.fullSync(auth.tiendaId);
-                  await _loadData();
+                  await _performSync();
                   break;
                 case 'version':
                   Navigator.push(
@@ -375,21 +451,33 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
             ),
           ),
 
-        // Resultados búsqueda o categorías
+        // Resultados búsqueda o categorías (pull-to-refresh para sincronizar)
         Expanded(
-          child: _searchQuery.trim().isEmpty
-              ? (productosProvider.isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : CategoriasGrid(
-                      categorias: productosProvider.categorias,
-                      productosProvider: productosProvider,
-                    ))
-              : _BuildSearchResults(
-                  query: _searchQuery.trim(),
-                  productosProvider: productosProvider,
-                  onProductTap: _showAddToCartDialog,
-                  onQuickAdd: _quickAddToCart,
-                ),
+          child: RefreshIndicator(
+            color: AppColors.primary,
+            onRefresh: _performSync,
+            child: _searchQuery.trim().isEmpty
+                ? (productosProvider.isLoading
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(
+                            height: 200,
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ],
+                      )
+                    : CategoriasGrid(
+                        categorias: productosProvider.categorias,
+                        productosProvider: productosProvider,
+                      ))
+                : _BuildSearchResults(
+                    query: _searchQuery.trim(),
+                    productosProvider: productosProvider,
+                    onProductTap: _showAddToCartDialog,
+                    onQuickAdd: _quickAddToCart,
+                  ),
+          ),
         ),
 
         // Buscador por nombre + escáner de cámara
@@ -582,6 +670,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   /// Agregar 1 unidad al carrito desde el icono de acceso rápido (buscador).
   Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
     final productosProvider = context.read<ProductosProvider>();
+    final isOnline = context.read<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
     final cart = context.read<CartProvider>().activeCart;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
@@ -591,8 +681,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
-    if (maxDisp <= 0) {
+    if (isOnline && maxDisp <= 0) {
       if (context.mounted) {
         AppSnackBar.show(
           context,
@@ -607,6 +698,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
+          isOnline: isOnline,
         );
     if (!context.mounted) return;
     if (ok) {
@@ -616,11 +708,26 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         backgroundColor: AppColors.success,
         duration: const Duration(seconds: 1),
       );
+      if (offlineMode &&
+          !ProductoPosRules.tieneStockLocalEfectivo(
+            producto,
+            productosProvider.allProductos,
+            cantidadEnCarrito: cantidadEnCarrito + qty,
+          )) {
+        AppSnackBar.show(
+          context,
+          content: const Text('Sin stock local — se validará al sincronizar'),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        );
+      }
     }
   }
 
   void _showAddToCartDialog(BuildContext context, ProductoModel producto) {
     final productosProvider = context.read<ProductosProvider>();
+    final isOnline = context.read<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
     final cart = context.read<CartProvider>().activeCart;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
@@ -630,21 +737,20 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
-    if (maxDisp <= 0) return;
-    final esFraccion = ProductoPosRules.isFraccion(producto);
-    final existenciaReal = ProductoPosRules.existenciaReal(producto);
+    if (!offlineMode && maxDisp <= 0) return;
     final initialQty = producto.permiteDecimal ? 0.1 : 1.0;
     final controller = TextEditingController(
       text: initialQty.toStringAsFixed(producto.permiteDecimal ? 1 : 0),
     );
 
-    String stockLabel() {
-      if (esFraccion) {
-        return 'Stock: ${existenciaReal.toStringAsFixed(producto.permiteDecimal ? 1 : 0)} | Máx. por venta: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
-      }
-      return 'Disponibles: ${maxDisp.toStringAsFixed(producto.permiteDecimal ? 1 : 0)}';
-    }
+    String stockLabel() => ProductoPosRules.textoStockEnDialogo(
+          producto,
+          productosProvider.allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: offlineMode,
+        );
 
     HardwareScannerGate.instance.block('product_dialog');
     showDialog(
@@ -669,7 +775,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
               next = next.roundToDouble();
               if (next < 1) next = 1;
             }
-            if (next > maxDisp) next = maxDisp;
+            if (maxDisp.isFinite && next > maxDisp) next = maxDisp;
             controller.text =
                 next.toStringAsFixed(producto.permiteDecimal ? 2 : 0);
             setState(() {});
@@ -742,13 +848,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   if (producto.permiteDecimal) {
                     cantidad = double.parse(cantidad.toStringAsFixed(2));
                   }
-                  if (cantidad > maxDisp) return;
+                  if (maxDisp.isFinite && cantidad > maxDisp) return;
 
                   Navigator.pop(ctx);
                   final ok = await context.read<CartProvider>().addToCart(
                         producto,
                         cantidad: cantidad,
                         allProductos: productosProvider.allProductos,
+                        isOnline: isOnline,
                       );
                   if (!context.mounted) return;
                   if (ok) {
@@ -802,21 +909,33 @@ class _BuildSearchResults extends StatelessWidget {
   Widget build(BuildContext context) {
     final results = productosProvider.searchByName(query, limit: 15);
     final monedas = context.watch<MonedasProvider>();
+    final isOnline = context.watch<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
 
     if (results.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.search_off, size: 48, color: AppColors.textHint),
-            const SizedBox(height: 12),
-            Text(
-              'Sin coincidencias para "$query"',
-              style: TextStyle(color: AppColors.textSecondary),
-              textAlign: TextAlign.center,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.search_off, size: 48, color: AppColors.textHint),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Sin coincidencias para "$query"',
+                      style: TextStyle(color: AppColors.textSecondary),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          );
+        },
       );
     }
 
@@ -824,6 +943,7 @@ class _BuildSearchResults extends StatelessWidget {
     final allProductos = productosProvider.allProductos;
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(12),
       itemCount: results.length,
       itemBuilder: (context, index) {
@@ -836,45 +956,84 @@ class _BuildSearchResults extends StatelessWidget {
           p,
           allProductos,
           cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: offlineMode,
         );
-        final hasStock = disponible > 0;
-        final esFraccion = ProductoPosRules.isFraccion(p);
-        final existenciaReal = ProductoPosRules.existenciaReal(p);
-        final stockText = esFraccion
-            ? 'Stock: ${existenciaReal.toStringAsFixed(p.permiteDecimal ? 1 : 0)} | Máx: ${disponible.toStringAsFixed(p.permiteDecimal ? 1 : 0)}'
-            : 'Cant: ${disponible.toStringAsFixed(p.permiteDecimal ? 1 : 0)}';
+        final puedeAgregar = ProductoPosRules.puedeAgregar(
+          p,
+          allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: offlineMode,
+        );
+        final sinStockLocal = offlineMode &&
+            !ProductoPosRules.tieneStockLocalEfectivo(
+              p,
+              allProductos,
+              cantidadEnCarrito: cantidadEnCarrito,
+            );
+        final hasStock = isOnline
+            ? disponible > 0
+            : ProductoPosRules.tieneStockLocalEfectivo(
+                p,
+                allProductos,
+                cantidadEnCarrito: cantidadEnCarrito,
+              );
+        final stockText = ProductoPosRules.textoStockEnCard(
+          p,
+          allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+          offlineMode: offlineMode,
+        );
 
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
+          color: SinStockLocalStyles.cardColor(sinStockLocal: sinStockLocal),
+          shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
           child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             title: Text(
               ProductoPosRules.nombreParaMostrar(p),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontWeight: FontWeight.w500,
-                color: hasStock ? null : AppColors.textSecondary,
+                color: (!isOnline || hasStock) ? null : AppColors.textSecondary,
               ),
             ),
             subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (sinStockLocal) ...[
+                  const SizedBox(height: 6),
+                  const StockLocalBadge(compact: true),
+                ],
+                const SizedBox(height: 4),
                 MultiCurrencyAmount(
                   amount: monedas.precioEnBase(p.precio, p.monedaPrecioCode),
                   variant: MultiCurrencyVariant.compact,
                 ),
-                Text(
-                  stockText,
-                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                ),
+                if (stockText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      stockText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
               ],
             ),
-            trailing: hasStock
+            trailing: puedeAgregar
                 ? IconButton(
                     icon: const Icon(Icons.add_shopping_cart, color: AppColors.success),
                     onPressed: () => onQuickAdd(context, p),
                     tooltip: 'Agregar 1 al carrito',
                   )
                 : null,
-            onTap: hasStock ? () => onProductTap(context, p) : null,
+            onTap: puedeAgregar ? () => onProductTap(context, p) : null,
           ),
         );
       },

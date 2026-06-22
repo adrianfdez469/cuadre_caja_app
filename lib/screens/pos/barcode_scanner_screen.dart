@@ -10,10 +10,12 @@ import '../../core/constants/storage_keys.dart';
 import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../widgets/stock_local_badge.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/sync_provider.dart';
 import 'asociar_codigo_sheet.dart';
 
 class BarcodeScannerScreen extends StatefulWidget {
@@ -167,6 +169,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (!mounted) return;
 
     final productosProvider = context.read<ProductosProvider>();
+    final isOnline = context.read<SyncProvider>().isOnline;
+    final offlineMode = !isOnline;
     final producto = productosProvider.findProductByCodigo(code);
 
     if (producto == null) {
@@ -211,10 +215,11 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: offlineMode,
     );
 
     if (autoMode) {
-      if (maxDisp <= 0) {
+      if (isOnline && maxDisp <= 0) {
         _playError();
         _startAutoScanCooldown();
         AppSnackBar.show(
@@ -227,6 +232,23 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         return;
       }
 
+      if (!isOnline &&
+          !ProductoPosRules.puedeAgregar(
+            producto,
+            productosProvider.allProductos,
+            cantidadEnCarrito: cantidadEnCarrito,
+            offlineMode: true,
+          )) {
+        _playError();
+        _startAutoScanCooldown();
+        AppSnackBar.show(
+          context,
+          content: const Text('Cantidad supera el máximo permitido'),
+          backgroundColor: AppColors.error,
+        );
+        return;
+      }
+
       setState(() => _isProcessing = true);
       final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
       context
@@ -235,6 +257,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             producto,
             cantidad: qty,
             allProductos: productosProvider.allProductos,
+            isOnline: isOnline,
           )
           .then((ok) {
         if (!mounted) return;
@@ -271,7 +294,17 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   void _addPreviewToCart() {
     final producto = _previewProduct;
-    if (producto == null || _isProcessing || _previewMaxQty <= 0) return;
+    if (producto == null || _isProcessing) return;
+    final isOnline = context.read<SyncProvider>().isOnline;
+    if (isOnline && _previewMaxQty <= 0) return;
+    if (!isOnline &&
+        !ProductoPosRules.puedeAgregar(
+          producto,
+          context.read<ProductosProvider>().allProductos,
+          offlineMode: true,
+        )) {
+      return;
+    }
 
     _detectionTimer?.cancel();
     final productosProvider = context.read<ProductosProvider>();
@@ -290,6 +323,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
+          isOnline: isOnline,
         )
         .then((ok) {
       if (!mounted) return;
@@ -359,8 +393,17 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bool canAdd =
-        _previewProduct != null && _previewMaxQty > 0 && !_isProcessing;
+    final isOnline = context.watch<SyncProvider>().isOnline;
+    final puedeAgregarPreview = _previewProduct != null &&
+        !_isProcessing &&
+        (isOnline
+            ? _previewMaxQty > 0
+            : ProductoPosRules.puedeAgregar(
+                _previewProduct!,
+                context.read<ProductosProvider>().allProductos,
+                offlineMode: true,
+              ));
+    final bool canAdd = puedeAgregarPreview;
 
     final usuario = context.watch<AuthProvider>().usuario;
     final userCanAssociate = usuario != null &&
@@ -639,19 +682,40 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   /// Card compacta semitransparente que aparece en la parte superior.
   Widget _buildPreviewCard() {
     final producto = _previewProduct!;
-    final sinStock = _previewMaxQty <= 0;
+    final isOnline = context.watch<SyncProvider>().isOnline;
+    final allProductos = context.read<ProductosProvider>().allProductos;
+    final cart = context.watch<CartProvider>().activeCart;
+    final cantidadEnCarrito = cart?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    final sinStockLocal = !isOnline &&
+        !ProductoPosRules.tieneStockLocalEfectivo(
+          producto,
+          allProductos,
+          cantidadEnCarrito: cantidadEnCarrito,
+        );
     final nombreProducto = ProductoPosRules.nombreParaMostrar(producto);
-    final existenciaStr = producto.existencia % 1 == 0
-        ? producto.existencia.toInt().toString()
-        : producto.existencia.toStringAsFixed(2);
+    final existenciaStr = sinStockLocal
+        ? 'Sin stock local'
+        : ProductoPosRules.formatearCantidad(
+            producto,
+            isOnline
+                ? ProductoPosRules.existenciaReal(producto)
+                : ProductoPosRules.existenciaLocalEfectiva(
+                    producto,
+                    allProductos,
+                    cantidadEnCarrito: cantidadEnCarrito,
+                  ),
+          );
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.52),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: sinStock
-              ? AppColors.warning.withOpacity(0.7)
+          color: sinStockLocal
+              ? SinStockLocalStyles.border
               : Colors.white.withOpacity(0.18),
           width: 1,
         ),
@@ -668,10 +732,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         children: [
           // Icono de estado
           Icon(
-            sinStock
-                ? Icons.warning_amber_rounded
+            sinStockLocal
+                ? Icons.cloud_off_outlined
                 : Icons.qr_code_2_outlined,
-            color: sinStock ? AppColors.warning : Colors.greenAccent,
+            color: sinStockLocal
+                ? SinStockLocalStyles.accent
+                : Colors.greenAccent,
             size: 20,
           ),
           const SizedBox(width: 8),
@@ -700,32 +766,27 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           ),
           const SizedBox(width: 8),
           // Existencia
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: sinStock
-                  ? AppColors.warning.withOpacity(0.2)
-                  : Colors.white.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  size: 11,
-                  color: sinStock ? AppColors.warning : Colors.white70,
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: sinStockLocal
+                    ? SinStockLocalStyles.badgeBg.withOpacity(0.9)
+                    : Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                existenciaStr,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: sinStockLocal
+                      ? SinStockLocalStyles.accent
+                      : Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                 ),
-                const SizedBox(width: 3),
-                Text(
-                  existenciaStr,
-                  style: TextStyle(
-                    color: sinStock ? AppColors.warning : Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
