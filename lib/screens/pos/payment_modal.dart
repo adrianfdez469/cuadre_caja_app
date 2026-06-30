@@ -21,6 +21,27 @@ import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
 
+/// Solo permite la parte entera; ignora dígitos después del separador decimal.
+class _CashAmountInputFormatter extends TextInputFormatter {
+  const _CashAmountInputFormatter();
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final dot = newValue.text.indexOf('.');
+    final intPart = dot >= 0 ? newValue.text.substring(0, dot) : newValue.text;
+    final digits = intPart.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits == newValue.text) return newValue;
+
+    final offset = newValue.selection.baseOffset.clamp(0, digits.length);
+    return TextEditingValue(
+      text: digits,
+      selection: TextSelection.collapsed(offset: offset),
+    );
+  }
+}
+
 class _PagoMoneda {
   double cash;
   double transfer;
@@ -387,7 +408,9 @@ class _PaymentModalState extends State<PaymentModal> {
   }
 
   void _onCashManualEdit(String moneda, String value) {
-    final amount = double.tryParse(value) ?? 0;
+    final dot = value.indexOf('.');
+    final intPart = dot >= 0 ? value.substring(0, dot) : value;
+    final amount = intPart.isEmpty ? 0.0 : (int.tryParse(intPart) ?? 0).toDouble();
     setState(() {
       _clearSavedBreakdown(moneda);
       final pago = _pagosMap[moneda];
@@ -766,9 +789,7 @@ class _PaymentModalState extends State<PaymentModal> {
             controller: _cashControllers[moneda],
             readOnly: breakdownActive,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-            ],
+            inputFormatters: const [_CashAmountInputFormatter()],
             decoration: InputDecoration(
               labelText: 'Efectivo',
               hintText: '0.00',
