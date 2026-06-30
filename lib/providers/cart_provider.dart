@@ -224,4 +224,14 @@ class CartProvider extends ChangeNotifier {
     if (cart == null) return;
     await _cartLocal.updateCart(cart);
   }
+
+  @visibleForTesting
+  void debugSetActiveCart(CartModel cart) {
+    if (_carts.isEmpty) {
+      _carts = [cart];
+    } else {
+      _carts[_activeCartIndex] = cart;
+    }
+    notifyListeners();
+  }
 }

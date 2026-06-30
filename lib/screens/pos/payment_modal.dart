@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/bill_denominations.dart';
 import '../../core/widgets/app_snackbar.dart';
+import '../../core/utils/cash_amount_input_formatter.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/payment_logic.dart';
 import '../../data/models/moneda_model.dart';
 import '../../data/models/pago_multimoneda_model.dart';
 import '../../data/models/transfer_destination_model.dart';
@@ -20,27 +22,6 @@ import '../../providers/sync_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
-
-/// Solo permite la parte entera; ignora dígitos después del separador decimal.
-class _CashAmountInputFormatter extends TextInputFormatter {
-  const _CashAmountInputFormatter();
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final dot = newValue.text.indexOf('.');
-    final intPart = dot >= 0 ? newValue.text.substring(0, dot) : newValue.text;
-    final digits = intPart.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits == newValue.text) return newValue;
-
-    final offset = newValue.selection.baseOffset.clamp(0, digits.length);
-    return TextEditingValue(
-      text: digits,
-      selection: TextSelection.collapsed(offset: offset),
-    );
-  }
-}
 
 class _PagoMoneda {
   double cash;
@@ -55,7 +36,14 @@ class _PagoMoneda {
 }
 
 class PaymentModal extends StatefulWidget {
-  const PaymentModal({super.key});
+  const PaymentModal({
+    super.key,
+    this.loadTransferDestinationsOverride,
+  });
+
+  /// Solo para tests: evita depender de SyncService real.
+  final Future<List<TransferDestinationModel>> Function(String tiendaId)?
+      loadTransferDestinationsOverride;
 
   @override
   State<PaymentModal> createState() => _PaymentModalState();
@@ -70,8 +58,7 @@ class _PaymentModalState extends State<PaymentModal> {
   Map<String, bool> _showPayBreakdown = {};
   Map<String, int> _payBreakdownResetKeys = {};
   Map<String, Map<double, int>> _savedBillBreakdowns = {};
-  /// Por moneda: cash | transfer | mixed
-  Map<String, String> _paymentMode = {};
+  Map<String, bool> _showTransfer = {};
   Map<String, double> _vueltoMap = {};
   bool _vueltoLocked = false;
   bool _showBaseBreakdown = false;
@@ -96,8 +83,9 @@ class _PaymentModalState extends State<PaymentModal> {
         ? monedas.monedaBase
         : auth.monedaBase;
 
-    final sync = context.read<SyncService>();
-    final destinos = await sync.loadTransferDestinations(auth.tiendaId);
+    final loadDestinos = widget.loadTransferDestinationsOverride ??
+        context.read<SyncService>().loadTransferDestinations;
+    final destinos = await loadDestinos(auth.tiendaId);
     if (!mounted) return;
 
     final defaultDestId = _defaultDestId(destinos);
@@ -133,17 +121,12 @@ class _PaymentModalState extends State<PaymentModal> {
     return info?.admiteTransferencia ?? false;
   }
 
-  double _montoObjetivoMoneda(String moneda) {
-    if (moneda == _monedaBase) return _total;
-    return _suggestCash(moneda, excludeMoneda: moneda);
-  }
-
   void _initMoneda(String moneda, {double cash = 0, String transferDestId = ''}) {
     final soloTransfer =
         !_admiteEfectivoMoneda(moneda) && _admiteTransferMoneda(moneda);
 
     if (soloTransfer) {
-      _paymentMode[moneda] = 'transfer';
+      _showTransfer[moneda] = true;
       _pagosMap[moneda] = _PagoMoneda(
         cash: 0,
         transfer: cash,
@@ -154,7 +137,7 @@ class _PaymentModalState extends State<PaymentModal> {
         text: cash > 0 ? cash.toStringAsFixed(2) : '',
       );
     } else {
-      _paymentMode[moneda] = 'cash';
+      _showTransfer[moneda] = false;
       _pagosMap[moneda] = _PagoMoneda(
         cash: cash,
         transfer: 0,
@@ -167,40 +150,14 @@ class _PaymentModalState extends State<PaymentModal> {
     }
   }
 
-  void _setPaymentMode(String moneda, String mode) {
-    final pago = _pagosMap[moneda];
-    if (pago == null) return;
-    final objetivo = _montoObjetivoMoneda(moneda);
-
-    setState(() {
-      _paymentMode[moneda] = mode;
-      if (mode == 'transfer') {
-        _showPayBreakdown[moneda] = false;
-        if (moneda == _monedaBase) _showBaseBreakdown = false;
-      }
-      _clearSavedBreakdown(moneda);
-
-      if (mode == 'transfer') {
-        pago.cash = 0;
-        pago.transfer = objetivo;
-        _cashControllers[moneda]?.text = '';
-        _transferControllers[moneda]?.text =
-            objetivo > 0 ? objetivo.toStringAsFixed(2) : '';
-      } else if (mode == 'mixed') {
-        pago.cash = 0;
-        pago.transfer = 0;
-        _cashControllers[moneda]?.text = '';
-        _transferControllers[moneda]?.text = '';
-      } else {
-        pago.cash = objetivo;
-        pago.transfer = 0;
-        _cashControllers[moneda]?.text =
-            objetivo > 0 ? objetivo.toStringAsFixed(2) : '';
-        _transferControllers[moneda]?.text = '';
-      }
-      _syncVueltoAuto();
-    });
-  }
+  Map<String, PagoMonedaState> get _pagosState => {
+        for (final e in _pagosMap.entries)
+          e.key: PagoMonedaState(
+            cash: e.value.cash,
+            transfer: e.value.transfer,
+            transferDestId: e.value.transferDestId,
+          ),
+      };
 
   @override
   void dispose() {
@@ -281,44 +238,19 @@ class _PaymentModalState extends State<PaymentModal> {
   String _fmtBase(double amount) =>
       Formatters.formatMonedaAmount(amount, code: _monedaBase);
 
-  List<PagoLinea> get _pagosLinea {
-    final lines = <PagoLinea>[];
-    for (final entry in _pagosMap.entries) {
-      final moneda = entry.key;
-      final pago = entry.value;
-      if (pago.cash > 0) {
-        lines.add(PagoLinea(
-          tipo: 'cash',
-          moneda: moneda,
-          monto: pago.cash,
-          equivalenteBase: _convertToBase(pago.cash, moneda),
-        ));
-      }
-      if (pago.transfer > 0) {
-        lines.add(PagoLinea(
-          tipo: 'transfer',
-          moneda: moneda,
-          monto: pago.transfer,
-          equivalenteBase: _convertToBase(pago.transfer, moneda),
-          transferDestinationId: pago.transferDestId.isNotEmpty
-              ? pago.transferDestId
-              : null,
-        ));
-      }
-    }
-    return lines;
-  }
+  List<PagoLinea> get _pagosLinea =>
+      PaymentLogic.buildPagosLinea(_pagosState, _monedaBase, _tasas);
 
-  double get _totalPagadoBase => _pagosLinea.fold<double>(
-        0,
-        (sum, p) => sum + p.equivalenteBase,
+  double get _totalPagadoBase =>
+      PaymentLogic.totalPagadoBase(_pagosState, _monedaBase, _tasas);
+
+  bool get _falta => PaymentLogic.falta(_total, _totalPagadoBase);
+
+  double get _vueltoTotalBase => PaymentLogic.vueltoTotalBase(
+        total: _total,
+        totalPagadoBase: _totalPagadoBase,
+        falta: _falta,
       );
-
-  bool get _falta =>
-      (_totalPagadoBase * 100).round() < (_total * 100).round();
-
-  double get _vueltoTotalBase =>
-      _falta ? 0 : (_totalPagadoBase - _total).clamp(0, double.infinity);
 
   List<String> get _monedasEligiblesVuelto => _todasMonedas
       .where((m) =>
@@ -368,18 +300,15 @@ class _PaymentModalState extends State<PaymentModal> {
     }
   }
 
-  double _suggestCash(String moneda, {String? excludeMoneda}) {
-    final otherPaid = _pagosMap.entries
-        .where((e) => e.key != excludeMoneda)
-        .fold<double>(
-          0,
-          (s, e) =>
-              s + _convertToBase(e.value.cash + e.value.transfer, e.key),
-        );
-    final rem = (_total - otherPaid).clamp(0, double.infinity).toDouble();
-    if (rem <= 0) return 0;
-    return double.parse(_convertFromBase(rem, moneda).toStringAsFixed(2));
-  }
+  double _suggestCash(String moneda, {String? excludeMoneda}) =>
+      PaymentLogic.suggestCash(
+        total: _total,
+        pagos: _pagosState,
+        moneda: moneda,
+        monedaBase: _monedaBase,
+        tasas: _tasas,
+        excludeMoneda: excludeMoneda,
+      );
 
   void _bumpBreakdownResetKey(String moneda) {
     if (moneda == _monedaBase) {
@@ -408,9 +337,7 @@ class _PaymentModalState extends State<PaymentModal> {
   }
 
   void _onCashManualEdit(String moneda, String value) {
-    final dot = value.indexOf('.');
-    final intPart = dot >= 0 ? value.substring(0, dot) : value;
-    final amount = intPart.isEmpty ? 0.0 : (int.tryParse(intPart) ?? 0).toDouble();
+    final amount = parseCashAmount(value);
     setState(() {
       _clearSavedBreakdown(moneda);
       final pago = _pagosMap[moneda];
@@ -497,7 +424,7 @@ class _PaymentModalState extends State<PaymentModal> {
       _showPayBreakdown.remove(moneda);
       _payBreakdownResetKeys.remove(moneda);
       _savedBillBreakdowns.remove(moneda);
-      _paymentMode.remove(moneda);
+      _showTransfer.remove(moneda);
       _syncVueltoAuto();
     });
   }
@@ -511,6 +438,27 @@ class _PaymentModalState extends State<PaymentModal> {
   void _toggleBaseBreakdown() {
     setState(() {
       _showBaseBreakdown = !_showBaseBreakdown;
+    });
+  }
+
+  void _toggleTransfer(String moneda) {
+    final pago = _pagosMap[moneda];
+    if (pago == null) return;
+
+    setState(() {
+      final showing = _showTransfer[moneda] ?? false;
+      _showTransfer[moneda] = !showing;
+      if (showing) {
+        final collapsed = PaymentLogic.collapseTransferToCash(
+          cash: pago.cash,
+          transfer: pago.transfer,
+        );
+        pago.cash = collapsed.cash;
+        pago.transfer = collapsed.transfer;
+        _setAmountControllerText(_cashControllers[moneda], pago.cash);
+        _setAmountControllerText(_transferControllers[moneda], 0);
+      }
+      _syncVueltoAuto();
     });
   }
 
@@ -551,19 +499,13 @@ class _PaymentModalState extends State<PaymentModal> {
     });
   }
 
-  bool get _canConfirm {
-    if (_total <= 0) return _pagosMap.isNotEmpty;
-    if (_falta || _totalPagadoBase <= 0) return false;
-    for (final p in _pagosLinea) {
-      if (p.tipo == 'transfer' &&
-          p.monto > 0 &&
-          (p.transferDestinationId == null ||
-              p.transferDestinationId!.isEmpty)) {
-        return false;
-      }
-    }
-    return true;
-  }
+  bool get _canConfirm => PaymentLogic.canConfirm(
+        total: _total,
+        falta: _falta,
+        totalPagadoBase: _totalPagadoBase,
+        pagosLinea: _pagosLinea,
+        hasPagos: _pagosMap.isNotEmpty,
+      );
 
   Future<void> _pickMoneda(
     BuildContext context,
@@ -732,9 +674,11 @@ class _PaymentModalState extends State<PaymentModal> {
     final pago = _pagosMap[moneda]!;
     final admiteEfectivo = _admiteEfectivoMoneda(moneda);
     final admiteTransfer = _admiteTransferMoneda(moneda);
-    final mode = _paymentMode[moneda] ?? 'cash';
-    final showCash = admiteEfectivo && mode != 'transfer';
-    final showTransfer = admiteTransfer && mode != 'cash';
+    final soloTransfer = !admiteEfectivo && admiteTransfer;
+    final transferExpanded = _showTransfer[moneda] ?? false;
+    final showCash = admiteEfectivo;
+    final showTransfer = admiteTransfer &&
+        (soloTransfer || transferExpanded || pago.transfer > 0);
     final totalMoneda = pago.cash + pago.transfer;
     final eqBase = !isBase && totalMoneda > 0
         ? _convertToBase(totalMoneda, moneda)
@@ -771,25 +715,12 @@ class _PaymentModalState extends State<PaymentModal> {
           ],
         ),
         const SizedBox(height: 8),
-        if (admiteEfectivo && admiteTransfer) ...[
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'cash', label: Text('Efectivo')),
-              ButtonSegment(value: 'transfer', label: Text('Transfer.')),
-              ButtonSegment(value: 'mixed', label: Text('Mixto')),
-            ],
-            selected: {mode},
-            onSelectionChanged: (selected) =>
-                _setPaymentMode(moneda, selected.first),
-          ),
-          const SizedBox(height: 12),
-        ],
         if (showCash) ...[
           TextField(
             controller: _cashControllers[moneda],
             readOnly: breakdownActive,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: const [_CashAmountInputFormatter()],
+            inputFormatters: const [CashAmountInputFormatter()],
             decoration: InputDecoration(
               labelText: 'Efectivo',
               hintText: '0.00',
@@ -854,6 +785,25 @@ class _PaymentModalState extends State<PaymentModal> {
                 onChange: (total) => _updatePago(moneda, cash: total),
               ),
             ),
+          if (admiteTransfer)
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => _toggleTransfer(moneda),
+              icon: Icon(
+                transferExpanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+              ),
+              label: Text(
+                transferExpanded
+                    ? 'Ocultar transferencia'
+                    : 'Agregar transferencia',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
         ],
         if (showTransfer) ...[
           if (showCash) const SizedBox(height: 8),
@@ -875,22 +825,25 @@ class _PaymentModalState extends State<PaymentModal> {
             onTapOutside: (_) => _formatTransferField(moneda),
             onChanged: (v) {
               final newTransfer = double.tryParse(v) ?? 0;
-              if (mode == 'mixed') {
-                final newCash = (pago.cash + pago.transfer - newTransfer)
-                    .clamp(0, double.infinity);
-                setState(() {
-                  pago.transfer = newTransfer;
-                  pago.cash = double.parse(newCash.toStringAsFixed(2));
-                  _setAmountControllerText(_cashControllers[moneda], pago.cash);
-                  _syncVueltoAuto();
-                });
-              } else {
+              if (soloTransfer) {
                 _updatePago(
                   moneda,
                   transfer: newTransfer,
                   cash: 0,
                   syncControllers: false,
                 );
+              } else {
+                final updated = PaymentLogic.applyMixedTransferEdit(
+                  currentCash: pago.cash,
+                  currentTransfer: pago.transfer,
+                  newTransfer: newTransfer,
+                );
+                setState(() {
+                  pago.transfer = updated.transfer;
+                  pago.cash = updated.cash;
+                  _setAmountControllerText(_cashControllers[moneda], pago.cash);
+                  _syncVueltoAuto();
+                });
               }
             },
           ),

@@ -148,4 +148,11 @@ class AuthProvider extends ChangeNotifier {
     }
     return e.toString().replaceAll('Exception: ', '');
   }
+
+  @visibleForTesting
+  void debugSetUsuario(UsuarioModel usuario) {
+    _usuario = usuario;
+    _status = AuthStatus.authenticated;
+    notifyListeners();
+  }
 }

@@ -116,4 +116,10 @@ class MonedasProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
+
+  @visibleForTesting
+  void debugSetConfig(MultimonedaConfig config) {
+    _config = config;
+    notifyListeners();
+  }
 }
