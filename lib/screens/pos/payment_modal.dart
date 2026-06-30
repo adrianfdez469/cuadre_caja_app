@@ -798,18 +798,25 @@ class _PaymentModalState extends State<PaymentModal> {
           ),
           if (denoms.isNotEmpty)
             TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
               onPressed: () =>
                   isBase ? _toggleBaseBreakdown() : _togglePayBreakdown(moneda),
               icon: Icon(
                 breakdownActive ? Icons.expand_less : Icons.expand_more,
+                size: 18,
               ),
               label: Text(
                 breakdownActive ? 'Ocultar desglose' : 'Desglosar billetes',
+                style: const TextStyle(fontSize: 13),
               ),
             ),
           if (breakdownActive && denoms.isNotEmpty)
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
               decoration: BoxDecoration(
                 border: Border.all(color: AppColors.textHint.withValues(alpha: 0.4)),
                 borderRadius: BorderRadius.circular(8),

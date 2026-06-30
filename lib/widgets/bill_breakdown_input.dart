@@ -28,6 +28,10 @@ class BillBreakdownInput extends StatefulWidget {
 
 class _BillBreakdownInputState extends State<BillBreakdownInput> {
   static const int _maxCount = 9999;
+  static const double _denomWidth = 36;
+  static const double _stepBtnWidth = 24;
+  static const double _inputWidth = 40;
+  static const double _inputHeight = 28;
 
   final Map<double, int> _counts = {};
   final Map<double, TextEditingController> _countControllers = {};
@@ -130,6 +134,147 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
     _syncCountController(denomination, count);
   }
 
+  Widget _stepButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox(
+      width: _stepBtnWidth,
+      height: _stepBtnWidth,
+      child: IconButton(
+        icon: Icon(icon, size: 17),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        visualDensity: VisualDensity.compact,
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildDenomRow(double d) {
+    final count = _counts[d] ?? 0;
+    final subtotal = d * count;
+    final highlighted = count > 0;
+
+    return Material(
+      color: highlighted
+          ? AppColors.primary.withValues(alpha: 0.08)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: _denomWidth,
+                  child: Text(
+                    Formatters.formatNumber(
+                      d,
+                      decimals: d == d.roundToDouble() ? 0 : 2,
+                    ),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                _stepButton(
+                  icon: Icons.remove_circle_outline,
+                  onPressed: count > 0 ? () => _setCount(d, count - 1) : null,
+                ),
+                SizedBox(
+                  width: _inputWidth,
+                  height: _inputHeight,
+                  child: TextField(
+                    controller: _countControllers[d],
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    maxLength: 4,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          highlighted ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      counterText: '',
+                      hintText: '0',
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+                      border: OutlineInputBorder(),
+                    ),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onTap: () {
+                      final controller = _countControllers[d];
+                      if (controller == null) return;
+                      controller.selection = TextSelection(
+                        baseOffset: 0,
+                        extentOffset: controller.text.length,
+                      );
+                    },
+                    onEditingComplete: () => _formatCountField(d),
+                    onTapOutside: (_) => _formatCountField(d),
+                    onChanged: (value) => _onCountManualEdit(d, value),
+                  ),
+                ),
+                _stepButton(
+                  icon: Icons.add_circle_outline,
+                  onPressed:
+                      count < _maxCount ? () => _setCount(d, count + 1) : null,
+                ),
+              ],
+            ),
+            if (highlighted)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '= ${Formatters.formatNumber(subtotal)}',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildDenomGrid() {
+    final denoms = widget.denominations;
+    final rows = <Widget>[];
+
+    for (var i = 0; i < denoms.length; i += 2) {
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _buildDenomRow(denoms[i])),
+              if (i + 1 < denoms.length) ...[
+                const SizedBox(width: 2),
+                Expanded(child: _buildDenomRow(denoms[i + 1])),
+              ] else
+                const Expanded(child: SizedBox.shrink()),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context) {
     final diff = widget.targetAmount != null ? _total - widget.targetAmount! : null;
@@ -137,98 +282,14 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ...widget.denominations.map((d) {
-          final count = _counts[d] ?? 0;
-          final subtotal = d * count;
-          final highlighted = count > 0;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Material(
-              color: highlighted
-                  ? AppColors.primary.withValues(alpha: 0.08)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 52,
-                      child: Text(
-                        Formatters.formatNumber(d, decimals: d == d.roundToDouble() ? 0 : 2),
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4),
-                      child: Text('×', style: TextStyle(color: AppColors.textSecondary)),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle_outline),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: count > 0 ? () => _setCount(d, count - 1) : null,
-                    ),
-                    SizedBox(
-                      width: 56,
-                      child: TextField(
-                        controller: _countControllers[d],
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        maxLength: 4,
-                        style: TextStyle(
-                          fontWeight: highlighted ? FontWeight.bold : FontWeight.normal,
-                        ),
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          counterText: '',
-                          hintText: '0',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 10,
-                          ),
-                          border: OutlineInputBorder(),
-                        ),
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        onTap: () {
-                          final controller = _countControllers[d];
-                          if (controller == null) return;
-                          controller.selection = TextSelection(
-                            baseOffset: 0,
-                            extentOffset: controller.text.length,
-                          );
-                        },
-                        onEditingComplete: () => _formatCountField(d),
-                        onTapOutside: (_) => _formatCountField(d),
-                        onChanged: (value) => _onCountManualEdit(d, value),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: count < _maxCount ? () => _setCount(d, count + 1) : null,
-                    ),
-                    const Spacer(),
-                    Text(
-                      Formatters.formatNumber(subtotal),
-                      style: TextStyle(
-                        fontWeight: highlighted ? FontWeight.w600 : FontWeight.normal,
-                        color: highlighted ? AppColors.textPrimary : AppColors.textHint,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }),
-        const Divider(height: 16),
+        ..._buildDenomGrid(),
+        const Divider(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
               'Total: ${Formatters.formatNumber(_total)}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
             if (diff != null && _total > 0)
               Text(
@@ -238,6 +299,7 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                         ? 'Sobra: ${Formatters.formatNumber(diff)}'
                         : 'Faltan: ${Formatters.formatNumber(diff.abs())}',
                 style: TextStyle(
+                  fontSize: 13,
                   color: diff >= 0 ? AppColors.success : AppColors.error,
                   fontWeight: FontWeight.w500,
                 ),
