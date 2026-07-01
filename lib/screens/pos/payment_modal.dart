@@ -144,7 +144,7 @@ class _PaymentModalState extends State<PaymentModal> {
         transferDestId: transferDestId,
       );
       _cashControllers[moneda] = TextEditingController(
-        text: cash > 0 ? cash.toStringAsFixed(2) : '',
+        text: formatCashDisplay(cash),
       );
       _transferControllers[moneda] = TextEditingController(text: '');
     }
@@ -346,7 +346,17 @@ class _PaymentModalState extends State<PaymentModal> {
     });
   }
 
-  void _setAmountControllerText(TextEditingController? controller, double value) {
+  void _setCashControllerText(TextEditingController? controller, double value) {
+    final text = formatCashDisplay(value);
+    if (controller != null && controller.text != text) {
+      controller.text = text;
+    }
+  }
+
+  void _setTransferControllerText(
+    TextEditingController? controller,
+    double value,
+  ) {
     final text = value > 0 ? value.toStringAsFixed(2) : '';
     if (controller != null && controller.text != text) {
       controller.text = text;
@@ -356,19 +366,19 @@ class _PaymentModalState extends State<PaymentModal> {
   void _formatCashField(String moneda) {
     final pago = _pagosMap[moneda];
     if (pago != null) {
-      _setAmountControllerText(_cashControllers[moneda], pago.cash);
+      _setCashControllerText(_cashControllers[moneda], pago.cash);
     }
   }
 
   void _formatTransferField(String moneda) {
     final pago = _pagosMap[moneda];
     if (pago != null) {
-      _setAmountControllerText(_transferControllers[moneda], pago.transfer);
+      _setTransferControllerText(_transferControllers[moneda], pago.transfer);
     }
   }
 
   void _formatVueltoField(String moneda) {
-    _setAmountControllerText(
+    _setTransferControllerText(
       _vueltoControllers[moneda],
       _vueltoMap[moneda] ?? 0,
     );
@@ -387,13 +397,13 @@ class _PaymentModalState extends State<PaymentModal> {
       if (cash != null) {
         pago.cash = cash;
         if (syncControllers) {
-          _setAmountControllerText(_cashControllers[moneda], cash);
+          _setCashControllerText(_cashControllers[moneda], cash);
         }
       }
       if (transfer != null) {
         pago.transfer = transfer;
         if (syncControllers) {
-          _setAmountControllerText(_transferControllers[moneda], transfer);
+          _setTransferControllerText(_transferControllers[moneda], transfer);
         }
       }
       if (transferDestId != null) pago.transferDestId = transferDestId;
@@ -455,8 +465,8 @@ class _PaymentModalState extends State<PaymentModal> {
         );
         pago.cash = collapsed.cash;
         pago.transfer = collapsed.transfer;
-        _setAmountControllerText(_cashControllers[moneda], pago.cash);
-        _setAmountControllerText(_transferControllers[moneda], 0);
+        _setCashControllerText(_cashControllers[moneda], pago.cash);
+        _setTransferControllerText(_transferControllers[moneda], 0);
       }
       _syncVueltoAuto();
     });
@@ -467,7 +477,7 @@ class _PaymentModalState extends State<PaymentModal> {
       _vueltoLocked = true;
       _vueltoMap[moneda] = monto;
       if (syncController) {
-        _setAmountControllerText(_vueltoControllers[moneda], monto);
+        _setTransferControllerText(_vueltoControllers[moneda], monto);
       }
     });
   }
@@ -693,6 +703,7 @@ class _PaymentModalState extends State<PaymentModal> {
       children: [
         if (showDivider) const Divider(height: 20),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Chip(
               label: Text(moneda),
@@ -710,23 +721,29 @@ class _PaymentModalState extends State<PaymentModal> {
                 padding: EdgeInsets.only(right: isBase ? 0 : 4),
                 child: OutlinedButton.icon(
                   onPressed: () => _toggleTransfer(moneda),
-                  icon: Icon(
-                    transferExpanded ? Icons.close : Icons.add,
-                    size: 16,
+                  icon: const Icon(Icons.credit_card, size: 16),
+                  label: const Text(
+                    'Transferencia',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                   ),
-                  label: Text(
-                    transferExpanded
-                        ? 'Quitar transferencia'
-                        : 'Agregar transferencia',
-                    style: const TextStyle(fontSize: 13),
-                  ),
+                  iconAlignment: IconAlignment.end,
                   style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                    backgroundColor: (transferExpanded || pago.transfer > 0)
+                        ? AppColors.primary.withValues(alpha: 0.14)
+                        : null,
+                    foregroundColor: (transferExpanded || pago.transfer > 0)
+                        ? AppColors.primary
+                        : null,
+                    side: BorderSide(
+                      color: (transferExpanded || pago.transfer > 0)
+                          ? AppColors.primary
+                          : AppColors.textHint.withValues(alpha: 0.55),
                     ),
-                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    minimumSize: const Size(0, 36),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
@@ -750,12 +767,11 @@ class _PaymentModalState extends State<PaymentModal> {
                   child: TextField(
                     controller: _cashControllers[moneda],
                     readOnly: breakdownActive,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: TextInputType.number,
                     inputFormatters: const [CashAmountInputFormatter()],
                     decoration: InputDecoration(
                       labelText: 'Efectivo',
-                      hintText: '0.00',
+                      hintText: '0',
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -826,7 +842,7 @@ class _PaymentModalState extends State<PaymentModal> {
                         setState(() {
                           pago.transfer = updated.transfer;
                           pago.cash = updated.cash;
-                          _setAmountControllerText(
+                          _setCashControllerText(
                             _cashControllers[moneda],
                             pago.cash,
                           );

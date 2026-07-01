@@ -116,10 +116,10 @@ class PaymentLogic {
         );
     final rem = (total - otherPaid).clamp(0, double.infinity).toDouble();
     if (rem <= 0) return 0;
-    return double.parse(
-      CurrencyUtils.convertFromBase(rem, moneda, tasas, monedaBase)
-          .toStringAsFixed(2),
-    );
+    final converted =
+        CurrencyUtils.convertFromBase(rem, moneda, tasas, monedaBase);
+    if (converted <= 0) return 0;
+    return converted.ceil().toDouble();
   }
 
   /// Al editar transferencia: resta del efectivo (efectivo + transferencia se mantiene).
@@ -131,7 +131,7 @@ class PaymentLogic {
     final newCash = (currentCash + currentTransfer - newTransfer)
         .clamp(0, double.infinity);
     return (
-      cash: double.parse(newCash.toStringAsFixed(2)),
+      cash: newCash.floorToDouble(),
       transfer: newTransfer,
     );
   }
@@ -145,7 +145,7 @@ class PaymentLogic {
       return (cash: cash, transfer: 0);
     }
     return (
-      cash: double.parse((cash + transfer).toStringAsFixed(2)),
+      cash: (cash + transfer).floorToDouble(),
       transfer: 0,
     );
   }

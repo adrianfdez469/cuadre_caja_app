@@ -142,6 +142,63 @@ void main() {
       expect(PaymentLogic.falta(total, pagado), isFalse);
     });
 
+    test('suggestCash redondea hacia arriba en moneda secundaria', () {
+      const total = 10000.0;
+      const tasasMultimoneda = {'USD': 500.0, 'EUR': 600.0, 'CUP': 1.0};
+      final pagos = {'CUP': const PagoMonedaState(cash: 700)};
+
+      final usd = PaymentLogic.suggestCash(
+        total: total,
+        pagos: pagos,
+        moneda: 'USD',
+        monedaBase: 'CUP',
+        tasas: tasasMultimoneda,
+      );
+
+      expect(usd, 19);
+    });
+
+    test('suggestCash con varias monedas ya pagadas redondea hacia arriba', () {
+      const total = 10000.0;
+      const tasasMultimoneda = {'USD': 500.0, 'EUR': 600.0, 'CUP': 1.0};
+      final pagos = {
+        'CUP': const PagoMonedaState(cash: 700),
+        'USD': const PagoMonedaState(cash: 16),
+      };
+
+      final eur = PaymentLogic.suggestCash(
+        total: total,
+        pagos: pagos,
+        moneda: 'EUR',
+        monedaBase: 'CUP',
+        tasas: tasasMultimoneda,
+      );
+
+      expect(eur, 3);
+    });
+
+    test('escenario multimoneda genera vuelto en moneda base', () {
+      const total = 10000.0;
+      const tasasMultimoneda = {'USD': 500.0, 'EUR': 600.0, 'CUP': 1.0};
+      final pagos = {
+        'CUP': const PagoMonedaState(cash: 700),
+        'USD': const PagoMonedaState(cash: 16),
+        'EUR': const PagoMonedaState(cash: 3),
+      };
+      final pagado =
+          PaymentLogic.totalPagadoBase(pagos, 'CUP', tasasMultimoneda);
+
+      expect(pagado, 10500);
+      expect(
+        PaymentLogic.vueltoTotalBase(
+          total: total,
+          totalPagadoBase: pagado,
+          falta: false,
+        ),
+        500,
+      );
+    });
+
     test('suggestCash calcula restante en otra moneda', () {
       const total = 1500.0;
       final pagos = {

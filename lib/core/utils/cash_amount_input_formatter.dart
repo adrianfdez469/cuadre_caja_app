@@ -22,6 +22,12 @@ class CashAmountInputFormatter extends TextInputFormatter {
   }
 }
 
+/// Texto del campo de efectivo (solo enteros, sin decimales).
+String formatCashDisplay(double value) {
+  if (value <= 0) return '';
+  return value.truncate().toInt().toString();
+}
+
 /// Parsea el texto del campo de efectivo (solo enteros).
 double parseCashAmount(String value) {
   final dot = value.indexOf('.');

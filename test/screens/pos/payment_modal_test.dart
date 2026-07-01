@@ -18,25 +18,24 @@ void main() {
       await pumpPaymentModal(tester);
 
       expect(transferField, findsNothing);
-      expect(find.text('Agregar transferencia'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Transferencia'), findsOneWidget);
 
-      await tester.tap(find.text('Agregar transferencia'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Transferencia'));
       await tester.pumpAndSettle();
 
       expect(transferField, findsOneWidget);
-      expect(find.text('Quitar transferencia'), findsOneWidget);
     });
 
     testWidgets('inicializa efectivo con el total a cobrar', (tester) async {
       await pumpPaymentModal(tester, total: 1500);
 
-      expect(find.text('1500.00'), findsWidgets);
+      expect(find.text('1500'), findsWidgets);
     });
 
     testWidgets('al escribir transferencia resta del efectivo', (tester) async {
       await pumpPaymentModal(tester, total: 1000);
 
-      await tester.tap(find.text('Agregar transferencia'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Transferencia'));
       await tester.pumpAndSettle();
 
       await tester.enterText(transferField, '400');
@@ -44,14 +43,14 @@ void main() {
 
       final cashController =
           tester.widget<TextField>(cashField).controller!;
-      expect(cashController.text, '600.00');
+      expect(cashController.text, '600');
     });
 
     testWidgets('al modificar efectivo no cambia la transferencia',
         (tester) async {
       await pumpPaymentModal(tester, total: 1000);
 
-      await tester.tap(find.text('Agregar transferencia'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Transferencia'));
       await tester.pumpAndSettle();
 
       await tester.enterText(transferField, '400');
@@ -103,7 +102,7 @@ void main() {
         tasas: const {'USD': 400, 'CUP': 1},
       );
 
-      expect(find.text('10.00'), findsWidgets);
+      expect(find.text('10'), findsWidgets);
       expect(find.text('Confirmar Venta'), findsOneWidget);
     });
   });

@@ -29,6 +29,21 @@ void main() {
     });
   });
 
+  group('formatCashDisplay', () {
+    test('muestra enteros sin decimales', () {
+      expect(formatCashDisplay(1500), '1500');
+      expect(formatCashDisplay(19), '19');
+    });
+
+    test('trunca decimales al mostrar', () {
+      expect(formatCashDisplay(18.6), '18');
+    });
+
+    test('cero devuelve cadena vacía', () {
+      expect(formatCashDisplay(0), '');
+    });
+  });
+
   group('parseCashAmount', () {
     test('parsea enteros', () {
       expect(parseCashAmount('1500'), 1500);
