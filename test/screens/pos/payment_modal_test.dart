@@ -24,7 +24,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(transferField, findsOneWidget);
-      expect(find.text('Ocultar transferencia'), findsOneWidget);
+      expect(find.text('Quitar transferencia'), findsOneWidget);
     });
 
     testWidgets('inicializa efectivo con el total a cobrar', (tester) async {
@@ -33,19 +33,36 @@ void main() {
       expect(find.text('1500.00'), findsWidgets);
     });
 
-    testWidgets('al agregar transferencia ajusta efectivo en modo mixto',
+    testWidgets('al escribir transferencia resta del efectivo', (tester) async {
+      await pumpPaymentModal(tester, total: 1000);
+
+      await tester.tap(find.text('Agregar transferencia'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(transferField, '400');
+      await tester.pumpAndSettle();
+
+      final cashController =
+          tester.widget<TextField>(cashField).controller!;
+      expect(cashController.text, '600.00');
+    });
+
+    testWidgets('al modificar efectivo no cambia la transferencia',
         (tester) async {
       await pumpPaymentModal(tester, total: 1000);
 
       await tester.tap(find.text('Agregar transferencia'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(transferField, '300');
+      await tester.enterText(transferField, '400');
       await tester.pumpAndSettle();
 
-      final cashController =
-          tester.widget<TextField>(cashField).controller!;
-      expect(cashController.text, '700.00');
+      await tester.enterText(cashField, '800');
+      await tester.pumpAndSettle();
+
+      final transferController =
+          tester.widget<TextField>(transferField).controller!;
+      expect(transferController.text, '400');
     });
 
     testWidgets('muestra cambio cuando el pago excede el total', (tester) async {

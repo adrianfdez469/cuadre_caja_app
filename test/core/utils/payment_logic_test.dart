@@ -88,11 +88,11 @@ void main() {
       final result = PaymentLogic.applyMixedTransferEdit(
         currentCash: 1000,
         currentTransfer: 0,
-        newTransfer: 300,
+        newTransfer: 400,
       );
 
-      expect(result.cash, 700);
-      expect(result.transfer, 300);
+      expect(result.cash, 600);
+      expect(result.transfer, 400);
       expect(result.cash + result.transfer, 1000);
     });
 
@@ -109,10 +109,10 @@ void main() {
   });
 
   group('PaymentLogic.collapseTransferToCash', () {
-    test('al ocultar transferencia suma al efectivo', () {
+    test('al quitar transferencia suma al efectivo', () {
       final result = PaymentLogic.collapseTransferToCash(
-        cash: 700,
-        transfer: 300,
+        cash: 600,
+        transfer: 400,
       );
 
       expect(result.cash, 1000);

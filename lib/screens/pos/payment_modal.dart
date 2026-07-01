@@ -705,6 +705,32 @@ class _PaymentModalState extends State<PaymentModal> {
               ),
             ),
             const Spacer(),
+            if (showCash && admiteTransfer)
+              Padding(
+                padding: EdgeInsets.only(right: isBase ? 0 : 4),
+                child: OutlinedButton.icon(
+                  onPressed: () => _toggleTransfer(moneda),
+                  icon: Icon(
+                    transferExpanded ? Icons.close : Icons.add,
+                    size: 16,
+                  ),
+                  label: Text(
+                    transferExpanded
+                        ? 'Quitar transferencia'
+                        : 'Agregar transferencia',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
             if (!isBase)
               IconButton(
                 icon: const Icon(Icons.close, size: 20),
@@ -715,40 +741,104 @@ class _PaymentModalState extends State<PaymentModal> {
           ],
         ),
         const SizedBox(height: 8),
-        if (showCash) ...[
-          TextField(
-            controller: _cashControllers[moneda],
-            readOnly: breakdownActive,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: const [CashAmountInputFormatter()],
-            decoration: InputDecoration(
-              labelText: 'Efectivo',
-              hintText: '0.00',
-              prefixText: '$moneda ',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              filled: breakdownActive,
-              fillColor: breakdownActive
-                  ? AppColors.textHint.withValues(alpha: 0.08)
-                  : null,
-            ),
-            onTap: () {
-              _cashControllers[moneda]?.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _cashControllers[moneda]!.text.length,
-              );
-            },
-            onEditingComplete: () => _formatCashField(moneda),
-            onTapOutside: (_) => _formatCashField(moneda),
-            onChanged: breakdownActive
-                ? null
-                : (v) => _onCashManualEdit(moneda, v),
+        if (showCash || showTransfer) ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showCash)
+                Expanded(
+                  child: TextField(
+                    controller: _cashControllers[moneda],
+                    readOnly: breakdownActive,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: const [CashAmountInputFormatter()],
+                    decoration: InputDecoration(
+                      labelText: 'Efectivo',
+                      hintText: '0.00',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      filled: breakdownActive,
+                      fillColor: breakdownActive
+                          ? AppColors.textHint.withValues(alpha: 0.08)
+                          : null,
+                    ),
+                    onTap: () {
+                      _cashControllers[moneda]?.selection = TextSelection(
+                        baseOffset: 0,
+                        extentOffset: _cashControllers[moneda]!.text.length,
+                      );
+                    },
+                    onEditingComplete: () => _formatCashField(moneda),
+                    onTapOutside: (_) => _formatCashField(moneda),
+                    onChanged: breakdownActive
+                        ? null
+                        : (v) => _onCashManualEdit(moneda, v),
+                  ),
+                ),
+              if (showCash && showTransfer) const SizedBox(width: 12),
+              if (showTransfer)
+                Expanded(
+                  child: TextField(
+                    controller: _transferControllers[moneda],
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d*\.?\d{0,2}'),
+                      ),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: 'Transferencia',
+                      hintText: '0.00',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onEditingComplete: () => _formatTransferField(moneda),
+                    onTapOutside: (_) => _formatTransferField(moneda),
+                    onChanged: (v) {
+                      final newTransfer = double.tryParse(v) ?? 0;
+                      if (soloTransfer) {
+                        _updatePago(
+                          moneda,
+                          transfer: newTransfer,
+                          cash: 0,
+                          syncControllers: false,
+                        );
+                      } else {
+                        final updated = PaymentLogic.applyMixedTransferEdit(
+                          currentCash: pago.cash,
+                          currentTransfer: pago.transfer,
+                          newTransfer: newTransfer,
+                        );
+                        setState(() {
+                          pago.transfer = updated.transfer;
+                          pago.cash = updated.cash;
+                          _setAmountControllerText(
+                            _cashControllers[moneda],
+                            pago.cash,
+                          );
+                          _syncVueltoAuto();
+                        });
+                      }
+                    },
+                  ),
+                ),
+            ],
           ),
-          if (denoms.isNotEmpty)
+          if (showCash && denoms.isNotEmpty)
             TextButton.icon(
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
@@ -785,69 +875,10 @@ class _PaymentModalState extends State<PaymentModal> {
                 onChange: (total) => _updatePago(moneda, cash: total),
               ),
             ),
-          if (admiteTransfer)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              onPressed: () => _toggleTransfer(moneda),
-              icon: Icon(
-                transferExpanded ? Icons.expand_less : Icons.expand_more,
-                size: 18,
-              ),
-              label: Text(
-                transferExpanded
-                    ? 'Ocultar transferencia'
-                    : 'Agregar transferencia',
-                style: const TextStyle(fontSize: 13),
-              ),
-            ),
         ],
-        if (showTransfer) ...[
-          if (showCash) const SizedBox(height: 8),
-          TextField(
-            controller: _transferControllers[moneda],
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-            ],
-            decoration: InputDecoration(
-              labelText: 'Transferencia',
-              hintText: '0.00',
-              prefixText: '$moneda ',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onEditingComplete: () => _formatTransferField(moneda),
-            onTapOutside: (_) => _formatTransferField(moneda),
-            onChanged: (v) {
-              final newTransfer = double.tryParse(v) ?? 0;
-              if (soloTransfer) {
-                _updatePago(
-                  moneda,
-                  transfer: newTransfer,
-                  cash: 0,
-                  syncControllers: false,
-                );
-              } else {
-                final updated = PaymentLogic.applyMixedTransferEdit(
-                  currentCash: pago.cash,
-                  currentTransfer: pago.transfer,
-                  newTransfer: newTransfer,
-                );
-                setState(() {
-                  pago.transfer = updated.transfer;
-                  pago.cash = updated.cash;
-                  _setAmountControllerText(_cashControllers[moneda], pago.cash);
-                  _syncVueltoAuto();
-                });
-              }
-            },
-          ),
-          if (pago.transfer > 0 && _transferDestinations.isNotEmpty) ...[
+        if (showTransfer &&
+            pago.transfer > 0 &&
+            _transferDestinations.isNotEmpty) ...[
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: pago.transferDestId.isNotEmpty ? pago.transferDestId : null,
@@ -869,7 +900,6 @@ class _PaymentModalState extends State<PaymentModal> {
                 if (value != null) _updatePago(moneda, transferDestId: value);
               },
             ),
-          ],
         ],
         if (eqBase != null)
           Padding(

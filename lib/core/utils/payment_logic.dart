@@ -122,7 +122,7 @@ class PaymentLogic {
     );
   }
 
-  /// Al editar transferencia: mantiene el total en la moneda y ajusta efectivo.
+  /// Al editar transferencia: resta del efectivo (efectivo + transferencia se mantiene).
   static ({double cash, double transfer}) applyMixedTransferEdit({
     required double currentCash,
     required double currentTransfer,
@@ -136,7 +136,7 @@ class PaymentLogic {
     );
   }
 
-  /// Al ocultar transferencia: suma el monto transferido al efectivo.
+  /// Al quitar transferencia: devuelve el monto al efectivo.
   static ({double cash, double transfer}) collapseTransferToCash({
     required double cash,
     required double transfer,
