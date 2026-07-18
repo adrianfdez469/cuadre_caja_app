@@ -96,7 +96,8 @@ Widget buildPaymentModalHarness({
     child: MaterialApp(
       home: Scaffold(
         body: PaymentModal(
-          loadTransferDestinationsOverride: syncService.loadTransferDestinations,
+          getTransferDestinationsLocalOverride:
+              syncService.getTransferDestinationsLocal,
         ),
       ),
     ),

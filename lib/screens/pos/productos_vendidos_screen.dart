@@ -93,7 +93,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
     final sync = context.read<SyncService>();
     final tiendaId = context.read<AuthProvider>().tiendaId;
     if (tiendaId.isEmpty) return;
-    final destinos = await sync.loadTransferDestinations(tiendaId);
+    final destinos = await sync.getTransferDestinationsLocal(tiendaId);
     if (!mounted) return;
     setState(() {
       _transferDestinationNames = {

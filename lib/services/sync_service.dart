@@ -584,6 +584,13 @@ class SyncService {
   // TRANSFER DESTINATIONS - Network-First Cache
   // ==========================================
 
+  /// Lee destinos desde SQLite (sin red). Para UI / cobro.
+  Future<List<TransferDestinationModel>> getTransferDestinationsLocal(
+    String tiendaId,
+  ) =>
+      transferLocal.getDestinos(tiendaId);
+
+  /// Refresca destinos desde la API y cachea. Usar solo en sync (`fullSync`).
   Future<List<TransferDestinationModel>> loadTransferDestinations(
     String tiendaId,
   ) async {

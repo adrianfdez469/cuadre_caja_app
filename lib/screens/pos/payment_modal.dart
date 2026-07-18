@@ -38,12 +38,12 @@ class _PagoMoneda {
 class PaymentModal extends StatefulWidget {
   const PaymentModal({
     super.key,
-    this.loadTransferDestinationsOverride,
+    this.getTransferDestinationsLocalOverride,
   });
 
-  /// Solo para tests: evita depender de SyncService real.
+  /// Solo para tests: evita depender de SyncService real (lectura local).
   final Future<List<TransferDestinationModel>> Function(String tiendaId)?
-      loadTransferDestinationsOverride;
+      getTransferDestinationsLocalOverride;
 
   @override
   State<PaymentModal> createState() => _PaymentModalState();
@@ -83,8 +83,8 @@ class _PaymentModalState extends State<PaymentModal> {
         ? monedas.monedaBase
         : auth.monedaBase;
 
-    final loadDestinos = widget.loadTransferDestinationsOverride ??
-        context.read<SyncService>().loadTransferDestinations;
+    final loadDestinos = widget.getTransferDestinationsLocalOverride ??
+        context.read<SyncService>().getTransferDestinationsLocal;
     final destinos = await loadDestinos(auth.tiendaId);
     if (!mounted) return;
 
