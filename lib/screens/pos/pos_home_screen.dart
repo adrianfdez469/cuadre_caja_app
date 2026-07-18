@@ -1,6 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_constants.dart';
+import '../../services/release_service.dart' show ReleaseService, compareVersions;
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../data/models/producto_model.dart';
@@ -40,6 +46,13 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   final _searchFocusNode = FocusNode();
   String _searchQuery = '';
   bool? _lastOnline;
+
+  /// Clave en SharedPreferences para recordar la versión que el usuario decidió omitir.
+  static const _skippedVersionKey = 'update_skipped_version';
+
+  /// Evita volver a mostrar el aviso de actualización durante la misma sesión.
+  bool _updateBannerShown = false;
+  final ReleaseService _releaseService = ReleaseService();
 
   @override
   void initState() {
@@ -96,6 +109,71 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     await _loadData();
 
     setState(() => _isInitialized = true);
+
+    // Comprobación de actualización en segundo plano (no bloquea el POS).
+    // Modo "suave": aviso opcional y descartable, nunca obligatorio.
+    unawaited(_maybeCheckForUpdate());
+  }
+
+  /// Comprueba en segundo plano si hay una versión más reciente en Drive y,
+  /// de haberla, muestra un aviso descartable (no obligatorio).
+  Future<void> _maybeCheckForUpdate() async {
+    if (_updateBannerShown) return;
+    if (AppConstants.driveReleasesJsonFileId.isEmpty) return;
+    if (!context.read<SyncProvider>().isOnline) return;
+
+    try {
+      final release = await _releaseService.fetchReleases();
+      if (release == null || !mounted) return;
+
+      final info = await PackageInfo.fromPlatform();
+      final currentVersion = info.version;
+      if (compareVersions(release.version, currentVersion) <= 0) return;
+
+      // Respetar la versión que el usuario decidió omitir previamente.
+      final prefs = await SharedPreferences.getInstance();
+      final skipped = prefs.getString(_skippedVersionKey);
+      if (skipped == release.version) return;
+
+      if (!mounted || _updateBannerShown) return;
+      _updateBannerShown = true;
+      _showUpdateBanner(release.version);
+    } catch (e) {
+      // Silencioso: la comprobación automática nunca debe molestar al usuario.
+      print('⚠️ Comprobación de actualización falló: $e');
+    }
+  }
+
+  void _showUpdateBanner(String newVersion) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.info.withOpacity(0.12),
+        leading: Icon(Icons.system_update, color: AppColors.info),
+        content: Text('Hay una nueva versión disponible: v$newVersion'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              messenger.hideCurrentMaterialBanner();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString(_skippedVersionKey, newVersion);
+            },
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () {
+              messenger.hideCurrentMaterialBanner();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const VersionScreen()),
+              );
+            },
+            child: const Text('Actualizar'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadData() async {
@@ -198,6 +276,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
 
   @override
   void dispose() {
+    ScaffoldMessenger.of(context).clearMaterialBanners();
     context.read<SyncProvider>().stopMonitoring();
     _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
