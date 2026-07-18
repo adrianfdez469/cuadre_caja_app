@@ -21,7 +21,7 @@ import '../core/errors/exceptions.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
-import '../core/utils/producto_pos_rules.dart';
+import '../core/utils/stock_calculator.dart';
 import 'venta_sync_payload_patcher.dart';
 
 enum ConnectionStatus { online, offline }
@@ -279,72 +279,39 @@ class SyncService {
   /// Crea una venta (guarda localmente y sincroniza si es posible).
   /// Aplica desagregaciones para productos fracción antes de descontar existencias.
   Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async {
-    await ventasLocal.saveVentaPendiente(venta);
+    // Decidir la conectividad una sola vez: si estamos online, la venta se
+    // persiste directamente en estado "syncing" para que el sync periódico
+    // (_syncTimer) no la tome como pendiente mientras crearVenta aún trabaja.
+    // getVentasPendientes() excluye "syncing", así que esto cierra la ventana
+    // de carrera que permitía un doble-post de la misma venta.
+    final willSync = isOnline;
+    final ventaToSave =
+        willSync ? venta.copyWith(syncState: SyncState.syncing) : venta;
+
+    await ventasLocal.saveVentaPendiente(ventaToSave);
     onSyncEvent?.call('Venta guardada');
 
     final productos = await productosLocal.getProductos(venta.tiendaId);
-    if (productos.isEmpty) return venta;
+    if (productos.isEmpty) return ventaToSave;
 
-    // 1) Identificar desagregaciones: producto fracción con existencia < cantidad a vender
-    final desagregaciones = <_Desagregacion>[];
-    for (final cartProd in venta.productos) {
-      final candidatos = productos.where((x) => x.id == cartProd.productoTiendaId).toList();
-      final p = candidatos.isEmpty ? null : candidatos.first;
-      if (p == null) continue;
-      if (!ProductoPosRules.isFraccion(p)) continue;
-      if (p.existencia >= cartProd.cantidad) continue;
-      final need = cartProd.cantidad - p.existencia;
-      final upf = (p.unidadesPorFraccion ?? 1).toDouble();
-      final n = (need / upf).ceil().clamp(1, 0x7fffffff);
-      final padreId = p.fraccionDe?.id;
-      if (padreId == null) continue;
-      desagregaciones.add(_Desagregacion(
-        padreProductoId: padreId,
-        cantidad: n,
-        hijoProductoTiendaId: p.id,
-        unidadesPorFraccion: upf,
-      ));
-    }
+    // Calcular las nuevas existencias solo de los productos tocados (items del
+    // carrito + padres/hijos de desagregación) y escribirlas en una sola
+    // transacción atómica, en vez de reescribir todo el catálogo por venta.
+    final existencias = StockCalculator.existenciasTrasVenta(venta, productos);
+    await productosLocal.updateExistencias(existencias);
 
-    // 2) Calcular nuevas existencias: aplicar desagregaciones y luego restar vendido
-    final existencias = {for (final p in productos) p.id: p.existencia};
-
-    for (final d in desagregaciones) {
-      final padres = productos.where((x) => x.productoId == d.padreProductoId).toList();
-      final padre = padres.isEmpty ? null : padres.first;
-      if (padre != null) {
-        existencias[padre.id] = (existencias[padre.id] ?? padre.existencia) - d.cantidad;
-      }
-      existencias[d.hijoProductoTiendaId] =
-          (existencias[d.hijoProductoTiendaId] ?? 0) + (d.cantidad * d.unidadesPorFraccion);
-    }
-
-    for (final cartProd in venta.productos) {
-      final prev = existencias[cartProd.productoTiendaId] ?? 0;
-      existencias[cartProd.productoTiendaId] = prev - cartProd.cantidad;
-    }
-
-    for (final e in existencias.entries) {
-      await productosLocal.updateExistencia(e.key, e.value);
-    }
-
-    if (isOnline) {
-      // Marcar "syncing" antes de programar la red para que otras rutas no
-      // intenten la misma venta en paralelo (p. ej. sync periódico).
-      await ventasLocal.updateSyncState(
-        venta.syncId,
-        syncState: SyncState.syncing,
-      );
-      // No esperar al servidor: la venta ya está guardada y el stock actualizado.
+    if (willSync) {
+      // La venta ya está en "syncing" y el stock actualizado: no esperar al
+      // servidor.
       unawaited(() async {
-        await _syncSingleVenta(venta);
+        await _syncSingleVenta(ventaToSave);
         await _refreshInventarioFromServer(venta.tiendaId);
       }());
     } else {
       onSyncEvent?.call('Venta guardada offline - se sincronizará al conectarse');
     }
 
-    return venta;
+    return ventaToSave;
   }
 
   /// Sincroniza una venta individual
@@ -726,20 +693,6 @@ class SyncService {
   Future<int> getPendingCount() async {
     return await ventasLocal.countPendientes();
   }
-}
-
-class _Desagregacion {
-  final String padreProductoId;
-  final int cantidad;
-  final String hijoProductoTiendaId;
-  final double unidadesPorFraccion;
-
-  _Desagregacion({
-    required this.padreProductoId,
-    required this.cantidad,
-    required this.hijoProductoTiendaId,
-    required this.unidadesPorFraccion,
-  });
 }
 
 class SyncResult {

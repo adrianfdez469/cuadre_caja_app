@@ -83,6 +83,28 @@ class ProductosLocalDataSource {
     );
   }
 
+  /// Actualiza las existencias de varios productos en una sola transacción.
+  ///
+  /// Se usa en el hot path de cada venta: solo escribe los productos que
+  /// realmente cambiaron y lo hace de forma atómica (todo o nada), evitando
+  /// stock parcialmente actualizado si algo falla a mitad.
+  Future<void> updateExistencias(Map<String, double> existencias) async {
+    if (existencias.isEmpty) return;
+    final db = await dbHelper.database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final e in existencias.entries) {
+        batch.update(
+          'productos',
+          {'existencia': e.value},
+          where: 'id = ?',
+          whereArgs: [e.key],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   /// Incrementa existencia (al eliminar una venta y restaurar stock)
   Future<void> incrementExistencia(String productoTiendaId, double cantidad) async {
     final db = await dbHelper.database;
