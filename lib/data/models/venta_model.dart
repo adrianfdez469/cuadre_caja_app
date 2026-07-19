@@ -398,6 +398,15 @@ class VentaServerModel {
         'wasOffline': wasOffline,
         'usuarioNombre': usuarioNombre,
         'productos': productos.map((p) => p.toJson()).toList(),
+        // Serializar el destino de transferencia con la MISMA forma que lee
+        // fromJson ({ id, nombre }); si no, el destino se perdía al leer la
+        // venta desde el cache offline (fromJson devolvía null).
+        if (transferDestinationId != null)
+          'transferDestination': {
+            'id': transferDestinationId,
+            if (transferDestinationNombre != null)
+              'nombre': transferDestinationNombre,
+          },
       };
 }
 
