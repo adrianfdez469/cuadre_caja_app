@@ -57,8 +57,18 @@ Actualmente solo lo mitiga la idempotencia del servidor (`result.duplicado`).
 
 ---
 
-### 3. `_ensureAuthenticated()` es prácticamente un no-op
+### 3. ✅ HECHO — `_ensureAuthenticated()` es prácticamente un no-op
 **Archivo:** `lib/services/sync_service.dart` → `_ensureAuthenticated`
+
+> **Corregido:** `_ensureAuthenticated` ahora hace un probe real contra el servidor.
+> Como no existe `/health`, se usa `/auth/refresh` como validación: `ApiClient.refreshToken()`
+> devuelve un enum `AuthResult { ok, authRejected, networkError }` que distingue un rechazo
+> definitivo de sesión (401/403) de un fallo de red. Ante `ok` renueva el token; ante
+> `authRejected` intenta `reLogin()` con credenciales guardadas; solo ante un rechazo definitivo
+> dispara `onAuthRequired` (es su único dueño). Un `networkError` **no** expulsa al usuario ni
+> sincroniza: se reintenta en el próximo ciclo. Este chequeo gatea **ambos** disparadores de
+> sync (reconexión y timer de 30s), así que si el token no se puede refrescar el sync no se intenta.
+> `tryReLogin()` se mantiene devolviendo `bool` por compatibilidad.
 
 ```dart
 Future<bool> _ensureAuthenticated() async {
@@ -159,5 +169,5 @@ refrescar inventario si quedan pendientes.
 ## Orden recomendado de ataque
 1. ~~**#1** (hot path de cada venta, empeora con catálogos grandes)~~ ✅ HECHO
 2. ~~**#2** (doble-post, relacionado con #1)~~ ✅ HECHO
-3. **#3** (lógica de auth-recovery muerta y engañosa)
+3. ~~**#3** (lógica de auth-recovery muerta y engañosa)~~ ✅ HECHO
 4. **#4**, **#5**, **#6**, luego menores.

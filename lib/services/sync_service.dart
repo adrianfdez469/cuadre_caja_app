@@ -104,10 +104,14 @@ class SyncService {
       },
     );
 
-    // Sincronización periódica cada 30 segundos si hay conexión
-    _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Sincronización periódica cada 30 segundos si hay conexión.
+    // Igual que en el reconnect, se valida/renueva la sesión ANTES de
+    // sincronizar: si el token no se puede refrescar, el sync no se intenta.
+    _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       if (isOnline && !_isSyncing && !_isFullSyncRunning) {
-        _syncPendingVentas();
+        if (await _ensureAuthenticated()) {
+          await _syncPendingVentas();
+        }
       }
     });
   }
@@ -144,23 +148,10 @@ class SyncService {
   }
 
   Future<void> _runConnectionRestored() async {
-    // 1. Refrescar token para tener uno nuevo válido
-    try {
-      final refreshed = await apiClient.tryRefreshToken();
-      if (refreshed) {
-        onTokenRefreshed?.call();
-        onSyncEvent?.call('Sesión actualizada');
-      }
-    } catch (_) {
-      // Si falla el refresh, intentar con credenciales guardadas
-    }
-
-    // 2. Verificar que sigamos autenticados
+    // Validar/renovar la sesión (refresh -> re-login). _ensureAuthenticated ya
+    // dispara onAuthRequired ante un rechazo definitivo; aquí solo abortamos.
     final authOk = await _ensureAuthenticated();
-    if (!authOk) {
-      onAuthRequired?.call(true);
-      return;
-    }
+    if (!authOk) return;
 
     // 3. fullSync: ventas pendientes, inventario al final y refresco de UI
     final ctx = await _resolveSyncContext();
@@ -181,7 +172,13 @@ class SyncService {
     return (tiendaId: tiendaId, negocioId: negocioId);
   }
 
-  /// Verifica que el token sea válido, intenta refresh si no
+  /// Valida la sesión contra el servidor y la renueva si es posible.
+  ///
+  /// No existe endpoint /health, así que usamos /auth/refresh como probe: un
+  /// `ok` confirma que la sesión sigue viva y deja un token nuevo. Si el token
+  /// fue rechazado, intentamos re-login con credenciales guardadas. Solo ante
+  /// un rechazo definitivo (no ante fallos de red) se dispara `onAuthRequired`;
+  /// esta función es la única dueña de esa decisión.
   Future<bool> _ensureAuthenticated() async {
     final token = await storageService.getToken();
     if (token == null) {
@@ -189,23 +186,32 @@ class SyncService {
       return false;
     }
 
-    // Intentar una petición simple para verificar el token
-    try {
-      final user = await storageService.getUser();
-      if (user == null) return false;
-
-      // El interceptor del ApiClient maneja automáticamente el 401 -> refresh
-      // Si el refresh falla, intentar re-login
-      return true;
-    } catch (_) {
-      // Intentar re-login con credenciales guardadas
-      final relogged = await apiClient.tryReLogin();
-      if (!relogged) {
-        onAuthRequired?.call(true);
-        return false;
-      }
+    final refresh = await apiClient.refreshToken();
+    if (refresh == AuthResult.ok) {
+      onTokenRefreshed?.call();
+      onSyncEvent?.call('Sesión actualizada');
       return true;
     }
+    if (refresh == AuthResult.networkError) {
+      // Red inestable / portal cautivo: no podemos validar, pero tampoco
+      // expulsamos al usuario. Se reintentará en el próximo ciclo.
+      return false;
+    }
+
+    // refresh == authRejected: la sesión ya no sirve. Intentar re-login.
+    final relogin = await apiClient.reLogin();
+    if (relogin == AuthResult.ok) {
+      onTokenRefreshed?.call();
+      onSyncEvent?.call('Sesión actualizada');
+      return true;
+    }
+    if (relogin == AuthResult.networkError) {
+      return false;
+    }
+
+    // Rechazo definitivo (sesión muerta y credenciales inválidas/ausentes).
+    onAuthRequired?.call(true);
+    return false;
   }
 
   // ==========================================
@@ -482,7 +488,8 @@ class SyncService {
 
     final authOk = await _ensureAuthenticated();
     if (!authOk) {
-      onAuthRequired?.call(true);
+      // _ensureAuthenticated ya decidió si expulsar (onAuthRequired) o solo
+      // posponer por red inestable.
       return SyncResult(synced: 0, failed: 0, pending: 0);
     }
 
