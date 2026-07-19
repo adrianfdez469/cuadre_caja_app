@@ -16,12 +16,7 @@ import '../providers/ventas_provider.dart';
 import '../services/release_service.dart' show ReleaseService, compareVersions;
 
 class VersionScreen extends StatefulWidget {
-  /// Si es true, comprueba actualizaciones automáticamente al abrir la pantalla
-  /// (p. ej. al llegar desde el aviso de nueva versión), sin que el usuario
-  /// tenga que pulsar "Comprobar actualizaciones".
-  final bool autoCheck;
-
-  const VersionScreen({super.key, this.autoCheck = false});
+  const VersionScreen({super.key});
 
   @override
   State<VersionScreen> createState() => _VersionScreenState();
@@ -48,9 +43,10 @@ class _VersionScreenState extends State<VersionScreen> {
 
   Future<void> _init() async {
     // Cargar la versión actual primero: _hasUpdate la compara con la remota, así
-    // que la comprobación automática debe correr después de tenerla.
+    // que la comprobación automática debe correr después de tenerla. Siempre se
+    // comprueba al abrir la pantalla, sin botón manual.
     await _loadPackageInfo();
-    if (widget.autoCheck && mounted) {
+    if (mounted) {
       await _checkUpdates();
     }
   }
@@ -260,6 +256,57 @@ class _VersionScreenState extends State<VersionScreen> {
     }
   }
 
+  /// Texto de estado de la comprobación de actualizaciones. Reemplaza al botón
+  /// "Comprobar actualizaciones": la comprobación ahora es automática al abrir
+  /// la pantalla, así que aquí solo se refleja su progreso/resultado.
+  Widget _buildStatusText() {
+    late final IconData icon;
+    late final Color color;
+    late final String message;
+
+    if (_loading) {
+      color = AppColors.textSecondary;
+      message = 'Comprobando actualizaciones...';
+    } else if (_error) {
+      icon = Icons.error_outline;
+      color = AppColors.error;
+      message = _errorMessage ?? 'Error al conectar con Drive.';
+    } else if (_hasUpdate) {
+      icon = Icons.system_update;
+      color = AppColors.info;
+      message = 'Hay una actualización disponible.';
+    } else if (_remoteRelease != null) {
+      icon = Icons.check_circle_outline;
+      color = AppColors.success;
+      message = 'Estás usando la última versión disponible.';
+    } else {
+      icon = Icons.info_outline;
+      color = AppColors.textSecondary;
+      message = 'Sin información de actualizaciones.';
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (_loading)
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else
+          Icon(icon, size: 20, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            message,
+            style: TextStyle(color: color, fontSize: 14),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -310,40 +357,7 @@ class _VersionScreenState extends State<VersionScreen> {
               ),
             )
           else ...[
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _checkUpdates,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(_loading ? 'Comprobando...' : 'Comprobar actualizaciones'),
-            ),
-            if (_error) ...[
-              const SizedBox(height: 12),
-              Card(
-                color: AppColors.error.withOpacity(0.1),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    _errorMessage ?? 'Error al conectar con Drive.',
-                    style: const TextStyle(color: AppColors.error),
-                  ),
-                ),
-              ),
-            ],
-            if (_remoteRelease != null && !_hasUpdate && !_error) ...[
-              const SizedBox(height: 12),
-              Card(
-                color: AppColors.success.withOpacity(0.1),
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('Estás usando la última versión disponible.'),
-                ),
-              ),
-            ],
+            _buildStatusText(),
             if (_hasUpdate) ...[
               const SizedBox(height: 16),
               Card(

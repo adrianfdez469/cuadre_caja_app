@@ -187,7 +187,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const VersionScreen(autoCheck: true),
+                  builder: (_) => const VersionScreen(),
                 ),
               );
             },
