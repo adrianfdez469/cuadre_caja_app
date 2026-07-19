@@ -85,6 +85,19 @@ class PaymentLogic {
   static bool falta(double total, double totalPagadoBase) =>
       (totalPagadoBase * 100).round() < (total * 100).round();
 
+  /// Redondea un monto de efectivo al entero superior. Los campos de efectivo no
+  /// admiten decimales (ver [CashAmountInputFormatter]), así que cualquier monto
+  /// predefinido o sugerido debe cubrir el total redondeando hacia arriba: si se
+  /// usara el total crudo (p. ej. 3.25) el campo mostraría "3" (truncado) mientras
+  /// internamente se cobraba 3.25, dejando la pantalla inconsistente
+  /// ("Efectivo 3 / Total 3.25 / Cambio 0"). Se redondea a céntimos primero para
+  /// que un 3.00 con ruido de coma flotante no suba a 4.
+  static double ceilCash(double amount) {
+    if (amount <= 0) return 0;
+    final cents = (amount * 100).round();
+    return (cents / 100).ceilToDouble();
+  }
+
   static double vueltoTotalBase({
     required double total,
     required double totalPagadoBase,
@@ -119,7 +132,7 @@ class PaymentLogic {
     final converted =
         CurrencyUtils.convertFromBase(rem, moneda, tasas, monedaBase);
     if (converted <= 0) return 0;
-    return converted.ceil().toDouble();
+    return ceilCash(converted);
   }
 
   /// Al editar transferencia: resta del efectivo (efectivo + transferencia se mantiene).

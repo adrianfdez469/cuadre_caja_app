@@ -91,7 +91,15 @@ class _PaymentModalState extends State<PaymentModal> {
     final defaultDestId = _defaultDestId(destinos);
     _transferDestinations = destinos;
 
-    _initMoneda(monedaBase, cash: total, transferDestId: defaultDestId);
+    // El efectivo solo admite enteros, así que el monto predefinido se redondea
+    // hacia arriba para cubrir el total (igual que suggestCash para el resto de
+    // monedas). Con el total crudo, un total de 3.25 mostraba "3" en el campo
+    // mientras internamente cobraba 3.25 (Efectivo 3 / Total 3.25 / Cambio 0).
+    _initMoneda(
+      monedaBase,
+      cash: PaymentLogic.ceilCash(total),
+      transferDestId: defaultDestId,
+    );
 
     setState(() => _initialized = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {

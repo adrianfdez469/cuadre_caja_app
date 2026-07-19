@@ -83,6 +83,26 @@ void main() {
     });
   });
 
+  group('PaymentLogic.ceilCash', () {
+    test('redondea hacia arriba un total con céntimos', () {
+      // El caso del bug: total 3.25 debe predefinir efectivo en 4, no en 3.
+      expect(PaymentLogic.ceilCash(3.25), 4);
+    });
+
+    test('deja intacto un total entero', () {
+      expect(PaymentLogic.ceilCash(3), 3);
+    });
+
+    test('no sube un entero con ruido de coma flotante', () {
+      expect(PaymentLogic.ceilCash(0.1 + 0.2 + 2.7), 3);
+    });
+
+    test('devuelve 0 para montos no positivos', () {
+      expect(PaymentLogic.ceilCash(0), 0);
+      expect(PaymentLogic.ceilCash(-5), 0);
+    });
+  });
+
   group('PaymentLogic.applyMixedTransferEdit', () {
     test('al agregar transferencia reduce efectivo manteniendo total', () {
       final result = PaymentLogic.applyMixedTransferEdit(
