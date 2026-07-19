@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -140,7 +141,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       _showUpdateBanner(release.version);
     } catch (e) {
       // Silencioso: la comprobación automática nunca debe molestar al usuario.
-      print('⚠️ Comprobación de actualización falló: $e');
+      logDebug('⚠️ Comprobación de actualización falló: $e');
     }
   }
 
@@ -215,7 +216,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
       }
     } catch (e) {
-      print('⚠️ Error inicializando: $e');
+      logDebug('⚠️ Error inicializando: $e');
       if (mounted) setState(() => _initError = e.toString());
     }
   }
@@ -248,7 +249,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
       }
     } catch (e) {
-      print('⚠️ Error refrescando UI: $e');
+      logDebug('⚠️ Error refrescando UI: $e');
     }
   }
 

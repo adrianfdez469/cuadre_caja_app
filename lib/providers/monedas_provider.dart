@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../core/utils/currency.dart';
 import '../data/models/cart_model.dart';
 import '../data/models/moneda_model.dart';
@@ -44,7 +45,7 @@ class MonedasProvider extends ChangeNotifier {
       );
     } catch (e) {
       _error = e.toString();
-      print('⚠️ Error cargando multimoneda: $e');
+      logDebug('⚠️ Error cargando multimoneda: $e');
       if (_config.negocioId.isEmpty && fallbackMonedaBase != null) {
         _config = MultimonedaConfig(
           negocioId: negocioId,

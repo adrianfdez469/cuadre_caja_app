@@ -1,4 +1,5 @@
 import '../../models/producto_model.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../../models/categoria_model.dart';
 import 'database_helper.dart';
 
@@ -18,7 +19,7 @@ class ProductosLocalDataSource {
         await txn.insert('productos', map);
       }
     });
-    print('💾 ${productos.length} productos cacheados para tienda $tiendaId');
+    logDebug('💾 ${productos.length} productos cacheados para tienda $tiendaId');
   }
 
   /// Obtiene todos los productos cacheados para una tienda

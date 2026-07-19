@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/storage_keys.dart';
@@ -22,19 +23,19 @@ class SecureStorageService {
       final ok = await _runSecureStorageTest().timeout(
         _initTestTimeout,
         onTimeout: () {
-          print('⚠️ FlutterSecureStorage no respondió a tiempo (timeout), usando SharedPreferences');
+          logDebug('⚠️ FlutterSecureStorage no respondió a tiempo (timeout), usando SharedPreferences');
           return false;
         },
       );
       _useSecureStorage = ok;
       if (ok) {
-        print('✅ Usando FlutterSecureStorage');
+        logDebug('✅ Usando FlutterSecureStorage');
       } else {
-        print('⚠️ FlutterSecureStorage no confiable, usando SharedPreferences');
+        logDebug('⚠️ FlutterSecureStorage no confiable, usando SharedPreferences');
       }
     } catch (e) {
       _useSecureStorage = false;
-      print('⚠️ FlutterSecureStorage no disponible: $e');
+      logDebug('⚠️ FlutterSecureStorage no disponible: $e');
     }
   }
 

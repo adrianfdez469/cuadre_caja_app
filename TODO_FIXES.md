@@ -170,21 +170,28 @@ refrescar inventario si quedan pendientes.
 
 ---
 
-## Menores
+## Menores — ✅ TODOS HECHOS
 
-- **`_syncSingleVenta` usa el parámetro obsoleto** `venta.syncAttempts + 1` en el catch, en vez del
-  `toSync.syncAttempts` releído, así que el contador de intentos puede quedar desfasado.
-  `lib/services/sync_service.dart`.
+- ✅ **`_syncSingleVenta` usaba el parámetro obsoleto** `venta.syncAttempts + 1` en el catch.
+  **Corregido:** `toSync` se declara fuera del `try` y el catch incrementa sobre el valor releído
+  (`toSync.syncAttempts + 1`). `lib/services/sync_service.dart`.
 
-- **401 concurrentes solo recuperan una petición**: el flag `_isRefreshing` hace que las otras
-  peticiones en vuelo hagan `handler.next(err)` (fallan) en vez de esperar el refresh y reintentar.
-  OK mientras las llamadas sean secuenciales; frágil si eso cambia. `lib/core/network/api_client.dart`.
+- ✅ **401 concurrentes solo recuperaban una petición** (flag `_isRefreshing`).
+  **Corregido:** se reemplazó por un `Completer<bool>` compartido (`_refreshTokenShared`): la primera
+  petición que recibe 401 dispara el refresh y las demás esperan el mismo resultado y reintentan.
+  Se agregó la marca `extra['__authRetried']` para evitar bucles si el reintento vuelve a dar 401.
+  `lib/core/network/api_client.dart`.
 
-- **Migración `oldVersion <= 1` dropea `ventas_pendientes`**, destruyendo ventas sin sincronizar en un
-  upgrade v1→6. Path antiguo, bajo impacto hoy. `lib/data/datasources/local/database_helper.dart`.
+- ✅ **Migración `oldVersion <= 1` dropeaba `ventas_pendientes`**.
+  **Corregido:** ya no se destruye. Se aparta (`RENAME TO ..._old`), se recrea el esquema actual vía
+  `_onCreate` (ahora idempotente con `CREATE TABLE/INDEX IF NOT EXISTS`) y se copian las columnas
+  comunes (`_copyCommonColumns`), preservando las ventas sin sincronizar.
+  `lib/data/datasources/local/database_helper.dart`.
 
-- **`avoid_print`**: el logging con `print()` y emojis se envía en builds de release (sin guard
-  `kDebugMode`), filtrando rutas de request / flujo de token a logcat y agregando overhead.
+- ✅ **`avoid_print` en release**.
+  **Corregido:** nuevo `lib/core/utils/app_logger.dart` con `logDebug()` guardado por `kDebugMode`
+  (no emite en release). Todos los `print(...)` de `lib/` se migraron a `logDebug(...)`. El analyzer
+  ya no reporta `avoid_print`.
 
 ---
 
@@ -192,4 +199,5 @@ refrescar inventario si quedan pendientes.
 1. ~~**#1** (hot path de cada venta, empeora con catálogos grandes)~~ ✅ HECHO
 2. ~~**#2** (doble-post, relacionado con #1)~~ ✅ HECHO
 3. ~~**#3** (lógica de auth-recovery muerta y engañosa)~~ ✅ HECHO
-4. ~~**#4**, **#5**, **#6**~~ ✅ HECHO, luego menores.
+4. ~~**#4**, **#5**, **#6**~~ ✅ HECHO
+5. ~~Menores~~ ✅ HECHO — **todos los hallazgos de la revisión están resueltos.**

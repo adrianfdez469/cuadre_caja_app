@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../core/network/api_client.dart';
 import '../core/network/secure_storage_service.dart';
 import '../data/datasources/remote/auth_remote_datasource.dart';
@@ -48,7 +49,7 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
     } catch (e) {
-      print('⚠️ Error restaurando sesión: $e');
+      logDebug('⚠️ Error restaurando sesión: $e');
     }
 
     _status = AuthStatus.unauthenticated;
@@ -65,7 +66,7 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('⚠️ Error recargando usuario: $e');
+      logDebug('⚠️ Error recargando usuario: $e');
     }
   }
 

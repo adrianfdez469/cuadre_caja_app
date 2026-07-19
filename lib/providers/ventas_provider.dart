@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:uuid/uuid.dart';
 import '../core/utils/currency.dart';
 import '../data/models/venta_model.dart';
@@ -103,7 +104,7 @@ class VentasProvider extends ChangeNotifier {
     try {
       _ventasServidor = await _syncService.loadVentas(tiendaId, periodoId);
     } catch (e) {
-      print('❌ Error cargando ventas: $e');
+      logDebug('❌ Error cargando ventas: $e');
     }
 
     _isLoading = false;
@@ -154,7 +155,7 @@ class VentasProvider extends ChangeNotifier {
       ];
       _ventasUnificado.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
     } catch (e) {
-      print('❌ Error cargando ventas unificado: $e');
+      logDebug('❌ Error cargando ventas unificado: $e');
     }
 
     _isLoadingVentas = false;

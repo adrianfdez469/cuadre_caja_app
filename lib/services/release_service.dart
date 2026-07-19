@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -62,7 +63,7 @@ class ReleaseService {
       if (data == null) return null;
       return ReleaseInfo.fromJson(data);
     } catch (e) {
-      print('ReleaseService.fetchReleases error: $e');
+      logDebug('ReleaseService.fetchReleases error: $e');
       return null;
     }
   }
@@ -98,7 +99,7 @@ class ReleaseService {
         changelog: newChangelog,
       );
     } catch (e) {
-      print('ReleaseService.fetchRoadmap error: $e');
+      logDebug('ReleaseService.fetchRoadmap error: $e');
       return release;
     }
   }
@@ -146,12 +147,12 @@ class ReleaseService {
       if (!f.existsSync()) return null;
       if (!looksLikeApk(f)) {
         f.deleteSync();
-        print('ReleaseService.downloadApk: invalid APK file (bad header or too small)');
+        logDebug('ReleaseService.downloadApk: invalid APK file (bad header or too small)');
         return null;
       }
       return f;
     } catch (e) {
-      print('ReleaseService.downloadApk error: $e');
+      logDebug('ReleaseService.downloadApk error: $e');
       return null;
     }
   }

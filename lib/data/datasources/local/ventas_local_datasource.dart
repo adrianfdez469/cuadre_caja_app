@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 
 import '../../models/venta_model.dart';
 import 'database_helper.dart';
@@ -15,7 +16,27 @@ class VentasLocalDataSource {
       'ventas_pendientes',
       venta.toMap(),
     );
-    print('💾 Venta ${venta.syncId} guardada localmente');
+    logDebug('💾 Venta ${venta.syncId} guardada localmente');
+  }
+
+  /// Recupera ventas atascadas en `syncing` devolviéndolas a `pending`.
+  ///
+  /// Una venta queda en `syncing` solo mientras `crearVenta`/`_syncSingleVenta`
+  /// la están posteando. Si el proceso muere en esa ventana (crash, kill de
+  /// Android, force-close), la venta se queda en `syncing` para siempre:
+  /// `getVentasPendientes()` excluye ese estado, así que nunca se reintenta y la
+  /// venta jamás llega al servidor (pero el stock local ya se descontó).
+  /// Llamar al iniciar el proceso, cuando no hay ningún sync en vuelo todavía:
+  /// cualquier `syncing` en ese momento es necesariamente un remanente. Devuelve
+  /// cuántas ventas se recuperaron.
+  Future<int> resetStaleSyncing() async {
+    final db = await dbHelper.database;
+    return db.update(
+      'ventas_pendientes',
+      {'syncState': SyncState.pending.name},
+      where: 'syncState = ?',
+      whereArgs: [SyncState.syncing.name],
+    );
   }
 
   /// Obtiene todas las ventas pendientes de sincronización

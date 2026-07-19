@@ -1,4 +1,5 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../network/api_client.dart';
 import '../network/secure_storage_service.dart';
@@ -46,7 +47,7 @@ class Injection {
   late final SyncService syncService;
 
   Future<void> init() async {
-    print('🚀 Inicializando dependencias...');
+    logDebug('🚀 Inicializando dependencias...');
 
     // Core
     const secureStorage = FlutterSecureStorage();
@@ -95,7 +96,7 @@ class Injection {
       multimonedaLocal: multimonedaLocalDataSource,
     );
 
-    print('✅ Dependencias inicializadas');
+    logDebug('✅ Dependencias inicializadas');
   }
 }
 

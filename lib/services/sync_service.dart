@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../core/network/api_client.dart';
 import '../core/network/secure_storage_service.dart';
@@ -112,6 +113,20 @@ class SyncService {
   /// Inicia monitoreo de conectividad y sincronización periódica.
   /// Espera al primer chequeo de conectividad para que isOnline sea correcto antes de cargar datos.
   Future<void> startMonitoring() async {
+    // El proceso acaba de arrancar: no hay ningún sync en vuelo, así que
+    // cualquier venta en "syncing" es un remanente de un proceso anterior que
+    // murió a mitad de sincronizar. Devolverla a "pending" para que se reintente
+    // (si no, quedaría atascada: getVentasPendientes() excluye "syncing" y el
+    // stock local ya se descontó, pero la venta nunca llegaría al servidor).
+    try {
+      final recuperadas = await ventasLocal.resetStaleSyncing();
+      if (recuperadas > 0) {
+        logDebug('♻️ $recuperadas venta(s) recuperada(s) de estado syncing');
+      }
+    } catch (e) {
+      logDebug('⚠️ Error recuperando ventas en syncing: $e');
+    }
+
     await _checkConnectivity();
 
     _connectivitySubscription = connectivity.onConnectivityChanged.listen(
@@ -124,7 +139,7 @@ class SyncService {
         onConnectionChanged?.call(_connectionStatus);
 
         if (wasOffline && isOnline) {
-          print('🌐 Conexión restaurada - iniciando sincronización');
+          logDebug('🌐 Conexión restaurada - iniciando sincronización');
           _onConnectionRestored();
         }
       },
@@ -260,7 +275,7 @@ class SyncService {
         onSyncEvent?.call('${serverProductos.length} productos sincronizados');
         return ajustados;
       } catch (e) {
-        print('⚠️ Error cargando productos del servidor: $e');
+        logDebug('⚠️ Error cargando productos del servidor: $e');
         onSyncEvent?.call('Error de red, usando datos locales');
       }
     }
@@ -323,7 +338,7 @@ class SyncService {
         }
         return periodo;
       } catch (e) {
-        print('⚠️ Error cargando período del servidor: $e');
+        logDebug('⚠️ Error cargando período del servidor: $e');
       }
     }
 
@@ -356,14 +371,17 @@ class SyncService {
     await ventasLocal.saveVentaPendiente(ventaToSave);
     onSyncEvent?.call('Venta guardada');
 
-    final productos = await productosLocal.getProductos(venta.tiendaId);
-    if (productos.isEmpty) return ventaToSave;
-
     // Calcular las nuevas existencias solo de los productos tocados (items del
     // carrito + padres/hijos de desagregación) y escribirlas en una sola
     // transacción atómica, en vez de reescribir todo el catálogo por venta.
-    final existencias = StockCalculator.existenciasTrasVenta(venta, productos);
-    await productosLocal.updateExistencias(existencias);
+    // Si no hay productos cacheados no se puede ajustar el stock, pero la venta
+    // igual debe sincronizarse: no retornar temprano aquí, o una venta "syncing"
+    // quedaría atascada sin que se dispare su sync.
+    final productos = await productosLocal.getProductos(venta.tiendaId);
+    if (productos.isNotEmpty) {
+      final existencias = StockCalculator.existenciasTrasVenta(venta, productos);
+      await productosLocal.updateExistencias(existencias);
+    }
 
     if (willSync) {
       // La venta ya está en "syncing" y el stock actualizado: no esperar al
@@ -381,17 +399,21 @@ class SyncService {
 
   /// Sincroniza una venta individual
   Future<bool> _syncSingleVenta(VentaLocalModel venta) async {
+    // Estado más reciente en BD (puede diferir del parámetro): se mantiene fuera
+    // del try para que el catch incremente syncAttempts sobre el valor releído,
+    // no sobre el desactualizado del parámetro.
+    var toSync = venta;
     try {
       // Puede ya estar en syncing (p. ej. tras crearVenta en segundo plano).
       final actual = await ventasLocal.getVentaBySyncId(venta.syncId);
-      var toSync = actual ?? venta;
+      toSync = actual ?? venta;
 
       // Parche para ventas de APK antigua (payload pre-multimoneda / datos incompletos).
       toSync = await _prepareVentaForSync(toSync);
       if (!VentaSyncPayloadPatcher.isPayloadReady(toSync)) {
         const msg =
             'Datos insuficientes para crear la venta: no se pudo completar el payload de sincronización';
-        print('❌ Venta ${toSync.syncId} con payload incompleto tras parche');
+        logDebug('❌ Venta ${toSync.syncId} con payload incompleto tras parche');
         await ventasLocal.updateSyncState(
           toSync.syncId,
           syncState: SyncState.error,
@@ -426,12 +448,12 @@ class SyncService {
       return true;
     } catch (e) {
       final errorMessage = e is SyncVentaException ? e.message : e.toString();
-      print('❌ Error sincronizando venta ${venta.syncId}: $errorMessage');
+      logDebug('❌ Error sincronizando venta ${toSync.syncId}: $errorMessage');
 
       await ventasLocal.updateSyncState(
-        venta.syncId,
+        toSync.syncId,
         syncState: SyncState.error,
-        syncAttempts: venta.syncAttempts + 1,
+        syncAttempts: toSync.syncAttempts + 1,
         errorMessage: errorMessage,
       );
 
@@ -463,7 +485,7 @@ class SyncService {
     }
 
     await ventasLocal.updateVentaPendiente(patched);
-    print(
+    logDebug(
       '🔧 Venta ${patched.syncId} parcheada (${patchResult.fixesApplied.join(", ")})',
     );
     onSyncEvent?.call('Venta actualizada para sincronizar');
@@ -490,7 +512,7 @@ class SyncService {
         return SyncResult(synced: 0, failed: 0, pending: 0);
       }
 
-      print('🔄 Sincronizando ${pendientes.length} ventas pendientes...');
+      logDebug('🔄 Sincronizando ${pendientes.length} ventas pendientes...');
       onSyncEvent?.call('Sincronizando ${pendientes.length} ventas...');
 
       for (final venta in pendientes) {
@@ -531,7 +553,7 @@ class SyncService {
     try {
       await onDataRefreshed?.call();
     } catch (e) {
-      print('⚠️ Error refrescando UI tras sync de venta: $e');
+      logDebug('⚠️ Error refrescando UI tras sync de venta: $e');
     }
   }
 
@@ -569,14 +591,14 @@ class SyncService {
         await ventasLocal.cacheVentasServidor(tiendaId, periodoId, ventas);
         return ventas;
       } catch (e) {
-        print('⚠️ Error cargando ventas del servidor: $e');
+        logDebug('⚠️ Error cargando ventas del servidor: $e');
       }
     }
     // Sin conexión o error: usar cache local de ventas del servidor si existe
     try {
       return await ventasLocal.getVentasServidorCache(tiendaId, periodoId);
     } catch (e) {
-      print('⚠️ Error cargando ventas cacheadas: $e');
+      logDebug('⚠️ Error cargando ventas cacheadas: $e');
       return [];
     }
   }
@@ -603,7 +625,7 @@ class SyncService {
       try {
         await ventasRemote.cancelarVenta(venta.tiendaId, venta.periodoId, venta.serverId!);
       } catch (e) {
-        print('⚠️ Error eliminando venta en servidor: $e');
+        logDebug('⚠️ Error eliminando venta en servidor: $e');
       }
     }
 
@@ -633,7 +655,7 @@ class SyncService {
         await transferLocal.cacheDestinos(tiendaId, destinos);
         return destinos;
       } catch (e) {
-        print('⚠️ Error cargando destinos: $e');
+        logDebug('⚠️ Error cargando destinos: $e');
       }
     }
     return await transferLocal.getDestinos(tiendaId);
@@ -679,7 +701,7 @@ class SyncService {
         );
         return config;
       } catch (e) {
-        print('⚠️ Error cargando multimoneda del servidor: $e');
+        logDebug('⚠️ Error cargando multimoneda del servidor: $e');
         onSyncEvent?.call('Error de red, usando monedas en cache');
       }
     }
@@ -713,7 +735,7 @@ class SyncService {
     }
 
     if (_isFullSyncRunning) {
-      print('⏳ fullSync ya en curso, omitiendo duplicado');
+      logDebug('⏳ fullSync ya en curso, omitiendo duplicado');
       return;
     }
 
@@ -733,7 +755,7 @@ class SyncService {
         await Future.wait(futures);
         onSyncEvent?.call('Datos actualizados ✓');
       } catch (e) {
-        print('⚠️ Error en sincronización completa: $e');
+        logDebug('⚠️ Error en sincronización completa: $e');
         onSyncEvent?.call('Error parcial en sincronización');
       }
 

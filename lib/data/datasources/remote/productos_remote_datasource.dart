@@ -1,4 +1,5 @@
 import '../../../core/constants/api_constants.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../../../core/network/api_client.dart';
 import '../../models/producto_model.dart';
 
@@ -16,7 +17,7 @@ class ProductosRemoteDataSource {
     final data = response.data as Map<String, dynamic>;
     final productosList = data['productos'] as List<dynamic>? ?? [];
 
-    print('📦 Productos recibidos: ${productosList.length}');
+    logDebug('📦 Productos recibidos: ${productosList.length}');
 
     final productos = <ProductoModel>[];
     for (int i = 0; i < productosList.length; i++) {
@@ -25,7 +26,7 @@ class ProductosRemoteDataSource {
           ProductoModel.fromJson(productosList[i] as Map<String, dynamic>),
         );
       } catch (e) {
-        print('⚠️ Error parseando producto #$i: $e');
+        logDebug('⚠️ Error parseando producto #$i: $e');
       }
     }
     return productos;

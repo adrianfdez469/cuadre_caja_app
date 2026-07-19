@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../data/models/periodo_model.dart';
 import '../services/sync_service.dart';
 
@@ -27,7 +28,7 @@ class PeriodoProvider extends ChangeNotifier {
       _periodo = await _syncService.loadPeriodoActual(tiendaId);
     } catch (e) {
       _error = e.toString();
-      print('❌ Error cargando período: $e');
+      logDebug('❌ Error cargando período: $e');
     }
 
     _isLoading = false;

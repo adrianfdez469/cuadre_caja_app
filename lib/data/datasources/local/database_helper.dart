@@ -26,7 +26,7 @@ class DatabaseHelper {
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE productos (
+      CREATE TABLE IF NOT EXISTS productos (
         id TEXT PRIMARY KEY,
         productoId TEXT NOT NULL,
         nombre TEXT NOT NULL,
@@ -50,7 +50,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE ventas_pendientes (
+      CREATE TABLE IF NOT EXISTS ventas_pendientes (
         syncId TEXT PRIMARY KEY,
         tiendaId TEXT NOT NULL,
         periodoId TEXT NOT NULL,
@@ -74,7 +74,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE ventas_servidor_cache (
+      CREATE TABLE IF NOT EXISTS ventas_servidor_cache (
         id TEXT PRIMARY KEY,
         tiendaId TEXT NOT NULL,
         periodoId TEXT NOT NULL,
@@ -83,7 +83,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE periodo_cache (
+      CREATE TABLE IF NOT EXISTS periodo_cache (
         id TEXT PRIMARY KEY,
         tiendaId TEXT NOT NULL,
         fechaInicio TEXT NOT NULL,
@@ -97,7 +97,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE transfer_destinations (
+      CREATE TABLE IF NOT EXISTS transfer_destinations (
         id TEXT PRIMARY KEY,
         tiendaId TEXT NOT NULL,
         nombre TEXT NOT NULL,
@@ -107,7 +107,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE carritos (
+      CREATE TABLE IF NOT EXISTS carritos (
         id TEXT PRIMARY KEY,
         nombre TEXT NOT NULL,
         itemsJson TEXT NOT NULL DEFAULT '[]',
@@ -116,7 +116,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE multimoneda_cache (
+      CREATE TABLE IF NOT EXISTS multimoneda_cache (
         negocioId TEXT PRIMARY KEY,
         configJson TEXT NOT NULL,
         updatedAt INTEGER NOT NULL
@@ -125,13 +125,13 @@ class DatabaseHelper {
 
     // Índices para queries frecuentes
     await db.execute(
-        'CREATE INDEX idx_productos_tienda ON productos(tiendaId)');
+        'CREATE INDEX IF NOT EXISTS idx_productos_tienda ON productos(tiendaId)');
     await db.execute(
-        'CREATE INDEX idx_productos_categoria ON productos(categoriaId)');
+        'CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos(categoriaId)');
     await db.execute(
-        'CREATE INDEX idx_ventas_sync ON ventas_pendientes(syncState)');
+        'CREATE INDEX IF NOT EXISTS idx_ventas_sync ON ventas_pendientes(syncState)');
     await db.execute(
-        'CREATE INDEX idx_carritos_tienda ON carritos(tiendaId)');
+        'CREATE INDEX IF NOT EXISTS idx_carritos_tienda ON carritos(tiendaId)');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -141,12 +141,29 @@ class DatabaseHelper {
       } catch (_) {}
     }
     if (oldVersion <= 1) {
+      // Reset de v1: las tablas de solo-cache se recrean (son re-descargables),
+      // pero ventas_pendientes NO se destruye — contiene ventas sin sincronizar.
+      // Se aparta, se recrea el esquema actual y se copian las columnas comunes
+      // (lo que no exista en el esquema viejo queda con su valor por defecto).
       await db.execute('DROP TABLE IF EXISTS productos');
-      await db.execute('DROP TABLE IF EXISTS ventas_pendientes');
       await db.execute('DROP TABLE IF EXISTS periodo_cache');
       await db.execute('DROP TABLE IF EXISTS transfer_destinations');
       await db.execute('DROP TABLE IF EXISTS carritos');
+
+      final teniaPendientes = await _tableExists(db, 'ventas_pendientes');
+      if (teniaPendientes) {
+        await db.execute('DROP TABLE IF EXISTS ventas_pendientes_old');
+        await db.execute(
+            'ALTER TABLE ventas_pendientes RENAME TO ventas_pendientes_old');
+      }
+
       await _onCreate(db, newVersion);
+
+      if (teniaPendientes) {
+        await _copyCommonColumns(
+            db, 'ventas_pendientes_old', 'ventas_pendientes');
+        await db.execute('DROP TABLE ventas_pendientes_old');
+      }
     }
     if (oldVersion < 4) {
       try {
@@ -188,6 +205,31 @@ class DatabaseHelper {
         ''');
       } catch (_) {}
     }
+  }
+
+  Future<bool> _tableExists(Database db, String name) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [name],
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<List<String>> _columnNames(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.map((r) => r['name'] as String).toList();
+  }
+
+  /// Copia las filas de [from] a [to] usando solo las columnas presentes en
+  /// ambas tablas. Sirve para preservar datos al recrear una tabla con un
+  /// esquema más nuevo sin conocer el esquema viejo de antemano.
+  Future<void> _copyCommonColumns(Database db, String from, String to) async {
+    final fromCols = await _columnNames(db, from);
+    final toCols = await _columnNames(db, to);
+    final comunes = fromCols.where(toCols.contains).toList();
+    if (comunes.isEmpty) return;
+    final cols = comunes.join(', ');
+    await db.execute('INSERT INTO $to ($cols) SELECT $cols FROM $from');
   }
 
   Future<void> clearAllData() async {

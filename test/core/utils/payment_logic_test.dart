@@ -338,5 +338,46 @@ void main() {
       );
       expect(totalVueltoBase, greaterThanOrEqualTo(1000));
     });
+
+    test('cobro en USD no entrega más vuelto del debido (redondea hacia abajo)',
+        () {
+      // Debido: 200 CUP. En USD (tasa 400) son 0.5 USD; con la denominación
+      // mínima de 1 USD, un redondeo hacia arriba entregaría 1 USD = 400 CUP,
+      // el doble de lo debido. El vuelto total nunca debe superar lo debido por
+      // una denominación completa de la moneda de cobro.
+      const total = 800.0;
+      final pagos = [
+        PagoLinea(
+          tipo: 'cash',
+          moneda: 'USD',
+          monto: 2.5, // = 1000 CUP
+          equivalenteBase: 1000,
+        ),
+      ];
+
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: total,
+        pagos: pagos,
+        monedaCobro: 'USD',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {
+          'CUP': cupDenoms,
+          'USD': [100, 50, 20, 10, 5, 1],
+        },
+      );
+
+      final totalVueltoBase = vuelto.fold<double>(
+        0,
+        (s, v) =>
+            s + CurrencyUtils.convertToBase(v.monto, v.moneda, tasas, 'CUP'),
+      );
+      // Debe cubrir lo debido...
+      expect(totalVueltoBase, greaterThanOrEqualTo(200));
+      // ...pero sin entregar un billete entero de USD (400 CUP) de más.
+      expect(totalVueltoBase, lessThan(400));
+      // No debe haber una línea de vuelto en USD por 0.5 redondeado a 1.
+      expect(vuelto.where((v) => v.moneda == 'USD'), isEmpty);
+    });
   });
 }

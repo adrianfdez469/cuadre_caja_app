@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
+
 import 'package:dio/dio.dart';
 import '../constants/api_constants.dart';
 import 'secure_storage_service.dart';
@@ -13,7 +16,11 @@ enum AuthResult { ok, authRejected, networkError }
 class ApiClient {
   final Dio _dio;
   final SecureStorageService _storageService;
-  bool _isRefreshing = false;
+
+  /// Refresh en curso compartido: si varias peticiones reciben 401 a la vez, la
+  /// primera dispara el refresh y las demás esperan el mismo resultado, en vez
+  /// de fallar (como antes) o refrescar en paralelo.
+  Completer<bool>? _refreshCompleter;
 
   ApiClient(this._storageService)
       : _dio = Dio(BaseOptions(
@@ -44,22 +51,22 @@ class ApiClient {
       token = await _storageService.getToken().timeout(
         _tokenReadTimeout,
         onTimeout: () {
-          print('⚠️ Timeout leyendo token, continuando sin Authorization');
+          logDebug('⚠️ Timeout leyendo token, continuando sin Authorization');
           return null;
         },
       );
     } catch (e) {
-      print('⚠️ Error leyendo token: $e');
+      logDebug('⚠️ Error leyendo token: $e');
     }
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
-    print('🌐 REQUEST[${options.method}] => ${options.path}');
+    logDebug('🌐 REQUEST[${options.method}] => ${options.path}');
     handler.next(options);
   }
 
   void _onResponse(Response response, ResponseInterceptorHandler handler) {
-    print('✅ RESPONSE[${response.statusCode}] => ${response.requestOptions.path}');
+    logDebug('✅ RESPONSE[${response.statusCode}] => ${response.requestOptions.path}');
     handler.next(response);
   }
 
@@ -67,15 +74,15 @@ class ApiClient {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    print('❌ ERROR[${err.response?.statusCode}] => ${err.requestOptions.path}');
+    logDebug('❌ ERROR[${err.response?.statusCode}] => ${err.requestOptions.path}');
 
-    // Si es 401 y no estamos ya refrescando, intentar refresh
-    if (err.response?.statusCode == 401 && !_isRefreshing) {
-      _isRefreshing = true;
+    // 401: refrescar token (una sola vez, compartido entre peticiones
+    // concurrentes) y reintentar. La marca __authRetried evita un bucle si el
+    // reintento vuelve a dar 401.
+    final alreadyRetried = err.requestOptions.extra['__authRetried'] == true;
+    if (err.response?.statusCode == 401 && !alreadyRetried) {
       try {
-        final refreshed = await _tryRefreshToken() == AuthResult.ok;
-        _isRefreshing = false;
-
+        final refreshed = await _refreshTokenShared();
         if (refreshed) {
           // Reintentar la petición original con el nuevo token
           final token = await _storageService.getToken().timeout(
@@ -84,16 +91,37 @@ class ApiClient {
           );
           final opts = err.requestOptions;
           opts.headers['Authorization'] = 'Bearer $token';
+          opts.extra['__authRetried'] = true;
 
           final response = await _dio.fetch(opts);
           return handler.resolve(response);
         }
       } catch (_) {
-        _isRefreshing = false;
+        // Cualquier fallo cae al handler.next(err) de abajo.
       }
     }
 
     handler.next(err);
+  }
+
+  /// Refresca el token compartiendo un único intento entre las peticiones que
+  /// reciben 401 al mismo tiempo. Devuelve `true` si el refresh fue exitoso.
+  Future<bool> _refreshTokenShared() async {
+    final inFlight = _refreshCompleter;
+    if (inFlight != null) return inFlight.future;
+
+    final completer = Completer<bool>();
+    _refreshCompleter = completer;
+    try {
+      final ok = await _tryRefreshToken() == AuthResult.ok;
+      completer.complete(ok);
+      return ok;
+    } catch (_) {
+      completer.complete(false);
+      return false;
+    } finally {
+      _refreshCompleter = null;
+    }
   }
 
   /// Refresca/valida el token usando /auth/refresh.
@@ -131,16 +159,16 @@ class ApiClient {
           );
         }
 
-        print('🔄 Token refrescado exitosamente');
+        logDebug('🔄 Token refrescado exitosamente');
         return AuthResult.ok;
       }
       // Respuesta 2xx sin success: token no aceptado.
       return AuthResult.authRejected;
     } on DioException catch (e) {
-      print('❌ Error refrescando token: ${e.message}');
+      logDebug('❌ Error refrescando token: ${e.message}');
       return _classifyDioError(e);
     } catch (e) {
-      print('❌ Error refrescando token: $e');
+      logDebug('❌ Error refrescando token: $e');
       return AuthResult.networkError;
     }
   }
@@ -165,15 +193,15 @@ class ApiClient {
         await _storageService.saveUser(
           response.data['user'] as Map<String, dynamic>,
         );
-        print('🔄 Re-login exitoso');
+        logDebug('🔄 Re-login exitoso');
         return AuthResult.ok;
       }
       return AuthResult.authRejected;
     } on DioException catch (e) {
-      print('❌ Error en re-login: ${e.message}');
+      logDebug('❌ Error en re-login: ${e.message}');
       return _classifyDioError(e);
     } catch (e) {
-      print('❌ Error en re-login: $e');
+      logDebug('❌ Error en re-login: $e');
       return AuthResult.networkError;
     }
   }

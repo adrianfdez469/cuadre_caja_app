@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../core/utils/producto_pos_rules.dart';
 import '../data/models/producto_model.dart';
 import '../data/models/categoria_model.dart';
@@ -61,7 +62,7 @@ class ProductosProvider extends ChangeNotifier {
       _rebuildProductLists();
       _categorias = await _syncService.loadCategorias(tiendaId);
     } catch (e) {
-      print('❌ Error cargando productos: $e');
+      logDebug('❌ Error cargando productos: $e');
     }
 
     if (showLoading) {
@@ -79,7 +80,7 @@ class ProductosProvider extends ChangeNotifier {
       _categorias = await _syncService.loadCategorias(tiendaId);
       notifyListeners();
     } catch (e) {
-      print('❌ Error refrescando productos desde caché: $e');
+      logDebug('❌ Error refrescando productos desde caché: $e');
     }
   }
 

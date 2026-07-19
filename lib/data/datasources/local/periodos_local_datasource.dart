@@ -1,4 +1,5 @@
 import '../../models/periodo_model.dart';
+import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'database_helper.dart';
 
 class PeriodosLocalDataSource {
@@ -13,7 +14,7 @@ class PeriodosLocalDataSource {
       'periodo_cache',
       periodo.toMap(),
     );
-    print('💾 Período ${periodo.id} cacheado');
+    logDebug('💾 Período ${periodo.id} cacheado');
   }
 
   /// Obtiene período cacheado para una tienda

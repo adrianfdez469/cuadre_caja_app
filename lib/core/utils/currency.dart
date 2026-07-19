@@ -64,8 +64,12 @@ class CurrencyUtils {
         denominaciones[monedaCobro] ?? [],
       )..sort((a, b) => b.compareTo(a));
       final denomMin = denomsOrdenadas.isEmpty ? 1.0 : denomsOrdenadas.last;
+      // Redondear hacia ABAJO: nunca entregar más vuelto del debido en la moneda
+      // de cobro. Lo que quede (restoBase) se cubre después con denominaciones de
+      // la moneda base. Con .round() un redondeo hacia arriba dejaba restoBase
+      // negativo y se saltaba la corrección, entregando cambio de más.
       final vueltoEnMonedaCobro =
-          (vueltoEnMonedaCobroRaw / denomMin).round() * denomMin;
+          (vueltoEnMonedaCobroRaw / denomMin).floor() * denomMin;
 
       if (vueltoEnMonedaCobro > 0) {
         result.add(VueltoLinea(moneda: monedaCobro, monto: vueltoEnMonedaCobro));
