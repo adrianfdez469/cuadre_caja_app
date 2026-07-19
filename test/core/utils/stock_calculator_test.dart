@@ -22,9 +22,9 @@ ProductoModel _producto({
   );
 }
 
-VentaLocalModel _venta(List<VentaProducto> productos) {
+VentaLocalModel _venta(List<VentaProducto> productos, {String syncId = 'v1'}) {
   return VentaLocalModel(
-    syncId: 'v1',
+    syncId: syncId,
     tiendaId: 't1',
     periodoId: 'p1',
     productos: productos,
@@ -132,6 +132,76 @@ void main() {
       final venta = _venta([]);
 
       final result = StockCalculator.existenciasTrasVenta(venta, productos);
+
+      expect(result, isEmpty);
+    });
+  });
+
+  group('StockCalculator.replayVentas', () {
+    test('encadena varias ventas sobre el snapshot del servidor', () {
+      // Snapshot del servidor: A=100. Dos ventas pendientes descuentan 3 y 4.
+      final snapshot = [
+        _producto(id: 'A', productoId: 'pA', existencia: 100),
+        _producto(id: 'B', productoId: 'pB', existencia: 50),
+      ];
+      final ventas = [
+        _venta([_item('A', 3)], syncId: 'v1'),
+        _venta([_item('A', 4), _item('B', 5)], syncId: 'v2'),
+      ];
+
+      final result = StockCalculator.replayVentas(snapshot, ventas);
+
+      // A: 100 - 3 - 4 = 93; B: 50 - 5 = 45.
+      expect(result['A'], 93);
+      expect(result['B'], 45);
+    });
+
+    test('preserva existencias negativas (venta sin stock offline)', () {
+      final snapshot = [
+        _producto(id: 'A', productoId: 'pA', existencia: 2),
+      ];
+      final ventas = [
+        _venta([_item('A', 5)], syncId: 'v1'),
+        _venta([_item('A', 3)], syncId: 'v2'),
+      ];
+
+      final result = StockCalculator.replayVentas(snapshot, ventas);
+
+      // 2 - 5 - 3 = -6: no se clampea, se permite negativo.
+      expect(result['A'], -6);
+    });
+
+    test('la desagregación de la 2da venta ve el stock decrementado por la 1ra',
+        () {
+      // Padre: 1 unidad = 6 fracciones. Hijo arranca con 2.
+      final padre = _producto(id: 'PADRE', productoId: 'pPadre', existencia: 4);
+      final hijo = _producto(
+        id: 'HIJO',
+        productoId: 'pHijo',
+        existencia: 2,
+        fraccionDe: FraccionDeModel(id: 'pPadre', nombre: 'Padre'),
+        unidadesPorFraccion: 6,
+      );
+      // v1 vende 5 del hijo: need=3 -> desagrega 1 padre. Padre=3, Hijo=3.
+      // v2 vende 4 del hijo sobre Hijo=3: need=1 -> desagrega 1 padre.
+      // Padre=2, Hijo=3+6-4=5.
+      final ventas = [
+        _venta([_item('HIJO', 5)], syncId: 'v1'),
+        _venta([_item('HIJO', 4)], syncId: 'v2'),
+      ];
+
+      final result = StockCalculator.replayVentas([padre, hijo], ventas);
+
+      expect(result['PADRE'], 2);
+      expect(result['HIJO'], 5);
+    });
+
+    test('sin ventas devuelve mapa vacío (no toca el snapshot)', () {
+      final snapshot = [
+        _producto(id: 'A', productoId: 'pA', existencia: 10),
+      ];
+
+      final result = StockCalculator.replayVentas(snapshot, []);
 
       expect(result, isEmpty);
     });

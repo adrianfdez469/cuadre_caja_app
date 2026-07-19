@@ -96,8 +96,11 @@ engañosa.
 
 ---
 
-### 4. `clearAllData()` deja `ventas_servidor_cache` — fuga entre tiendas/sesiones
+### 4. ✅ HECHO — `clearAllData()` deja `ventas_servidor_cache` — fuga entre tiendas/sesiones
 **Archivo:** `lib/data/datasources/local/database_helper.dart` → `clearAllData`
+
+> **Corregido:** se agregó `await db.delete('ventas_servidor_cache');` a `clearAllData`.
+> `ventas_pendientes` se sigue conservando (no se pierden ventas sin sincronizar).
 
 ```dart
 await db.delete('productos');
@@ -120,8 +123,18 @@ que el radio de impacto es pequeño, pero es una fuga que nunca se purga.
 
 ## Preocupaciones de diseño
 
-### 5. `connectivity_plus` ≠ alcanzabilidad real de internet
+### 5. ✅ HECHO — `connectivity_plus` ≠ alcanzabilidad real de internet
 **Archivo:** `lib/services/sync_service.dart` → `_mapConnectivity`
+
+> **Corregido:** dos frentes. (1) Timeouts bajados de 30s → 8s (`api_constants.dart`) para acotar
+> el peor caso de bloqueo. (2) Probe de alcanzabilidad `ApiClient.isServerReachable()`: como no
+> existe `/health`, hace un GET corto (3s) a la base de la API — cualquier respuesta HTTP (incl.
+> 404/401) cuenta como alcanzable; solo timeout/error de conexión = no alcanzable. `SyncService`
+> lo cachea 15s (`_isServerReachable`) e invalida al cambiar la red, y las lecturas
+> (`loadProductos`, `loadPeriodoActual`, `loadTransferDestinations`, `loadMultimonedaConfig`,
+> `loadVentas`) van directo a cache cuando el servidor no responde.
+> **Caveat:** un portal cautivo que responde 200 con su propia página puede dar un falso positivo
+> en el probe; ahí el timeout reducido es la red de seguridad.
 
 Mapea "hay alguna interfaz de red" → `online`. Con Wi-Fi de portal cautivo o sin uplink real,
 `isOnline` es `true`, así que las lecturas van API-first y bloquean hasta 30s (`receiveTimeout`) por
@@ -133,8 +146,17 @@ confiar en `isOnline`, o reducir bastante el timeout de lectura.
 
 ---
 
-### 6. El refresco de inventario puede sobrescribir el stock de *otras* ventas sin sincronizar
+### 6. ✅ HECHO — El refresco de inventario puede sobrescribir el stock de *otras* ventas sin sincronizar
 **Archivo:** `lib/services/sync_service.dart` → `_refreshInventarioFromServer` / `crearVenta`
+
+> **Corregido por reconciliación** (no por "sync-todo-antes"). Tras cachear el snapshot del
+> servidor, `loadProductos` re-aplica encima los decrementos de las ventas aún no sincronizadas
+> de la tienda: `existencia_local = snapshot_servidor − Σ(decrementos no sincronizados)`. Lógica
+> pura en `StockCalculator.replayVentas` (encadena ventas en orden, respeta desagregación de
+> fracción) + `_reconciliarInventario` en `SyncService`. **No clampea a 0**: vender en negativo
+> offline sigue permitido (es una feature); las dos exigencias no chocan porque restar nunca borra
+> los decrementos de otras pendientes. Centralizado en `loadProductos`, así cubre también refrescos
+> disparados por la UI, no solo el path de venta. Cubierto por tests de `replayVentas`.
 
 `_refreshInventarioFromServer` → `loadProductos` sobrescribe la `existencia` local con los valores del
 servidor. En el path online de `crearVenta` solo se sincroniza *esta* venta antes del refresco, así que
@@ -170,4 +192,4 @@ refrescar inventario si quedan pendientes.
 1. ~~**#1** (hot path de cada venta, empeora con catálogos grandes)~~ ✅ HECHO
 2. ~~**#2** (doble-post, relacionado con #1)~~ ✅ HECHO
 3. ~~**#3** (lógica de auth-recovery muerta y engañosa)~~ ✅ HECHO
-4. **#4**, **#5**, **#6**, luego menores.
+4. ~~**#4**, **#5**, **#6**~~ ✅ HECHO, luego menores.

@@ -56,4 +56,39 @@ class StockCalculator {
 
     return existencias;
   }
+
+  /// Re-aplica los decrementos de varias ventas **sobre** un snapshot de
+  /// existencias (típicamente el del servidor), en orden, encadenando el estado.
+  ///
+  /// Sirve para reconciliar el inventario tras refrescar desde el servidor sin
+  /// pisar el stock optimista de las ventas que aún no se sincronizaron:
+  /// `existencia_local = snapshot_servidor − Σ(decrementos no sincronizados)`.
+  ///
+  /// Cada venta se aplica sobre el resultado de la anterior (la desagregación de
+  /// fracción depende del stock corriente). Devuelve el mapa
+  /// `productoTiendaId -> existencia final` **solo** de los productos tocados por
+  /// alguna venta. No clampea: permitir existencias negativas offline es
+  /// intencional (se venden productos sin stock hasta que la venta sincronice).
+  static Map<String, double> replayVentas(
+    List<ProductoModel> snapshot,
+    List<VentaLocalModel> ventas,
+  ) {
+    var productos = snapshot;
+    final acumulado = <String, double>{};
+
+    for (final venta in ventas) {
+      final delta = existenciasTrasVenta(venta, productos);
+      if (delta.isEmpty) continue;
+      acumulado.addAll(delta);
+      // Aplicar al estado de trabajo para que la siguiente venta vea el stock
+      // ya decrementado por esta.
+      productos = productos
+          .map((p) => delta.containsKey(p.id)
+              ? p.copyWith(existencia: delta[p.id])
+              : p)
+          .toList();
+    }
+
+    return acumulado;
+  }
 }

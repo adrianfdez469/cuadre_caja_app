@@ -55,6 +55,27 @@ class ProductoModel {
 
   bool get hasStock => existencia > 0;
 
+  /// Copia el producto cambiando solo la existencia. Usado por la reconciliación
+  /// de inventario (re-aplicar decrementos de ventas pendientes sobre el snapshot
+  /// del servidor) sin mutar el resto de campos.
+  ProductoModel copyWith({double? existencia}) => ProductoModel(
+        id: id,
+        productoId: productoId,
+        nombre: nombre,
+        descripcion: descripcion,
+        precio: precio,
+        costo: costo,
+        monedaPrecioCode: monedaPrecioCode,
+        existencia: existencia ?? this.existencia,
+        permiteDecimal: permiteDecimal,
+        categoria: categoria,
+        codigos: codigos,
+        proveedor: proveedor,
+        esFraccion: esFraccion,
+        fraccionDe: fraccionDe,
+        unidadesPorFraccion: unidadesPorFraccion,
+      );
+
   String get categoriaId => categoria?.id ?? '';
   String get categoriaNombre => categoria?.nombre ?? '';
   String get categoriaColor => categoria?.color ?? '#CCCCCC';

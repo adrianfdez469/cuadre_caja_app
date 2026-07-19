@@ -41,6 +41,14 @@ class ApiConstants {
   static String tasasCambio(String negocioId) => '/tasas-cambio/$negocioId';
 
   // Timeouts
-  static const Duration connectTimeout = Duration(seconds: 30);
-  static const Duration receiveTimeout = Duration(seconds: 30);
+  // Reducidos de 30s: con red presente pero sin uplink real (portal cautivo),
+  // una lectura API-first bloqueaba hasta 30s antes de caer a cache — justo
+  // cuando el cajero necesita el POS instantáneo. 8s acota ese peor caso.
+  static const Duration connectTimeout = Duration(seconds: 8);
+  static const Duration receiveTimeout = Duration(seconds: 8);
+
+  // Probe de alcanzabilidad: timeout corto para decidir rápido si el servidor
+  // responde antes de intentar lecturas pesadas. No existe /health, así que se
+  // hace un GET a la base y cualquier respuesta HTTP cuenta como alcanzable.
+  static const Duration probeTimeout = Duration(seconds: 3);
 }

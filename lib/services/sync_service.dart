@@ -56,6 +56,11 @@ class SyncService {
   String? _lastNegocioId;
   Future<void>? _connectionRestoreFuture;
 
+  // Cache del probe de alcanzabilidad para no sondear en cada lectura.
+  bool? _serverReachable;
+  DateTime? _reachableCheckedAt;
+  static const Duration _reachableTtl = Duration(seconds: 15);
+
   // Callbacks
   void Function(ConnectionStatus)? onConnectionChanged;
   void Function(String message)? onSyncEvent;
@@ -85,6 +90,25 @@ class SyncService {
   ConnectionStatus get connectionStatus => _connectionStatus;
   bool get isOnline => _connectionStatus == ConnectionStatus.online;
 
+  /// ¿El servidor responde de verdad? `isOnline` (connectivity_plus) solo indica
+  /// que hay red; esto sondea el servidor con timeout corto y cachea el resultado
+  /// por [_reachableTtl] para no bloquear cada lectura. Si no hay red, `false` sin
+  /// sondear. Las lecturas usan esto para ir directo a cache cuando no se alcanza
+  /// el servidor, en vez de esperar el timeout completo del request.
+  Future<bool> _isServerReachable() async {
+    if (!isOnline) return false;
+    final now = DateTime.now();
+    final cached = _serverReachable;
+    final at = _reachableCheckedAt;
+    if (cached != null && at != null && now.difference(at) < _reachableTtl) {
+      return cached;
+    }
+    final reachable = await apiClient.isServerReachable();
+    _serverReachable = reachable;
+    _reachableCheckedAt = now;
+    return reachable;
+  }
+
   /// Inicia monitoreo de conectividad y sincronización periódica.
   /// Espera al primer chequeo de conectividad para que isOnline sea correcto antes de cargar datos.
   Future<void> startMonitoring() async {
@@ -94,6 +118,8 @@ class SyncService {
       (result) {
         final wasOffline = !isOnline;
         _connectionStatus = _mapConnectivity(result);
+        // La red cambió: invalidar el probe cacheado para re-sondear.
+        _serverReachable = null;
 
         onConnectionChanged?.call(_connectionStatus);
 
@@ -124,6 +150,7 @@ class SyncService {
   Future<void> _checkConnectivity() async {
     final result = await connectivity.checkConnectivity();
     _connectionStatus = _mapConnectivity(result);
+    _serverReachable = null;
     onConnectionChanged?.call(_connectionStatus);
   }
 
@@ -220,12 +247,18 @@ class SyncService {
 
   /// Carga productos: intenta API primero, fallback a cache
   Future<List<ProductoModel>> loadProductos(String tiendaId) async {
-    if (isOnline) {
+    if (await _isServerReachable()) {
       try {
-        final productos = await productosRemote.getProductos(tiendaId);
-        await productosLocal.cacheProductos(tiendaId, productos);
-        onSyncEvent?.call('${productos.length} productos sincronizados');
-        return productos;
+        final serverProductos = await productosRemote.getProductos(tiendaId);
+        await productosLocal.cacheProductos(tiendaId, serverProductos);
+        // Reconciliar: re-aplicar sobre el snapshot del servidor los decrementos
+        // de las ventas que aún no se sincronizaron, para no pisar su stock
+        // optimista. Sin esto, refrescar inventario "inflaba" el stock de otras
+        // ventas pendientes hasta que sincronizaran.
+        final ajustados =
+            await _reconciliarInventario(tiendaId, serverProductos);
+        onSyncEvent?.call('${serverProductos.length} productos sincronizados');
+        return ajustados;
       } catch (e) {
         print('⚠️ Error cargando productos del servidor: $e');
         onSyncEvent?.call('Error de red, usando datos locales');
@@ -238,6 +271,32 @@ class SyncService {
       onSyncEvent?.call('Usando ${cached.length} productos en cache');
     }
     return cached;
+  }
+
+  /// Re-aplica los decrementos de las ventas no sincronizadas de [tiendaId]
+  /// sobre el [snapshot] recién traído del servidor y persiste el resultado.
+  /// Devuelve la lista con las existencias ya ajustadas para la UI.
+  ///
+  /// No clampea a 0: permitir existencias negativas offline es intencional
+  /// (el POS sigue vendiendo sin stock hasta que las ventas sincronicen).
+  Future<List<ProductoModel>> _reconciliarInventario(
+    String tiendaId,
+    List<ProductoModel> snapshot,
+  ) async {
+    final pendientes = (await ventasLocal.getVentasPendientes())
+        .where((v) => v.tiendaId == tiendaId)
+        .toList();
+    if (pendientes.isEmpty) return snapshot;
+
+    final ajustes = StockCalculator.replayVentas(snapshot, pendientes);
+    if (ajustes.isEmpty) return snapshot;
+
+    await productosLocal.updateExistencias(ajustes);
+    return snapshot
+        .map((p) => ajustes.containsKey(p.id)
+            ? p.copyWith(existencia: ajustes[p.id])
+            : p)
+        .toList();
   }
 
   /// Solo lectura desde disco (sin red). Útil tras una venta para refrescar el POS al instante.
@@ -256,7 +315,7 @@ class SyncService {
 
   /// Carga período actual: intenta API primero, fallback a cache
   Future<PeriodoModel?> loadPeriodoActual(String tiendaId) async {
-    if (isOnline) {
+    if (await _isServerReachable()) {
       try {
         final periodo = await periodosRemote.getPeriodoActual(tiendaId);
         if (periodo != null) {
@@ -503,7 +562,7 @@ class SyncService {
     String tiendaId,
     String periodoId,
   ) async {
-    if (isOnline) {
+    if (await _isServerReachable()) {
       try {
         final ventas = await ventasRemote.getVentas(tiendaId, periodoId);
         // Cachear lista completa para modo offline
@@ -568,7 +627,7 @@ class SyncService {
   Future<List<TransferDestinationModel>> loadTransferDestinations(
     String tiendaId,
   ) async {
-    if (isOnline) {
+    if (await _isServerReachable()) {
       try {
         final destinos = await transferRemote.getDestinos(tiendaId);
         await transferLocal.cacheDestinos(tiendaId, destinos);
@@ -595,7 +654,7 @@ class SyncService {
   }) async {
     final baseFallback = fallbackMonedaBase ?? 'CUP';
 
-    if (isOnline) {
+    if (await _isServerReachable()) {
       try {
         final results = await Future.wait([
           monedasRemote.getMonedas(negocioId),

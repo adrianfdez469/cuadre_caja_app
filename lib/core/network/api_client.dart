@@ -186,4 +186,29 @@ class ApiClient {
     if (status == 401 || status == 403) return AuthResult.authRejected;
     return AuthResult.networkError;
   }
+
+  /// Probe rápido de alcanzabilidad del servidor.
+  ///
+  /// `connectivity_plus` solo dice si hay alguna interfaz de red, no si el
+  /// servidor responde (portal cautivo, wifi sin uplink). Hace un GET corto a
+  /// la base de la API: **cualquier respuesta HTTP** (incluso 404/401) prueba
+  /// que el servidor es alcanzable; solo un timeout / error de conexión (sin
+  /// respuesta) se considera no alcanzable. Sin auth y con timeout propio corto.
+  Future<bool> isServerReachable() async {
+    try {
+      final probe = Dio(BaseOptions(
+        baseUrl: ApiConstants.baseUrl,
+        connectTimeout: ApiConstants.probeTimeout,
+        receiveTimeout: ApiConstants.probeTimeout,
+        sendTimeout: ApiConstants.probeTimeout,
+      ));
+      await probe.get('/');
+      return true; // 2xx
+    } on DioException catch (e) {
+      // Llegó una respuesta HTTP (404/401/etc.) => el servidor está vivo.
+      return e.response != null;
+    } catch (_) {
+      return false;
+    }
+  }
 }

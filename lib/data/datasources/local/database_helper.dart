@@ -197,6 +197,7 @@ class DatabaseHelper {
     await db.delete('transfer_destinations');
     await db.delete('carritos');
     await db.delete('multimoneda_cache');
+    await db.delete('ventas_servidor_cache');
     // No borrar ventas_pendientes para no perder ventas sin sincronizar
   }
 }
