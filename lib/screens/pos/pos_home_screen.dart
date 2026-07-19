@@ -186,7 +186,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
               messenger.hideCurrentMaterialBanner();
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const VersionScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const VersionScreen(autoCheck: true),
+                ),
               );
             },
             child: const Text('Actualizar'),

@@ -16,7 +16,12 @@ import '../providers/ventas_provider.dart';
 import '../services/release_service.dart' show ReleaseService, compareVersions;
 
 class VersionScreen extends StatefulWidget {
-  const VersionScreen({super.key});
+  /// Si es true, comprueba actualizaciones automáticamente al abrir la pantalla
+  /// (p. ej. al llegar desde el aviso de nueva versión), sin que el usuario
+  /// tenga que pulsar "Comprobar actualizaciones".
+  final bool autoCheck;
+
+  const VersionScreen({super.key, this.autoCheck = false});
 
   @override
   State<VersionScreen> createState() => _VersionScreenState();
@@ -38,7 +43,16 @@ class _VersionScreenState extends State<VersionScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPackageInfo();
+    _init();
+  }
+
+  Future<void> _init() async {
+    // Cargar la versión actual primero: _hasUpdate la compara con la remota, así
+    // que la comprobación automática debe correr después de tenerla.
+    await _loadPackageInfo();
+    if (widget.autoCheck && mounted) {
+      await _checkUpdates();
+    }
   }
 
   Future<void> _loadPackageInfo() async {
