@@ -121,9 +121,10 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
         widget.scannedCode,
       );
       if (!mounted) return;
-      context
+      await context
           .read<ProductosProvider>()
           .addCodigoToProducto(producto.id, nuevoCodigo);
+      if (!mounted) return;
       Navigator.of(context).pop(producto);
     } on DioException catch (e) {
       if (!mounted) return;

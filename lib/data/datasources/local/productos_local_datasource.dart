@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../../models/producto_model.dart';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../../models/categoria_model.dart';
@@ -104,6 +105,27 @@ class ProductosLocalDataSource {
       }
       await batch.commit(noResult: true);
     });
+  }
+
+  /// Persiste los códigos (barras/QR) de un producto en cache.
+  ///
+  /// Se usa tras asociar un código nuevo: sin esto la asociación solo vivía en
+  /// memoria y se perdía al recargar la cache desde disco (p. ej. offline tras
+  /// reiniciar la app), aunque el servidor ya la tuviera.
+  Future<void> updateCodigos(
+    String productoTiendaId,
+    List<CodigoProductoModel> codigos,
+  ) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'productos',
+      {
+        'codigosJson':
+            codigos.isEmpty ? null : jsonEncode(codigos.map((c) => c.toJson()).toList()),
+      },
+      where: 'id = ?',
+      whereArgs: [productoTiendaId],
+    );
   }
 
   /// Incrementa existencia (al eliminar una venta y restaurar stock)

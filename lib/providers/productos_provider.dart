@@ -149,31 +149,32 @@ class ProductosProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Agrega un nuevo código a un producto en memoria tras una asociación exitosa.
-  void addCodigoToProducto(
+  /// Agrega un nuevo código a un producto tras una asociación exitosa.
+  ///
+  /// Escribe sobre `_rawProductos` (la fuente de verdad) y reconstruye las
+  /// listas derivadas; si solo se tocara `_allProductos`, el próximo
+  /// `_rebuildProductLists()` (tras una venta, cambio de conexión, etc.) lo
+  /// regeneraría desde `_rawProductos` y perdería la asociación. Además persiste
+  /// el código en la cache local para que sobreviva a un reinicio offline.
+  Future<void> addCodigoToProducto(
     String productoTiendaId,
     CodigoProductoModel nuevoCodigo,
-  ) {
-    final idx = _allProductos.indexWhere((p) => p.id == productoTiendaId);
-    if (idx != -1) {
-      final old = _allProductos[idx];
-      _allProductos[idx] = ProductoModel(
-        id: old.id,
-        productoId: old.productoId,
-        nombre: old.nombre,
-        descripcion: old.descripcion,
-        precio: old.precio,
-        costo: old.costo,
-        existencia: old.existencia,
-        permiteDecimal: old.permiteDecimal,
-        categoria: old.categoria,
-        codigos: [...old.codigos, nuevoCodigo],
-        proveedor: old.proveedor,
-        esFraccion: old.esFraccion,
-        fraccionDe: old.fraccionDe,
-        unidadesPorFraccion: old.unidadesPorFraccion,
+  ) async {
+    final idx = _rawProductos.indexWhere((p) => p.id == productoTiendaId);
+    if (idx == -1) return;
+
+    final nuevosCodigos = [..._rawProductos[idx].codigos, nuevoCodigo];
+    _rawProductos[idx] = _rawProductos[idx].copyWith(codigos: nuevosCodigos);
+    _rebuildProductLists();
+    notifyListeners();
+
+    try {
+      await _syncService.productosLocal.updateCodigos(
+        productoTiendaId,
+        nuevosCodigos,
       );
-      filterByCategoria(_selectedCategoriaId);
+    } catch (e) {
+      logDebug('⚠️ Error persistiendo código asociado: $e');
     }
   }
 

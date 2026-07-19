@@ -58,7 +58,11 @@ class ProductoModel {
   /// Copia el producto cambiando solo la existencia. Usado por la reconciliación
   /// de inventario (re-aplicar decrementos de ventas pendientes sobre el snapshot
   /// del servidor) sin mutar el resto de campos.
-  ProductoModel copyWith({double? existencia}) => ProductoModel(
+  ProductoModel copyWith({
+    double? existencia,
+    List<CodigoProductoModel>? codigos,
+  }) =>
+      ProductoModel(
         id: id,
         productoId: productoId,
         nombre: nombre,
@@ -69,7 +73,7 @@ class ProductoModel {
         existencia: existencia ?? this.existencia,
         permiteDecimal: permiteDecimal,
         categoria: categoria,
-        codigos: codigos,
+        codigos: codigos ?? this.codigos,
         proveedor: proveedor,
         esFraccion: esFraccion,
         fraccionDe: fraccionDe,
