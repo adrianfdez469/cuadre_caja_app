@@ -55,11 +55,22 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   bool _updateBannerShown = false;
   final ReleaseService _releaseService = ReleaseService();
 
+  /// Referencia al ScaffoldMessenger capturada mientras el widget está activo,
+  /// para poder limpiar banners en dispose() sin llamar a
+  /// ScaffoldMessenger.of(context) sobre un element ya defunct (lanza assertion).
+  ScaffoldMessengerState? _scaffoldMessenger;
+
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(_onSearchFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.of(context);
   }
 
   void _onSearchFocusChanged() {
@@ -109,6 +120,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     // Cargar datos (ya sabemos si hay conexión; si hay, se traen período y productos del servidor)
     await _loadData();
 
+    // El usuario pudo salir (logout / redirección a login) durante los awaits
+    // anteriores: sin este guard, setState sobre un State ya desmontado lanza.
+    if (!mounted) return;
     setState(() => _isInitialized = true);
 
     // Comprobación de actualización en segundo plano (no bloquea el POS).
@@ -277,7 +291,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
 
   @override
   void dispose() {
-    ScaffoldMessenger.of(context).clearMaterialBanners();
+    _scaffoldMessenger?.clearMaterialBanners();
     context.read<SyncProvider>().stopMonitoring();
     _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
