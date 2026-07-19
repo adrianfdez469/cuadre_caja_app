@@ -71,11 +71,23 @@ class SecureStorageService {
     }
   }
 
+  /// Claves de autenticación que administra este servicio. Se borran de forma
+  /// explícita en el modo fallback para NO arrasar con el resto de
+  /// SharedPreferences (ajustes de escaneo, versión omitida, etc.), igual que
+  /// en modo secure `deleteAll()` solo afecta el namespace de secure storage.
+  static const List<String> _managedKeys = [
+    StorageKeys.authToken,
+    StorageKeys.userData,
+    StorageKeys.credentials,
+  ];
+
   Future<void> _deleteAll() async {
     if (_useSecureStorage) {
       await _storage.deleteAll();
     } else {
-      await _prefs.clear();
+      for (final key in _managedKeys) {
+        await _prefs.remove(key);
+      }
     }
   }
 

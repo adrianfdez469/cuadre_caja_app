@@ -76,6 +76,14 @@ void main() {
       );
     });
 
+    test('convertToBase con tasa base 0 devuelve 0 (no Infinity)', () {
+      const tasasCorruptas = {'USD': 0.0};
+      final resultado =
+          CurrencyUtils.convertToBase(100, 'USD', tasasCorruptas, 'USD');
+      expect(resultado.isFinite, isTrue);
+      expect(resultado, 0);
+    });
+
     test('calcularVuelto no devuelve cambio si falta pago', () {
       final vuelto = CurrencyUtils.calcularVuelto(
         totalBase: 1000,

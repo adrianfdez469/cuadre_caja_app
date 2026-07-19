@@ -55,6 +55,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   bool _updateBannerShown = false;
   final ReleaseService _releaseService = ReleaseService();
 
+  /// Serializan _refreshUiAfterSync para que refrescos concurrentes (fullSync
+  /// inicial, timer, reconexión) no interleaven sus escrituras.
+  bool _isRefreshingUi = false;
+  bool _refreshUiPending = false;
+
   /// Referencia al ScaffoldMessenger capturada mientras el widget está activo,
   /// para poder limpiar banners en dispose() sin llamar a
   /// ScaffoldMessenger.of(context) sobre un element ya defunct (lanza assertion).
@@ -236,7 +241,30 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   }
 
   /// Refresca providers tras una sincronización (reconexión o manual), sin repetir fullSync.
+  ///
+  /// onDataRefreshed puede dispararse desde varias fuentes a la vez (fullSync de
+  /// la carga inicial, timer de 30s, reconexión). Sin coordinación, dos refrescos
+  /// concurrentes interleavan sus escrituras (p. ej. _ventasUnificado) y corren
+  /// applyConnectionFilter sobre una lista a medio reconstruir. Este guard
+  /// serializa: si ya hay uno en curso, marca uno pendiente y el actual lo
+  /// re-ejecuta una vez al terminar, para no perder el último estado.
   Future<void> _refreshUiAfterSync() async {
+    if (_isRefreshingUi) {
+      _refreshUiPending = true;
+      return;
+    }
+    _isRefreshingUi = true;
+    try {
+      do {
+        _refreshUiPending = false;
+        await _doRefreshUiAfterSync();
+      } while (_refreshUiPending && mounted);
+    } finally {
+      _isRefreshingUi = false;
+    }
+  }
+
+  Future<void> _doRefreshUiAfterSync() async {
     final auth = context.read<AuthProvider>();
     final tiendaId = auth.tiendaId;
     if (tiendaId.isEmpty) return;

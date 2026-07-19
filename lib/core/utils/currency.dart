@@ -20,7 +20,11 @@ class CurrencyUtils {
     Map<String, double> tasas,
     String monedaBase,
   ) {
-    return (monto * cupTasa(moneda, tasas)) / cupTasa(monedaBase, tasas);
+    final tasaBase = cupTasa(monedaBase, tasas);
+    // Snapshot de tasas corrupto (base = 0): evitar dividir por cero, que
+    // propagaría Infinity a los totales de pago y al cálculo de vuelto.
+    if (tasaBase == 0) return 0;
+    return (monto * cupTasa(moneda, tasas)) / tasaBase;
   }
 
   /// Convierte [montoBase] en [monedaBase] → unidades de [moneda].
