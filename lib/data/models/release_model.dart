@@ -44,4 +44,37 @@ class ReleaseInfo {
       return '${entry.key}: ${entry.value}';
     }).where((s) => s.isNotEmpty).toList();
   }
+
+  /// Changelog acumulado de todas las versiones más nuevas que [currentVersion],
+  /// ordenado de la más reciente a la más antigua. Cuando el usuario está varias
+  /// versiones atrasado, permite mostrar los cambios de cada versión intermedia,
+  /// no solo los de la última. [compare] debe devolver >0 si su primer argumento
+  /// es una versión mayor (p. ej. `compareVersions` de release_service).
+  ///
+  /// Cada elemento es la versión normalizada (ej. `1.1.8`) con sus entradas de
+  /// changelog; se omiten las versiones sin entradas.
+  List<VersionChangelog> getChangelogSince(
+    String currentVersion,
+    int Function(String, String) compare,
+  ) {
+    final keys = changelog.keys
+        .where((k) => compare(k, currentVersion) > 0)
+        .toList()
+      ..sort((a, b) => compare(b, a));
+    return keys
+        .map((k) => VersionChangelog(
+              version: k.replaceFirst(RegExp(r'^v'), ''),
+              entries: getChangelogEntries(k),
+            ))
+        .where((c) => c.entries.isNotEmpty)
+        .toList();
+  }
+}
+
+/// Changelog de una versión concreta (para mostrar versiones intermedias).
+class VersionChangelog {
+  final String version;
+  final List<String> entries;
+
+  const VersionChangelog({required this.version, required this.entries});
 }

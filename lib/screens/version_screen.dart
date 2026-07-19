@@ -307,6 +307,60 @@ class _VersionScreenState extends State<VersionScreen> {
     );
   }
 
+  /// Lista de bullets del changelog. Si el usuario está varias versiones
+  /// atrasado, muestra los cambios de TODAS las versiones intermedias (de la más
+  /// nueva a la más antigua), cada una bajo su encabezado de versión. Si solo hay
+  /// una versión nueva, muestra los bullets sin encabezado (el título de la
+  /// tarjeta ya indica la versión).
+  List<Widget> _buildChangelogSections() {
+    final release = _remoteRelease;
+    if (release == null) return const [];
+
+    final sections = release.getChangelogSince(_currentVersion, compareVersions);
+    // Respaldo: si el mapa de changelog no trae versiones intermedias, cae a las
+    // entradas de la última versión disponible.
+    if (sections.isEmpty) {
+      return release
+          .getChangelogEntries(release.version)
+          .map(_buildChangelogBullet)
+          .toList();
+    }
+
+    final showVersionHeaders = sections.length > 1;
+    final widgets = <Widget>[];
+    for (var i = 0; i < sections.length; i++) {
+      final section = sections[i];
+      if (showVersionHeaders) {
+        widgets.add(Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : 12, bottom: 6),
+          child: Text(
+            'v${section.version}',
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: AppColors.info,
+            ),
+          ),
+        ));
+      }
+      widgets.addAll(section.entries.map(_buildChangelogBullet));
+    }
+    return widgets;
+  }
+
+  Widget _buildChangelogBullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('• ', style: TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -386,18 +440,7 @@ class _VersionScreenState extends State<VersionScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      ..._remoteRelease!
-                          .getChangelogEntries(_remoteRelease!.version)
-                          .map((e) => Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('• ', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    Expanded(child: Text(e)),
-                                  ],
-                                ),
-                              )),
+                      ..._buildChangelogSections(),
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
