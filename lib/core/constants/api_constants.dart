@@ -40,6 +40,9 @@ class ApiConstants {
   static String monedas(String negocioId) => '/monedas/$negocioId';
   static String tasasCambio(String negocioId) => '/tasas-cambio/$negocioId';
 
+  // Health/liveness: GET /health → { success, status, services: { database } }
+  static const String health = '/health';
+
   // Timeouts
   // Reducidos de 30s: con red presente pero sin uplink real (portal cautivo),
   // una lectura API-first bloqueaba hasta 30s antes de caer a cache — justo
@@ -48,7 +51,7 @@ class ApiConstants {
   static const Duration receiveTimeout = Duration(seconds: 8);
 
   // Probe de alcanzabilidad: timeout corto para decidir rápido si el servidor
-  // responde antes de intentar lecturas pesadas. No existe /health, así que se
-  // hace un GET a la base y cualquier respuesta HTTP cuenta como alcanzable.
+  // responde antes de intentar lecturas pesadas. Hace un GET a /health y exige
+  // una respuesta sana (200 + success:true) para contar como alcanzable.
   static const Duration probeTimeout = Duration(seconds: 3);
 }

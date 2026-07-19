@@ -399,5 +399,58 @@ void main() {
       // No debe haber una línea de vuelto en USD por 0.5 redondeado a 1.
       expect(vuelto.where((v) => v.moneda == 'USD'), isEmpty);
     });
+
+    test(
+        'cobro y vuelto en la misma moneda no redondean el vuelto hacia arriba',
+        () {
+      // Total 10.34 USD, paga 11 USD: el vuelto exacto es 0.66. Con
+      // denominación mínima de 1 USD, redondear hacia arriba entregaría 1
+      // USD, regalando 0.34 al cliente a costa de la caja.
+      const total = 10.34;
+      final pagos = [
+        PagoLinea(
+          tipo: 'cash',
+          moneda: 'USD',
+          monto: 11,
+          equivalenteBase: 11,
+        ),
+      ];
+
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: total,
+        pagos: pagos,
+        monedaCobro: 'USD',
+        monedaBase: 'USD',
+        tasas: tasas,
+        denominaciones: {'USD': [100, 50, 20, 10, 5, 1]},
+      );
+
+      expect(vuelto, isEmpty);
+    });
+
+    test('vuelto exacto en moneda única sigue devolviendo el entero completo',
+        () {
+      const total = 800.0;
+      final pagos = [
+        PagoLinea(
+          tipo: 'cash',
+          moneda: 'CUP',
+          monto: 1200,
+          equivalenteBase: 1200,
+        ),
+      ];
+
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: total,
+        pagos: pagos,
+        monedaCobro: 'CUP',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms},
+      );
+
+      expect(vuelto.single.moneda, 'CUP');
+      expect(vuelto.single.monto, 400);
+    });
   });
 }

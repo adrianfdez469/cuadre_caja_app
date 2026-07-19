@@ -62,6 +62,15 @@ class SyncService {
   DateTime? _reachableCheckedAt;
   static const Duration _reachableTtl = Duration(seconds: 15);
 
+  // Throttle de validación de sesión. /auth/refresh valida que la sesión siga
+  // viva (/health solo confirma que el servidor responde, no la validez del
+  // token), pero reconfirmarlo en cada ciclo de sync (cada 30s) inunda la red y
+  // el log con "Token refrescado exitosamente". Basta revalidar cada
+  // [_authValidityTtl]: el token sigue vigente entre validaciones y, si expirara
+  // antes, el interceptor de ApiClient lo refresca on-demand ante un 401.
+  DateTime? _lastAuthAt;
+  static const Duration _authValidityTtl = Duration(minutes: 5);
+
   // Callbacks
   void Function(ConnectionStatus)? onConnectionChanged;
   void Function(String message)? onSyncEvent;
@@ -216,20 +225,33 @@ class SyncService {
 
   /// Valida la sesión contra el servidor y la renueva si es posible.
   ///
-  /// No existe endpoint /health, así que usamos /auth/refresh como probe: un
-  /// `ok` confirma que la sesión sigue viva y deja un token nuevo. Si el token
-  /// fue rechazado, intentamos re-login con credenciales guardadas. Solo ante
-  /// un rechazo definitivo (no ante fallos de red) se dispara `onAuthRequired`;
+  /// `/health` solo confirma que el servidor responde, no que el token siga
+  /// siendo válido, así que usamos /auth/refresh como probe de sesión: un `ok`
+  /// confirma que la sesión sigue viva y deja un token nuevo. Si el token fue
+  /// rechazado, intentamos re-login con credenciales guardadas. Solo ante un
+  /// rechazo definitivo (no ante fallos de red) se dispara `onAuthRequired`;
   /// esta función es la única dueña de esa decisión.
   Future<bool> _ensureAuthenticated() async {
     final token = await storageService.getToken();
     if (token == null) {
+      _lastAuthAt = null;
       onAuthRequired?.call(true);
       return false;
     }
 
+    // La sesión se validó/renovó hace poco: darla por buena sin volver a golpear
+    // /auth/refresh en cada ciclo. Si el token expirara entre validaciones, el
+    // interceptor de ApiClient lo refresca al primer 401. Un fallo de red o un
+    // rechazo (más abajo) limpia _lastAuthAt para forzar revalidación inmediata.
+    final lastAuth = _lastAuthAt;
+    if (lastAuth != null &&
+        DateTime.now().difference(lastAuth) < _authValidityTtl) {
+      return true;
+    }
+
     final refresh = await apiClient.refreshToken();
     if (refresh == AuthResult.ok) {
+      _lastAuthAt = DateTime.now();
       onTokenRefreshed?.call();
       onSyncEvent?.call('Sesión actualizada');
       return true;
@@ -243,6 +265,7 @@ class SyncService {
     // refresh == authRejected: la sesión ya no sirve. Intentar re-login.
     final relogin = await apiClient.reLogin();
     if (relogin == AuthResult.ok) {
+      _lastAuthAt = DateTime.now();
       onTokenRefreshed?.call();
       onSyncEvent?.call('Sesión actualizada');
       return true;
@@ -252,6 +275,7 @@ class SyncService {
     }
 
     // Rechazo definitivo (sesión muerta y credenciales inválidas/ausentes).
+    _lastAuthAt = null;
     onAuthRequired?.call(true);
     return false;
   }

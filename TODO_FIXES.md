@@ -61,7 +61,8 @@ Actualmente solo lo mitiga la idempotencia del servidor (`result.duplicado`).
 **Archivo:** `lib/services/sync_service.dart` → `_ensureAuthenticated`
 
 > **Corregido:** `_ensureAuthenticated` ahora hace un probe real contra el servidor.
-> Como no existe `/health`, se usa `/auth/refresh` como validación: `ApiClient.refreshToken()`
+> `/health` solo confirma que el servidor responde, no la validez del token, así que se usa
+> `/auth/refresh` como validación de sesión: `ApiClient.refreshToken()`
 > devuelve un enum `AuthResult { ok, authRejected, networkError }` que distingue un rechazo
 > definitivo de sesión (401/403) de un fallo de red. Ante `ok` renueva el token; ante
 > `authRejected` intenta `reLogin()` con credenciales guardadas; solo ante un rechazo definitivo
@@ -127,14 +128,15 @@ que el radio de impacto es pequeño, pero es una fuga que nunca se purga.
 **Archivo:** `lib/services/sync_service.dart` → `_mapConnectivity`
 
 > **Corregido:** dos frentes. (1) Timeouts bajados de 30s → 8s (`api_constants.dart`) para acotar
-> el peor caso de bloqueo. (2) Probe de alcanzabilidad `ApiClient.isServerReachable()`: como no
-> existe `/health`, hace un GET corto (3s) a la base de la API — cualquier respuesta HTTP (incl.
-> 404/401) cuenta como alcanzable; solo timeout/error de conexión = no alcanzable. `SyncService`
+> el peor caso de bloqueo. (2) Probe de alcanzabilidad `ApiClient.isServerReachable()`: hace un GET
+> corto (3s) a `/health` y exige una respuesta sana (200 con `success:true`) para contar como
+> alcanzable; cualquier otra cosa (404/5xx, timeout/error de conexión) = no alcanzable. `SyncService`
 > lo cachea 15s (`_isServerReachable`) e invalida al cambiar la red, y las lecturas
 > (`loadProductos`, `loadPeriodoActual`, `loadTransferDestinations`, `loadMultimonedaConfig`,
 > `loadVentas`) van directo a cache cuando el servidor no responde.
-> **Caveat:** un portal cautivo que responde 200 con su propia página puede dar un falso positivo
-> en el probe; ahí el timeout reducido es la red de seguridad.
+> **Actualización:** ya existe `/health` en el backend, así que el probe lo usa en vez de un GET a la
+> base. El chequeo estricto (`success:true`) además resuelve el caveat del portal cautivo: un 200 con
+> HTML ya no cuenta como alcanzable.
 
 Mapea "hay alguna interfaz de red" → `online`. Con Wi-Fi de portal cautivo o sin uplink real,
 `isOnline` es `true`, así que las lecturas van API-first y bloquean hasta 30s (`receiveTimeout`) por

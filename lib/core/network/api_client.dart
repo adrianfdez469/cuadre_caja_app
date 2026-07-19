@@ -126,10 +126,11 @@ class ApiClient {
 
   /// Refresca/valida el token usando /auth/refresh.
   ///
-  /// Público para usarlo como probe de validación de sesión (no existe /health):
-  /// un `ok` confirma que el servidor sigue aceptando la sesión y persiste un
-  /// token nuevo. Devuelve `authRejected` si el servidor rechaza el token
-  /// (401/403) y `networkError` ante fallos de red.
+  /// Público para usarlo como probe de validación de sesión: `/health` solo
+  /// confirma que el servidor está vivo, no que el token siga siendo válido, así
+  /// que la validez de sesión se comprueba aquí. Un `ok` confirma que el servidor
+  /// sigue aceptando la sesión y persiste un token nuevo. Devuelve `authRejected`
+  /// si el servidor rechaza el token (401/403) y `networkError` ante fallos de red.
   Future<AuthResult> refreshToken() => _tryRefreshToken();
 
   /// Intenta refrescar el token usando /auth/refresh
@@ -218,10 +219,10 @@ class ApiClient {
   /// Probe rápido de alcanzabilidad del servidor.
   ///
   /// `connectivity_plus` solo dice si hay alguna interfaz de red, no si el
-  /// servidor responde (portal cautivo, wifi sin uplink). Hace un GET corto a
-  /// la base de la API: **cualquier respuesta HTTP** (incluso 404/401) prueba
-  /// que el servidor es alcanzable; solo un timeout / error de conexión (sin
-  /// respuesta) se considera no alcanzable. Sin auth y con timeout propio corto.
+  /// servidor responde (portal cautivo, wifi sin uplink). Hace un GET corto y
+  /// sin auth a `/health` y exige una respuesta **sana** (200 con `success:true`)
+  /// para contar como alcanzable. Así, un 200 de HTML de un portal cautivo, un
+  /// 404/5xx, o un timeout se descartan correctamente como no alcanzable.
   Future<bool> isServerReachable() async {
     try {
       final probe = Dio(BaseOptions(
@@ -230,13 +231,13 @@ class ApiClient {
         receiveTimeout: ApiConstants.probeTimeout,
         sendTimeout: ApiConstants.probeTimeout,
       ));
-      await probe.get('/');
-      return true; // 2xx
-    } on DioException catch (e) {
-      // Llegó una respuesta HTTP (404/401/etc.) => el servidor está vivo.
-      return e.response != null;
+      final res = await probe.get(ApiConstants.health);
+      final data = res.data;
+      // Sano = 200 con success:true. Un 200 de portal cautivo (HTML) no cumple
+      // (data no es Map o no trae success), así que se descarta correctamente.
+      return res.statusCode == 200 && data is Map && data['success'] == true;
     } catch (_) {
-      return false;
+      return false; // non-2xx (incl. 404), timeout o error de conexión.
     }
   }
 }

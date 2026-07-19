@@ -96,8 +96,12 @@ class CurrencyUtils {
         denominaciones[monedaBase] ?? [],
       )..sort((a, b) => b.compareTo(a));
       final denomMinBase = denomsBase.isEmpty ? 1.0 : denomsBase.last;
+      // Redondear hacia ABAJO: igual que en la rama de cobro en otra moneda,
+      // nunca entregar más vuelto del debido. Un vuelto exacto de 0.66 con
+      // denominación mínima de 1 no debe convertirse en "dar 1", porque eso
+      // regala 0.34 de más al cliente a costa de la caja.
       final vueltoEnBase =
-          (vueltoTotalBase / denomMinBase).ceil() * denomMinBase;
+          (vueltoTotalBase / denomMinBase).floor() * denomMinBase;
       if (vueltoEnBase > 0) {
         result.add(VueltoLinea(moneda: monedaBase, monto: vueltoEnBase));
       }
