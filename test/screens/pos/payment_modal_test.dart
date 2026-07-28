@@ -94,6 +94,49 @@ void main() {
       expect(cashController.text, '1500');
     });
 
+    testWidgets(
+        'habilita confirmar con transferencia completa aunque la tienda no '
+        'tenga destinos', (tester) async {
+      await pumpPaymentModal(tester, total: 960, destinations: const []);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Transferencia'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(transferField, '960');
+      await tester.pumpAndSettle();
+
+      // El pago cubre el total: sin falta y sin cambio.
+      expect(find.text('Falta:'), findsNothing);
+      expect(find.text('Cambio:'), findsOneWidget);
+      expect(
+        find.textContaining('Sin destinos de transferencia configurados'),
+        findsOneWidget,
+      );
+
+      final boton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Confirmar Venta'),
+      );
+      expect(boton.onPressed, isNotNull);
+    });
+
+    testWidgets('exige destino de transferencia si la tienda tiene alguno',
+        (tester) async {
+      await pumpPaymentModal(tester, total: 960);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Transferencia'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(transferField, '960');
+      await tester.pumpAndSettle();
+
+      // Con destinos disponibles se preselecciona el default y se puede cobrar.
+      expect(find.text('Destino de transferencia'), findsOneWidget);
+      final boton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Confirmar Venta'),
+      );
+      expect(boton.onPressed, isNotNull);
+    });
+
     testWidgets('funciona con moneda base USD', (tester) async {
       await pumpPaymentModal(
         tester,

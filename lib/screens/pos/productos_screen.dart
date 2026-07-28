@@ -292,25 +292,26 @@ class _ProductCard extends StatelessWidget {
         );
     if (!context.mounted) return;
     if (ok) {
-      AppSnackBar.show(
-        context,
-        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 1),
-      );
-      if (offlineMode &&
+      // Un único mensaje: AppSnackBar reemplaza al anterior, así que dos
+      // seguidos harían desaparecer el primero al instante.
+      final sinStockLocal = offlineMode &&
           !ProductoPosRules.tieneStockLocalEfectivo(
             producto,
             allProductos,
             cantidadEnCarrito: cantidadEnCarrito + qty,
-          )) {
-        AppSnackBar.show(
-          context,
-          content: const Text('Venta sin stock local — se validará al sincronizar'),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 2),
-        );
-      }
+          );
+      final nombre = ProductoPosRules.nombreParaMostrar(producto);
+      AppSnackBar.show(
+        context,
+        content: Text(
+          sinStockLocal
+              ? '$nombre agregado — sin stock local, se validará al sincronizar'
+              : '$nombre agregado',
+        ),
+        backgroundColor:
+            sinStockLocal ? AppColors.warning : AppColors.success,
+        duration: Duration(seconds: sinStockLocal ? 2 : 1),
+      );
     }
   }
 

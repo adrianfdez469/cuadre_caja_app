@@ -118,25 +118,26 @@ class BarcodeScanProcessor {
 
     if (ok) {
       await ScanAudioService.instance.playSuccess();
-      AppSnackBar.show(
-        context,
-        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 1),
-      );
-      if (offlineMode &&
+      // Un único mensaje por escaneo: AppSnackBar reemplaza al anterior, así que
+      // dos seguidos harían desaparecer el primero al instante.
+      final sinStockLocal = offlineMode &&
           !ProductoPosRules.tieneStockLocalEfectivo(
             producto,
             productosProvider.allProductos,
             cantidadEnCarrito: cantidadEnCarrito + qty,
-          )) {
-        AppSnackBar.show(
-          context,
-          content: const Text('Sin stock local — se validará al sincronizar'),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 2),
-        );
-      }
+          );
+      final nombre = ProductoPosRules.nombreParaMostrar(producto);
+      AppSnackBar.show(
+        context,
+        content: Text(
+          sinStockLocal
+              ? '$nombre agregado — sin stock local, se validará al sincronizar'
+              : '$nombre agregado',
+        ),
+        backgroundColor:
+            sinStockLocal ? AppColors.warning : AppColors.success,
+        duration: Duration(seconds: sinStockLocal ? 2 : 1),
+      );
     } else {
       await ScanAudioService.instance.playError();
       AppSnackBar.show(

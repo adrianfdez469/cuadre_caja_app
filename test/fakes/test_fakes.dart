@@ -55,6 +55,12 @@ class FakeSyncService extends Fake implements SyncService {
       destinations;
 
   @override
+  Future<List<TransferDestinationModel>> loadTransferDestinations(
+    String tiendaId,
+  ) async =>
+      destinations;
+
+  @override
   Future<List<ProductoModel>> loadProductos(String tiendaId) async => productos;
 
   @override

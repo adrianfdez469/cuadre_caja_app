@@ -163,15 +163,22 @@ class PaymentLogic {
     );
   }
 
+  /// [hasTransferDestinations] indica si la tienda tiene destinos configurados.
+  /// Solo entonces se exige elegir uno: si la tienda no tiene ninguno (o el
+  /// cache local está vacío), exigirlo dejaba el botón deshabilitado sin que la
+  /// UI ofreciera forma de seleccionarlo — un callejón sin salida. La venta se
+  /// permite con `transferDestinationId` nulo, que el backend acepta.
   static bool canConfirm({
     required double total,
     required bool falta,
     required double totalPagadoBase,
     required List<PagoLinea> pagosLinea,
     required bool hasPagos,
+    bool hasTransferDestinations = true,
   }) {
     if (total <= 0) return hasPagos;
     if (falta || totalPagadoBase <= 0) return false;
+    if (!hasTransferDestinations) return true;
     for (final p in pagosLinea) {
       if (p.tipo == 'transfer' &&
           p.monto > 0 &&

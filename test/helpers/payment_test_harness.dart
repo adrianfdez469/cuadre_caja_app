@@ -109,12 +109,14 @@ Future<void> pumpPaymentModal(
   double total = 1500,
   String monedaBase = 'CUP',
   Map<String, double> tasas = const {'USD': 400, 'MLC': 120},
+  List<TransferDestinationModel>? destinations,
 }) async {
   final config = buildTestConfig(monedaBase: monedaBase, tasas: tasas);
   final sync = FakeSyncService(
-    destinations: [
-      TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true),
-    ],
+    destinations: destinations ??
+        [
+          TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true),
+        ],
   );
   final cart = CartModel(
     id: 'c1',

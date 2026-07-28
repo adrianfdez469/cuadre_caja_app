@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/bill_denominations.dart';
 import '../../core/widgets/app_snackbar.dart';
+import '../../core/utils/app_logger.dart';
 import '../../core/utils/cash_amount_input_formatter.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -39,11 +40,16 @@ class PaymentModal extends StatefulWidget {
   const PaymentModal({
     super.key,
     this.getTransferDestinationsLocalOverride,
+    this.loadTransferDestinationsOverride,
   });
 
   /// Solo para tests: evita depender de SyncService real (lectura local).
   final Future<List<TransferDestinationModel>> Function(String tiendaId)?
       getTransferDestinationsLocalOverride;
+
+  /// Solo para tests: rescate por red cuando el cache local está vacío.
+  final Future<List<TransferDestinationModel>> Function(String tiendaId)?
+      loadTransferDestinationsOverride;
 
   @override
   State<PaymentModal> createState() => _PaymentModalState();
@@ -83,10 +89,26 @@ class _PaymentModalState extends State<PaymentModal> {
         ? monedas.monedaBase
         : auth.monedaBase;
 
-    final loadDestinos = widget.getTransferDestinationsLocalOverride ??
-        context.read<SyncService>().getTransferDestinationsLocal;
-    final destinos = await loadDestinos(auth.tiendaId);
+    final syncService = context.read<SyncService>();
+    final loadDestinosLocal = widget.getTransferDestinationsLocalOverride ??
+        syncService.getTransferDestinationsLocal;
+    var destinos = await loadDestinosLocal(auth.tiendaId);
     if (!mounted) return;
+
+    // Rescate: el cache local solo se puebla en `fullSync`, así que puede estar
+    // vacío (primer login sin red, o el GET falló). Sin destinos no se dibuja el
+    // selector y la transferencia quedaba sin destino posible; se reintenta por
+    // red antes de rendirse.
+    if (destinos.isEmpty) {
+      final loadDestinosRemoto = widget.loadTransferDestinationsOverride ??
+          syncService.loadTransferDestinations;
+      try {
+        destinos = await loadDestinosRemoto(auth.tiendaId);
+      } catch (e) {
+        logDebug('⚠️ No se pudieron recuperar destinos de transferencia: $e');
+      }
+      if (!mounted) return;
+    }
 
     final defaultDestId = _defaultDestId(destinos);
     _transferDestinations = destinos;
@@ -523,6 +545,7 @@ class _PaymentModalState extends State<PaymentModal> {
         totalPagadoBase: _totalPagadoBase,
         pagosLinea: _pagosLinea,
         hasPagos: _pagosMap.isNotEmpty,
+        hasTransferDestinations: _transferDestinations.isNotEmpty,
       );
 
   Future<void> _pickMoneda(
@@ -900,6 +923,27 @@ class _PaymentModalState extends State<PaymentModal> {
               ),
             ),
         ],
+        if (showTransfer && pago.transfer > 0 && _transferDestinations.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Sin destinos de transferencia configurados. La venta se '
+                    'registrará sin destino.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (showTransfer &&
             pago.transfer > 0 &&
             _transferDestinations.isNotEmpty) ...[
@@ -1085,12 +1129,16 @@ class _PaymentModalState extends State<PaymentModal> {
         throw Exception('Debe ingresar al menos un pago');
       }
 
-      for (final p in pagos) {
-        if (p.tipo == 'transfer' &&
-            p.monto > 0 &&
-            (p.transferDestinationId == null ||
-                p.transferDestinationId!.isEmpty)) {
-          throw Exception('Seleccione destino de transferencia');
+      // Solo se exige destino si la tienda tiene alguno configurado (ver
+      // PaymentLogic.canConfirm); si no, la venta va con destino nulo.
+      if (_transferDestinations.isNotEmpty) {
+        for (final p in pagos) {
+          if (p.tipo == 'transfer' &&
+              p.monto > 0 &&
+              (p.transferDestinationId == null ||
+                  p.transferDestinationId!.isEmpty)) {
+            throw Exception('Seleccione destino de transferencia');
+          }
         }
       }
 

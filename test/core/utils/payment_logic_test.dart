@@ -280,6 +280,22 @@ void main() {
       );
     });
 
+    test('acepta transferencia sin destino si la tienda no tiene ninguno', () {
+      final pagos = {'CUP': const PagoMonedaState(transfer: 960)};
+      final pagado = PaymentLogic.totalPagadoBase(pagos, 'CUP', tasas);
+      expect(
+        PaymentLogic.canConfirm(
+          total: 960,
+          falta: false,
+          totalPagadoBase: pagado,
+          pagosLinea: lineas(pagos, 'CUP'),
+          hasPagos: true,
+          hasTransferDestinations: false,
+        ),
+        isTrue,
+      );
+    });
+
     test('acepta pago mixto con destino de transferencia', () {
       final pagos = {
         'CUP': const PagoMonedaState(
