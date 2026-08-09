@@ -104,9 +104,20 @@ These file IDs are fixed for this project's Drive folder — if `gdrive files li
 
 **File IDs stay constant, so the `apks` block in `releases.json` should not need editing.** Only if an APK's ID ever genuinely changes (a file was accidentally re-created, or it's the very first setup) do you need to capture the new ID (the segment between `/d/` and `/view` in a shareable link, e.g. from `https://drive.google.com/file/d/1NInsC79yo2Gcs6FLOEzjAORF6hEOEaJm/view` the ID is `1NInsC79yo2Gcs6FLOEzjAORF6hEOEaJm`) and map it to its arch key: `arm64-v8a`, `armeabi-v7a`, `x86_64`, `universal`.
 
+### Si el upload falla por permisos / autenticación — no reintentar
+
+Si un `gdrive files update` falla por **permisos, credenciales o autenticación** (token expirado o revocado, `insufficient permissions`, `403`, `401`, `invalid_grant`, `unauthorized`, `no accounts`, sesión de `gdrive` caducada, etc.):
+
+- **No reintentar** el comando, ni con variantes.
+- **No buscar soluciones alternativas** — nada de re-autenticar, cambiar de cuenta, usar otras herramientas/APIs, subir el archivo como nuevo, ni pedirle credenciales al usuario.
+- **Anotar el fallo** (qué archivo, qué comando, el mensaje de error tal cual) y **continuar con los pasos siguientes** de todos modos: intenta igual los demás archivos, edita `releases.json` localmente (Step 5), y llega al resumen (Step 6) y al anuncio de WhatsApp (Step 7).
+- El único fallo que **sí** detiene el flujo sigue siendo el build (Step 3). Los fallos de Drive nunca abortan el release.
+
+Si el error **no** es de permisos/autenticación (p. ej. archivo local inexistente, ruta mal escrita, JSON inválido), trátalo normalmente: corrígelo y sigue.
+
 ## Step 5 — Update releases.json
 
-Fetch the current `releases.json` with `gdrive files download 1ekvyYpK0K693H0fYskQO4qMlM1vgkmrv --destination /tmp` (or overwrite an existing local copy with `--overwrite`). Then edit it locally:
+Fetch the current `releases.json` with `gdrive files download 1ekvyYpK0K693H0fYskQO4qMlM1vgkmrv --destination /tmp` (or overwrite an existing local copy with `--overwrite`). Si la descarga falla por permisos/autenticación, aplica la misma regla del Step 4 (no reintentar, no buscar alternativas): usa la última copia local de `releases.json` si existe, o reconstrúyela a partir del formato documentado aquí, edítala igualmente, déjala guardada localmente y anota el fallo para el resumen. Then edit it locally:
 
 1. **`version`** → set to the new version string (must match `appVersion`, e.g. `"1.1.7"`).
 2. **`apks`** → **leave unchanged** if APK IDs were preserved via in-place updates (the normal case). Only replace an ID if that specific APK's ID actually changed (see Step 4).
@@ -133,9 +144,26 @@ Upload the updated `releases.json` back **in place**, preserving its ID:
 gdrive files update 1ekvyYpK0K693H0fYskQO4qMlM1vgkmrv /tmp/releases.json
 ```
 
+Si este upload falla por permisos/autenticación, aplica la regla del Step 4: no reintentar, no buscar alternativas. Deja el `releases.json` ya editado y validado en disco, guarda su ruta y menciónala en el resumen para que el usuario pueda subirlo él mismo después.
+
 ## Step 6 — Summary
 
 After finishing, give the user a short summary: new version + build number, what was committed, build status with the 4 APK sizes, and confirmation the Drive files + `releases.json` were updated **in place** (IDs preserved) via `gdrive`. Flag anything that failed (e.g. a `gdrive` command errored, or `gdrive account list` shows no linked account) rather than assuming it's done.
+
+### Warning obligatorio si Drive falló por permisos
+
+Si alguno de los pasos de Drive (Step 4 o el upload del Step 5) falló por permisos/autenticación, el resumen **debe** incluir un bloque de advertencia destacado — en Spanish, imposible de pasar por alto — con:
+
+1. **⚠️ Qué NO se pudo hacer**: lista exacta de los archivos que no se actualizaron en Drive (APKs por arquitectura y/o `releases.json`), con el mensaje de error recibido.
+2. **Consecuencia clara**: la nueva versión **no está publicada** para los usuarios — la app seguirá viendo la versión anterior hasta que esos archivos se suban. El bump de versión, el commit/push y los APKs locales **sí** están hechos.
+3. **Qué debe hacer el usuario para restablecer la conexión**, por ejemplo:
+   - Verificar la cuenta vinculada: `gdrive account list`.
+   - Re-autenticar / renovar el token de `gdrive` (`gdrive account add` o volver a autorizar la cuenta existente) desde una terminal interactiva.
+   - Confirmar que la cuenta vinculada tiene permiso de **edición** sobre la carpeta `16LfxLzdav-PUsn97EcSnTdcNZcZnYukd`.
+4. **Cómo reintentar sin rehacer el release**: los APKs ya están construidos y el `releases.json` ya está editado y validado localmente — indica las rutas y los comandos `gdrive files update` exactos (con sus fileIds) listos para copiar/pegar, y aclara que **nunca** deben borrar y volver a subir los archivos (los IDs deben preservarse).
+5. **Pregúntale al usuario si quiere que reintentes** la subida a Drive una vez que haya restablecido el acceso — no reintentes por tu cuenta hasta que lo confirme.
+
+En este caso el anuncio de WhatsApp (Step 7) igual se genera, pero adviértele al usuario que **no lo envíe** hasta que los archivos estén efectivamente subidos.
 
 ## Step 7 — WhatsApp announcement (ready to copy/paste)
 
@@ -172,4 +200,5 @@ La actualización se instala sola al abrir la app 🙌 ¡Gracias por usar Cuadre
 - Build number always increments by exactly 1 per release and must increase.
 - Commit messages are plain descriptive Spanish text, not conventional commits.
 - **Never delete + re-upload Drive files.** Always update in place via "Manage versions" so file IDs (and the app's update links) are preserved.
+- **Fallos de Drive por permisos/autenticación: no reintentar, no buscar alternativas.** Se anotan, se continúa con el resto del flujo, y se avisa al usuario en el resumen con un warning + pasos para restablecer el acceso y reintentar (Step 4 y Step 6). Solo el fallo de build (Step 3) aborta el release.
 - Changelog category keys going forward: `Mejoras` / `Arreglos` / `Caracteristicas` (capitalized, plural) — older entries in the file use inconsistent casing/singular forms; don't "fix" old entries, just be consistent going forward.

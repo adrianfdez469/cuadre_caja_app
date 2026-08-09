@@ -112,6 +112,7 @@ class BarcodeScanProcessor {
           cantidad: qty,
           allProductos: productosProvider.allProductos,
           isOnline: isOnline,
+          moverAlInicio: true,
         );
 
     if (!context.mounted) return;

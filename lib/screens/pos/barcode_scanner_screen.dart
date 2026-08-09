@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -17,6 +18,26 @@ import '../../providers/productos_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/sync_provider.dart';
 import 'asociar_codigo_sheet.dart';
+import 'widgets/scanner_cart_panel.dart';
+
+/// Fracción de pantalla que ocupa el panel del carrito al abrir la pantalla.
+const double _kSheetInitialSize = 0.5;
+
+/// Tope de expansión del panel: deja siempre una franja de cámara visible.
+const double _kSheetMaxSize = 0.85;
+
+/// Limita la detección a la franja de cámara visible, para que no entren
+/// códigos que el panel del carrito tapa.
+///
+/// DESACTIVADO: con BoxFit.cover el plugin recorta la ventana a una franja
+/// estrecha del sensor y en dispositivos reales deja de detectar. Mientras esté
+/// en false se escanea a pantalla completa (comportamiento histórico), con la
+/// contrapartida de que un código situado detrás del panel también se lee.
+const bool _kUseScanWindow = false;
+
+/// Umbral de actualización de la ventana de escaneo. El plugin compara deltas
+/// del rectángulo YA convertido a porcentaje del sensor (0..1), no en píxeles.
+const double _kScanWindowUpdateThreshold = 0.05;
 
 class BarcodeScannerScreen extends StatefulWidget {
   const BarcodeScannerScreen({super.key});
@@ -40,10 +61,34 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   bool _asociarEnabled = true;
   bool _isProcessing = false;
 
-  // Modo no-automático: producto detectado pendiente de confirmación
+  // Modo no-automático: producto detectado pendiente de confirmación.
+  // El máximo disponible NO se guarda: se recalcula en cada build a partir del
+  // carrito observado, porque el panel inferior permite cambiar cantidades y un
+  // snapshot quedaría obsoleto al instante.
   ProductoModel? _previewProduct;
-  double _previewMaxQty = 0;
   String? _lastDetectedCode;
+
+  // --- Panel del carrito ---
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+
+  /// Fracción de pantalla que ocupa el panel. En un ValueNotifier y no en el
+  /// State: el arrastre notifica en cada frame y un setState reconstruiría la
+  /// pantalla entera (cámara incluida) 60 veces por segundo.
+  final ValueNotifier<double> _sheetExtent = ValueNotifier(_kSheetInitialSize);
+
+  /// Copia de [_sheetExtent] con debounce, para no reconfigurar la ventana de
+  /// escaneo del plugin durante el arrastre.
+  final ValueNotifier<double> _settledExtent = ValueNotifier(_kSheetInitialSize);
+  Timer? _settleTimer;
+
+  /// Producto recién agregado por escaneo, para resaltarlo en el panel.
+  final ValueNotifier<String?> _highlightedId = ValueNotifier(null);
+  Timer? _highlightTimer;
+
+  /// Fracción mínima del panel (solo el encabezado visible). Depende del alto
+  /// real de la pantalla, así que se calcula en el LayoutBuilder.
+  double _sheetMinSize = 0.18;
 
   // Se resetea con cada frame detectado; cuando expira, oculta la card
   Timer? _detectionTimer;
@@ -262,6 +307,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     HardwareScannerGate.instance.unblock('camera');
     _detectionTimer?.cancel();
     _autoScanCooldown?.cancel();
+    _highlightTimer?.cancel();
+    _settleTimer?.cancel();
+    _sheetController.dispose();
+    _sheetExtent.dispose();
+    _settledExtent.dispose();
+    _highlightedId.dispose();
     _pulseController.dispose();
     _ringController.dispose();
     _controller.dispose();
@@ -399,18 +450,23 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             cantidad: qty,
             allProductos: productosProvider.allProductos,
             isOnline: isOnline,
+            moverAlInicio: true,
           )
           .then((ok) {
         if (!mounted) return;
         ok ? _playSuccess() : _playError();
-        AppSnackBar.show(
-          context,
-          content: Text(ok
-              ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
-              : 'Cantidad supera el máximo'),
-          backgroundColor: ok ? AppColors.success : AppColors.error,
-          duration: const Duration(seconds: 1),
-        );
+        if (ok) {
+          // El panel ya confirma visualmente el alta (fila arriba, resaltada y
+          // total actualizado): un snackbar solo taparía el botón Cobrar.
+          _marcarEscaneado(producto.id);
+        } else {
+          AppSnackBar.show(
+            context,
+            content: const Text('Cantidad supera el máximo'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 1),
+          );
+        }
         if (mounted) setState(() => _isProcessing = false);
         _startAutoScanCooldown();
       }).catchError((_) {
@@ -420,10 +476,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         }
       });
     } else {
-      setState(() {
-        _previewProduct = producto;
-        _previewMaxQty = maxDisp;
-      });
+      setState(() => _previewProduct = producto);
     }
   }
 
@@ -433,11 +486,90 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     });
   }
 
+  /// Máximo que se puede agregar del producto en preview, recalculado contra el
+  /// carrito actual. Sustituye al antiguo snapshot `_previewMaxQty`, que no se
+  /// enteraba de los cambios hechos desde el panel.
+  double _maxDisponible(BuildContext ctx) {
+    final producto = _previewProduct;
+    if (producto == null) return 0;
+    final allProductos = ctx.read<ProductosProvider>().allProductos;
+    final cantidadEnCarrito = ctx
+            .read<CartProvider>()
+            .activeCart
+            ?.items
+            .where((i) => i.productoTiendaId == producto.id)
+            .fold<double>(0, (s, i) => s + i.cantidad) ??
+        0;
+    return ProductoPosRules.getMaxQuantity(
+      producto,
+      allProductos,
+      cantidadEnCarrito: cantidadEnCarrito,
+      offlineMode: !ctx.read<SyncProvider>().isOnline,
+    );
+  }
+
+  /// Resalta en el panel el producto recién escaneado durante un momento.
+  void _marcarEscaneado(String productoTiendaId) {
+    _highlightTimer?.cancel();
+    _highlightedId.value = productoTiendaId;
+    _highlightTimer = Timer(const Duration(milliseconds: 1200), () {
+      _highlightedId.value = null;
+    });
+  }
+
+  void _onSheetExtentChanged(double extent) {
+    _sheetExtent.value = extent;
+    // El extent "asentado" alimenta la ventana de escaneo: se actualiza cuando
+    // el usuario deja de arrastrar, no en cada frame.
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 150), () {
+      _settledExtent.value = extent;
+    });
+  }
+
+  /// Un toque en el asa alterna entre panel plegado y a media altura.
+  void _toggleSheet() {
+    if (!_sheetController.isAttached) return;
+    final target = _sheetController.size > _sheetMinSize + 0.02
+        ? _sheetMinSize
+        : _kSheetInitialSize;
+    _sheetController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// Tras cobrar: se sigue escaneando, con el carrito ya vacío.
+  void _onSaleCompleted() {
+    if (!mounted) return;
+    _detectionTimer?.cancel();
+    _autoScanCooldown?.cancel();
+    _autoScanCooldown = null;
+    _highlightTimer?.cancel();
+    _highlightedId.value = null;
+    setState(() {
+      _previewProduct = null;
+      _lastDetectedCode = null;
+      _isProcessing = false;
+    });
+    if (_sheetController.isAttached) {
+      _sheetController.animateTo(
+        _kSheetInitialSize,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   void _addPreviewToCart() {
     final producto = _previewProduct;
     if (producto == null || _isProcessing) return;
     final isOnline = context.read<SyncProvider>().isOnline;
-    if (isOnline && _previewMaxQty <= 0) return;
+    // Se revalida en el instante del tap: el carrito pudo cambiar desde el
+    // último build (por el panel o por la pistola).
+    final maxDisp = _maxDisponible(context);
+    if (isOnline && maxDisp <= 0) return;
     if (!isOnline &&
         !ProductoPosRules.puedeAgregar(
           producto,
@@ -456,8 +588,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       _lastDetectedCode = null;
     });
 
-    final qty =
-        _previewMaxQty >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
+    final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
     context
         .read<CartProvider>()
         .addToCart(
@@ -465,18 +596,21 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           cantidad: qty,
           allProductos: productosProvider.allProductos,
           isOnline: isOnline,
+          moverAlInicio: true,
         )
         .then((ok) {
       if (!mounted) return;
       ok ? _playSuccess() : _playError();
-      AppSnackBar.show(
-        context,
-        content: Text(ok
-            ? '${ProductoPosRules.nombreParaMostrar(producto)} agregado'
-            : 'Cantidad supera el máximo'),
-        backgroundColor: ok ? AppColors.success : AppColors.error,
-        duration: const Duration(seconds: 1),
-      );
+      if (ok) {
+        _marcarEscaneado(producto.id);
+      } else {
+        AppSnackBar.show(
+          context,
+          content: const Text('Cantidad supera el máximo'),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 1),
+        );
+      }
       _resetAfterDelay();
     }).catchError((_) {
       if (mounted) _resetAfterDelay();
@@ -534,18 +668,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isOnline = context.watch<SyncProvider>().isOnline;
-    final puedeAgregarPreview = _previewProduct != null &&
-        !_isProcessing &&
-        (isOnline
-            ? _previewMaxQty > 0
-            : ProductoPosRules.puedeAgregar(
-                _previewProduct!,
-                context.read<ProductosProvider>().allProductos,
-                offlineMode: true,
-              ));
-    final bool canAdd = puedeAgregarPreview;
-
     final usuario = context.watch<AuthProvider>().usuario;
     final userCanAssociate = usuario != null &&
         usuario.hasPermisoOrAdmin('operaciones.pos-venta.asociar_codigo');
@@ -574,43 +696,147 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           ),
         ],
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-          ),
-          _buildScanOverlay(),
-          // Card de preview: arriba de todo en modo no-automático
-          if (!_autoScan && _previewProduct != null)
-            Positioned(
-              top: 12,
-              left: 12,
-              right: 12,
-              child: _buildPreviewCard(),
-            ),
-          // Botón circular abajo: en auto es invisible; en manual es el "Agregar"
-          if (!_autoScan)
-            Positioned(
-              bottom: 52,
-              left: 0,
-              right: 0,
-              child: _buildActionButton(canAdd: canAdd),
-            ),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final alto = constraints.maxHeight;
+          // Tope en 0.45: los snapSizes deben ser estrictamente ascendentes, y
+          // el mínimo nunca debe igualar al tamaño inicial.
+          _sheetMinSize = alto > 0
+              ? ((kScannerPanelHeaderHeight +
+                          MediaQuery.paddingOf(context).bottom) /
+                      alto)
+                  .clamp(0.1, 0.45)
+              : 0.18;
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              _cameraView,
+              _buildCameraLayer(alto),
+              // El sheet se pinta dentro de un SizedBox.expand que no consume
+              // hits, así que los toques sobre la franja de cámara pasan de
+              // largo sin necesidad de IgnorePointer.
+              NotificationListener<DraggableScrollableNotification>(
+                onNotification: (n) {
+                  _onSheetExtentChanged(n.extent);
+                  return false;
+                },
+                child: DraggableScrollableSheet(
+                  controller: _sheetController,
+                  initialChildSize: _kSheetInitialSize,
+                  minChildSize: _sheetMinSize,
+                  maxChildSize: _kSheetMaxSize,
+                  snap: true,
+                  snapSizes: [_sheetMinSize, _kSheetInitialSize, _kSheetMaxSize],
+                  builder: (_, scrollController) => ScannerCartPanel(
+                    scrollController: scrollController,
+                    highlightedId: _highlightedId,
+                    onSaleCompleted: _onSaleCompleted,
+                    onHandleTap: _toggleSheet,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildScanOverlay() {
+  /// La cámara se construye una sola vez y se guarda: así ningún setState de la
+  /// pantalla (ni los cambios del carrito) la reconstruye.
+  late final Widget _cameraView = _kUseScanWindow
+      ? ValueListenableBuilder<double>(
+          valueListenable: _settledExtent,
+          builder: (_, extent, __) => LayoutBuilder(
+            builder: (_, c) => MobileScanner(
+              controller: _controller,
+              onDetect: _onDetect,
+              // Solo se detecta en la franja visible: si no, un código tapado
+              // por el panel entraría al carrito sin que el usuario lo vea.
+              scanWindow: Rect.fromLTWH(
+                0,
+                0,
+                c.maxWidth,
+                c.maxHeight * (1 - extent),
+              ),
+              scanWindowUpdateThreshold: _kScanWindowUpdateThreshold,
+            ),
+          ),
+        )
+      : MobileScanner(controller: _controller, onDetect: _onDetect);
+
+  /// Overlay, card de preview y botón de confirmar, confinados a la franja de
+  /// cámara que deja libre el panel.
+  Widget _buildCameraLayer(double altoTotal) {
+    return ValueListenableBuilder<double>(
+      valueListenable: _sheetExtent,
+      builder: (_, extent, __) {
+        final altoCamara = (altoTotal * (1 - extent)).clamp(0.0, altoTotal);
+
+        return Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            height: altoCamara,
+            width: double.infinity,
+            child: Consumer<CartProvider>(
+              // Observa el carrito para que el máximo disponible del preview se
+              // recalcule cuando se editan cantidades en el panel.
+              builder: (ctx, _, __) {
+                final maxDisp = _maxDisponible(ctx);
+                final isOnline = ctx.read<SyncProvider>().isOnline;
+                final canAdd = _previewProduct != null &&
+                    !_isProcessing &&
+                    (isOnline
+                        ? maxDisp > 0
+                        : ProductoPosRules.puedeAgregar(
+                            _previewProduct!,
+                            ctx.read<ProductosProvider>().allProductos,
+                            offlineMode: true,
+                          ));
+
+                return Stack(
+                  // Expand, si no el overlay se encoge a su contenido y el Stack
+                  // lo alinea arriba-izquierda en vez de centrarlo.
+                  fit: StackFit.expand,
+                  children: [
+                    _buildScanOverlay(maxDisp, altoCamara),
+                    if (!_autoScan && _previewProduct != null)
+                      Positioned(
+                        top: 8,
+                        left: 12,
+                        right: 12,
+                        child: _buildPreviewCard(),
+                      ),
+                    if (!_autoScan)
+                      Positioned(
+                        bottom: 8,
+                        left: 0,
+                        right: 0,
+                        child: _buildActionButton(
+                          canAdd: canAdd,
+                          maxDisp: maxDisp,
+                          compacto: altoCamara < 260,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildScanOverlay(double maxDisp, double altoCamara) {
     final String label;
     if (_isProcessing) {
       label = 'Procesando...';
     } else if (_autoScan) {
       label = 'Escaneando automáticamente...';
     } else if (_previewProduct != null) {
-      label = _previewMaxQty > 0
+      label = maxDisp > 0
           ? 'Presiona el botón para agregar'
           : 'Sin existencias disponibles';
     } else {
@@ -627,7 +853,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       frameColor = Colors.greenAccent;
       frameWidth = 3.0;
     } else if (previewActive) {
-      frameColor = _previewMaxQty > 0
+      frameColor = maxDisp > 0
           ? Colors.greenAccent.withOpacity(0.8)
           : AppColors.warning.withOpacity(0.8);
       frameWidth = 2.5;
@@ -636,48 +862,75 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       frameWidth = 2.0;
     }
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 280,
-          height: 180,
-          decoration: BoxDecoration(
-            border: Border.all(color: frameColor, width: frameWidth),
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          label,
-          style: TextStyle(
-            color: previewActive && _previewMaxQty <= 0
-                ? AppColors.warning
-                : Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            shadows: const [
-              Shadow(
-                color: Colors.black87,
-                blurRadius: 6,
-                offset: Offset(0, 1),
+    // El recuadro se adapta al dispositivo: proporcional al ancho disponible y
+    // limitado por el alto de la franja de cámara, que cambia al arrastrar el
+    // panel.
+    return LayoutBuilder(
+      builder: (_, c) {
+        final anchoDisponible = c.maxWidth.isFinite ? c.maxWidth : 0.0;
+        final altoDisponible = c.maxHeight.isFinite ? c.maxHeight : altoCamara;
+        final frameW = math.max(
+          0.0,
+          math.min(anchoDisponible * 0.78, anchoDisponible - 32),
+        );
+        final frameH = math.min(frameW * 0.64, altoDisponible * 0.45);
+        final mostrarLabel = altoDisponible >= 200;
+
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: frameW > 0 ? frameW : 0,
+              height: frameH > 0 ? frameH : 0,
+              decoration: BoxDecoration(
+                border: Border.all(color: frameColor, width: frameWidth),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            if (mostrarLabel) ...[
+              const SizedBox(height: 16),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: previewActive && maxDisp <= 0
+                      ? AppColors.warning
+                      : Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  shadows: const [
+                    Shadow(
+                      color: Colors.black87,
+                      blurRadius: 6,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
               ),
             ],
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 
   /// Botón circular inferior en modo no-automático.
   /// Cuando hay producto en preview con stock → activo como "Agregar al carrito".
   /// Cuando no hay preview o sin stock → inactivo/indicativo.
-  Widget _buildActionButton({required bool canAdd}) {
+  Widget _buildActionButton({
+    required bool canAdd,
+    required double maxDisp,
+    bool compacto = false,
+  }) {
+    // Con el panel muy expandido queda poca franja: el botón se reduce para no
+    // solaparse con el recuadro de escaneo.
+    final double size = compacto ? 56 : 72;
+
     if (_isProcessing) {
       return Center(
         child: Container(
-          width: 72,
-          height: 72,
+          width: size,
+          height: size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.grey.shade700,
@@ -699,7 +952,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       );
     }
 
-    final bool noStock = _previewProduct != null && _previewMaxQty <= 0;
+    final bool noStock = _previewProduct != null && maxDisp <= 0;
 
     final List<Color> gradientColors;
     final Color ringColor;
@@ -734,8 +987,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             builder: (_, __) => Transform.scale(
               scale: _ringScale.value,
               child: Container(
-                width: 72,
-                height: 72,
+                width: size,
+                height: size,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
@@ -757,8 +1010,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             child: GestureDetector(
               onTap: canAdd ? _addPreviewToCart : null,
               child: Container(
-                width: 72,
-                height: 72,
+                width: size,
+                height: size,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
@@ -776,7 +1029,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                         ]
                       : [],
                 ),
-                child: Icon(icon, color: Colors.white, size: 34),
+                child: Icon(icon, color: Colors.white, size: compacto ? 26 : 34),
               ),
             ),
           ),

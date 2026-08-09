@@ -21,6 +21,7 @@ import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/ventas_provider.dart';
+import '../../services/hardware_scanner_gate.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
 
@@ -50,6 +51,18 @@ class PaymentModal extends StatefulWidget {
   /// Solo para tests: rescate por red cuando el cache local está vacío.
   final Future<List<TransferDestinationModel>> Function(String tiendaId)?
       loadTransferDestinationsOverride;
+
+  /// Abre el modal de cobro bloqueando el escáner de hardware mientras está
+  /// visible (si no, la pistola inyecta texto en los campos de importe).
+  /// Devuelve `true` si la venta se completó.
+  static Future<bool?> show(BuildContext context) {
+    HardwareScannerGate.instance.block('payment');
+    return showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const PaymentModal(),
+    ).whenComplete(() => HardwareScannerGate.instance.unblock('payment'));
+  }
 
   @override
   State<PaymentModal> createState() => _PaymentModalState();
@@ -1184,8 +1197,10 @@ class _PaymentModalState extends State<PaymentModal> {
       await cart.onPurchaseCompleted();
 
       if (mounted) {
-        Navigator.pop(context);
-        Navigator.pop(context);
+        // Un único pop (el del propio modal) devolviendo `true`. Quien lo abrió
+        // decide qué hacer después: CartScreen vuelve al POS, el escáner se
+        // queda escaneando.
+        Navigator.pop(context, true);
         AppSnackBar.show(
           context,
           content: Text(

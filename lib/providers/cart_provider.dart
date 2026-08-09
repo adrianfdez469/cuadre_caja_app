@@ -62,12 +62,17 @@ class CartProvider extends ChangeNotifier {
   /// Agrega producto al carrito activo.
   /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
   /// [isOnline]: con conexión valida stock local; offline permite vender sin stock.
+  /// [moverAlInicio]: coloca la línea en la posición 0 (la inserta ahí si es nueva
+  /// o la mueve si ya existía). Lo usan los flujos de escaneo para que lo recién
+  /// leído quede siempre visible arriba. Es el ÚNICO punto del provider que
+  /// reordena: editar cantidades o eliminar nunca mueve una línea de sitio.
   /// Retorna true si se agregó, false si la cantidad supera el máximo permitido.
   Future<bool> addToCart(
     ProductoModel producto, {
     double cantidad = 1,
     List<ProductoModel>? allProductos,
     bool isOnline = true,
+    bool moverAlInicio = false,
   }) async {
     final cart = activeCart;
     if (cart == null) return false;
@@ -83,21 +88,33 @@ class CartProvider extends ChangeNotifier {
         cantidadEnCarrito: cantidadYaEnCarrito,
         offlineMode: !isOnline,
       );
+      // Se valida antes de mutar: un escaneo rechazado no debe reordenar nada.
       if (cantidad > maxPermitido) return false;
     }
 
-    if (cantidadYaEnCarrito > 0) {
-      final existingIdx = cart.items
-          .indexWhere((i) => i.productoTiendaId == producto.id);
-      cart.items[existingIdx].cantidad += cantidad;
+    final existingIdx =
+        cart.items.indexWhere((i) => i.productoTiendaId == producto.id);
+
+    if (existingIdx >= 0) {
+      final item = cart.items[existingIdx];
+      item.cantidad += cantidad;
+      if (moverAlInicio && existingIdx > 0) {
+        cart.items.removeAt(existingIdx);
+        cart.items.insert(0, item);
+      }
     } else {
-      cart.items.add(CartItemModel(
+      final nuevo = CartItemModel(
         productoTiendaId: producto.id,
         nombre: ProductoPosRules.nombreParaMostrar(producto),
         precio: producto.precio,
         monedaPrecioCode: producto.monedaPrecioCode,
         cantidad: cantidad,
-      ));
+      );
+      if (moverAlInicio) {
+        cart.items.insert(0, nuevo);
+      } else {
+        cart.items.add(nuevo);
+      }
     }
 
     await _saveActiveCart();
@@ -153,6 +170,42 @@ class CartProvider extends ChangeNotifier {
     cart.items.removeAt(itemIndex);
     await _saveActiveCart();
     notifyListeners();
+  }
+
+  /// Índice de la línea de un producto en el carrito activo (-1 si no está).
+  int indexOfProducto(String productoTiendaId) =>
+      activeCart?.items
+          .indexWhere((i) => i.productoTiendaId == productoTiendaId) ??
+      -1;
+
+  /// Igual que [updateItemCantidad] pero resolviendo el índice en el momento de
+  /// la llamada. Con el carrito visible en el escáner, un frame de cámara puede
+  /// reordenar la lista entre el build y el tap: mutar por índice incrementaría
+  /// el producto equivocado. No reordena.
+  Future<bool> updateItemCantidadById(
+    String productoTiendaId,
+    double cantidad, {
+    List<ProductoModel>? allProductos,
+    ProductoModel? producto,
+    bool isOnline = true,
+  }) async {
+    final idx = indexOfProducto(productoTiendaId);
+    if (idx < 0) return false;
+    return updateItemCantidad(
+      idx,
+      cantidad,
+      allProductos: allProductos,
+      producto: producto,
+      isOnline: isOnline,
+    );
+  }
+
+  /// Igual que [removeItem] pero resolviendo el índice en el momento de la
+  /// llamada. No altera el orden relativo del resto.
+  Future<void> removeItemById(String productoTiendaId) async {
+    final idx = indexOfProducto(productoTiendaId);
+    if (idx < 0) return;
+    await removeItem(idx);
   }
 
   /// Limpia el carrito activo
