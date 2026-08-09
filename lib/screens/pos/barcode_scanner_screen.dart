@@ -116,6 +116,147 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (mounted) setState(() => _asociarEnabled = value);
   }
 
+  /// Modal con las opciones de configuración del escáner.
+  Future<void> _mostrarConfiguracion(bool userCanAssociate) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.cardBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        // El sheet mantiene su propio estado para reflejar el switch al instante;
+        // el estado real vive en la pantalla y se persiste en SharedPreferences.
+        return StatefulBuilder(
+          builder: (_, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Icon(Icons.settings_outlined,
+                            color: AppColors.primary, size: 22),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Configuración del escáner',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildOpcionConfig(
+                      icon: Icons.bolt,
+                      iconColor: AppColors.success,
+                      titulo: 'Escaneo automático',
+                      descripcion:
+                          'Agrega al carrito los productos leídos automáticamente, '
+                          'sin necesidad de confirmación del usuario.',
+                      value: _autoScan,
+                      onChanged: (v) async {
+                        await _setAutoScan(v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    if (userCanAssociate) ...[
+                      const Divider(height: 24),
+                      _buildOpcionConfig(
+                        icon: Icons.add_link,
+                        iconColor: AppColors.warning,
+                        titulo: 'Asociar código',
+                        descripcion:
+                            'Permite asociar códigos nuevos, que el sistema aún no '
+                            'reconoce, a productos ya existentes.',
+                        value: _asociarEnabled,
+                        onChanged: (v) async {
+                          await _setAsociarEnabled(v);
+                          setSheetState(() {});
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildOpcionConfig({
+    required IconData icon,
+    required Color iconColor,
+    required String titulo,
+    required String descripcion,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: iconColor, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                descripcion,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.3,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: AppColors.primary,
+        ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
     HardwareScannerGate.instance.unblock('camera');
@@ -411,49 +552,14 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Escanear código'),
+        title: const Text('Escáner'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Auto',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Switch(
-                  value: _autoScan,
-                  onChanged: _setAutoScan,
-                  activeThumbColor: Colors.greenAccent,
-                  inactiveThumbColor: Colors.white70,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                const SizedBox(width: 4),
-                if (userCanAssociate) ...[
-                  Icon(
-                    Icons.add_link,
-                    size: 15,
-                    color: _asociarEnabled
-                        ? Colors.white.withOpacity(0.9)
-                        : Colors.white38,
-                  ),
-                  Switch(
-                    value: _asociarEnabled,
-                    onChanged: _setAsociarEnabled,
-                    activeThumbColor: Colors.amberAccent,
-                    inactiveThumbColor: Colors.white38,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ],
-              ],
-            ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Configuración del escáner',
+            onPressed: () => _mostrarConfiguracion(userCanAssociate),
           ),
           IconButton(
             icon: ValueListenableBuilder(

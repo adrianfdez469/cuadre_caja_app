@@ -23,9 +23,12 @@ class UsuarioModel {
     final permisosRaw = json['permisos'];
     List<String> permisosList;
     if (permisosRaw is List) {
-      permisosList = permisosRaw.map((e) => e.toString()).toList();
+      // Cada elemento puede a su vez venir como "a|b|c"
+      permisosList =
+          permisosRaw.expand((e) => _splitPermisos(e.toString())).toList();
     } else if (permisosRaw is String) {
-      permisosList = permisosRaw.isNotEmpty ? [permisosRaw] : [];
+      // El backend envía los permisos como un único string separado por "|"
+      permisosList = _splitPermisos(permisosRaw);
     } else {
       permisosList = [];
     }
@@ -54,6 +57,13 @@ class UsuarioModel {
     'locales': locales.map((e) => e.toJson()).toList(),
     'permisos': permisos,
   };
+
+  /// Separa un string de permisos con formato "a|b|c" en una lista limpia.
+  static List<String> _splitPermisos(String raw) => raw
+      .split('|')
+      .map((p) => p.trim())
+      .where((p) => p.isNotEmpty)
+      .toList();
 
   bool hasPermiso(String permiso) => permisos.contains(permiso);
 
