@@ -45,3 +45,9 @@ app.*.map.json
 /android/app/release
 
 .faltando
+
+# Credenciales locales del pipeline de release (NUNCA commitear)
+.env.local
+.env.*.local
+*service-account*.json
+*-sa.json
