@@ -65,6 +65,71 @@ La app puede comprobar si hay una versión nueva en una carpeta de Google Drive 
    }
    ```
 
+## Credenciales para publicar (OAuth)
+
+El pipeline (`scripts/release.py`) sube los archivos a Drive actuando **como tu cuenta de Google**.
+Hace falta autorizar **una vez** en el navegador; después funciona sin intervención.
+
+Las credenciales viven en `.env.local` **en la raíz del repo**, no en tu `$HOME`: son por-proyecto,
+así que puedes usar cuentas de Google distintas en proyectos distintos sin que se pisen.
+
+### Setup (una sola vez)
+
+1. En [Google Cloud Console](https://console.cloud.google.com/), con la **Google Drive API**
+   habilitada: *APIs & Services → Credentials → Create credentials → OAuth client ID*, de tipo
+   **Desktop app**. Copia el client ID y el client secret.
+
+2. Crea tu `.env.local` a partir de la plantilla y pega esos dos valores:
+
+   ```bash
+   cp .env.local.example .env.local
+   ```
+
+3. Autoriza tu cuenta (abre el navegador — hazlo tú, en una terminal interactiva):
+
+   ```bash
+   python3 scripts/release.py auth-login
+   ```
+
+   El script levanta un servidor en `127.0.0.1` con un puerto libre, te lleva a la pantalla de
+   consentimiento de Google, valida un `state` aleatorio contra CSRF, captura el código y guarda
+   `GDRIVE_REFRESH_TOKEN` y `GDRIVE_ACCOUNT_EMAIL` en `.env.local` con permisos 600.
+
+   **Elige la cuenta correcta para este proyecto** — la que tiene permiso de edición sobre la
+   carpeta de releases.
+
+4. Comprueba que todo funciona antes de gastar tiempo en un release:
+
+   ```bash
+   python3 scripts/release.py auth-check
+   ```
+
+   Debe mostrar la cuenta activa y los 5 archivos (los 4 APK y `releases.json`) como `OK, editable`.
+   Si la cuenta que responde no coincide con la guardada en `.env.local`, avisa.
+
+### ⚠️ Publica la app OAuth o el token caducará cada 7 días
+
+Mientras el cliente OAuth esté en estado **"Testing"**, Google **invalida el refresh token a los 7
+días** y el release fallará con `invalid_grant`. Es exactamente lo que le pasó al token del binario
+`gdrive`. Arréglalo en *OAuth consent screen → Publish app*.
+
+### Renovar el token
+
+Si el token muere (o quieres cambiar de cuenta), basta con repetir el paso 3: `auth-login`
+reemplaza el `GDRIVE_REFRESH_TOKEN` viejo en su sitio. No hace falta rehacer nada más.
+
+### Alcance de los permisos
+
+Se pide el scope `https://www.googleapis.com/auth/drive`, que da acceso a todo tu Drive. Es el
+mínimo que permite **modificar archivos que ya existían**: el scope acotado `drive.file` solo
+alcanza a los archivos que la propia app creó, y los APK de la carpeta de releases son anteriores.
+
+## Fallback
+
+Si este proyecto no tiene credenciales OAuth configuradas, el script cae al binario `gdrive` (el
+flujo histórico). Funciona, pero depende de un token de usuario que caduca y que solo se renueva
+desde una terminal interactiva con `gdrive account add`.
+
 ## Nombres de los APK
 
 Puedes nombrar los ficheros como prefieras; lo importante es que en `releases.json` el **valor** de cada clave de `apks` sea el **ID de archivo** de Drive (no el nombre del fichero). Ejemplo de nombres:

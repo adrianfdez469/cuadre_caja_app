@@ -1,0 +1,24 @@
+{
+  "driveFolderId": "16LfxLzdav-PUsn97EcSnTdcNZcZnYukd",
+  "releasesJsonFileId": "1ekvyYpK0K693H0fYskQO4qMlM1vgkmrv",
+  "apks": {
+    "arm64-v8a": {
+      "fileId": "1NInsC79yo2Gcs6FLOEzjAORF6hEOEaJm",
+      "path": "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+    },
+    "armeabi-v7a": {
+      "fileId": "15DrgQE14pvmTyfgToFZT4MXYz7XfrBRA",
+      "path": "build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk"
+    },
+    "x86_64": {
+      "fileId": "1EYCDRlMgYn38XKE_DfW1r4LH6r3Dfzzs",
+      "path": "build/app/outputs/flutter-apk/app-x86_64-release.apk"
+    },
+    "universal": {
+      "fileId": "1XCEu0G17CpmbzG4x4neYWLD2s50st-VH",
+      "path": "build/app/outputs/flutter-apk/app-release.apk"
+    }
+  },
+  "changelogCategories": ["Mejoras", "Arreglos", "Caracteristicas"],
+  "minApkBytes": 1048576
+}
