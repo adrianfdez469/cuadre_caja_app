@@ -1,0 +1,243 @@
+[
+  {
+    "category": "functional",
+    "description": "Eliminar una venta que incluía un producto fracción restaura el stock exacto previo a la venta (hallazgo #1, lib/services/sync_service.dart:656-658)",
+    "steps": [
+      "Preparar un producto fracción con existencia 0, unidadesPorFraccion 10, y su producto padre con existencia 5",
+      "Abrir el POS y vender 3 unidades del producto fracción",
+      "Verificar que la desagregación dejó el padre en 4 y la fracción en 7",
+      "Ir a la lista de ventas, seleccionar la venta y pulsar 'Eliminar' (el diálogo promete 'Se restaurará el stock local')",
+      "Verificar que el padre vuelve a 5 y la fracción vuelve a 0",
+      "Resultado actual: la fracción queda en 10 y el padre sigue en 4 — 10 unidades fantasma y un padre consumido que nunca vuelve"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "El vuelto calculado nunca supera el importe realmente debido al cliente (hallazgo #2, lib/core/utils/currency.dart:91)",
+    "steps": [
+      "Configurar un negocio con moneda base CUP (denominación mínima 1) y una moneda de cobro extranjera (ej. USD)",
+      "Cobrar una venta en USD con un excedente que deje un restoBase fraccionario (ej. 0.2 CUP)",
+      "Verificar que la suma del vuelto entregado equivale como máximo al excedente pagado",
+      "Resultado actual: la rama de restoBase usa .ceil() y entrega 1 CUP donde se debían 0.2, mientras las ramas de las líneas 76 y 104 usan .floor() con el comentario 'nunca entregar más vuelto del debido'",
+      "Decidir cuál invariante rige y dejar las tres ramas consistentes"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "El stock disponible se valida contra todos los carritos abiertos, no solo el activo (hallazgo #3, lib/providers/cart_provider.dart:80-92)",
+    "steps": [
+      "Estar online y elegir un producto con existencia local 5",
+      "En 'Carrito 1' agregar las 5 unidades disponibles",
+      "Crear un carrito nuevo con createCart y cambiar a él",
+      "Intentar agregar el mismo producto",
+      "Verificar que la app lo rechaza por falta de stock",
+      "Resultado actual: permite agregar otras 5 unidades porque cantidadYaEnCarrito solo suma el carrito activo, aunque CartProvider ya expone totalItemCountAcrossCarts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "data-integrity",
+    "description": "Un fallo real de migración de BD no se silencia ni deja la versión del esquema adelantada (hallazgo #4, lib/data/datasources/local/database_helper.dart:139-207)",
+    "steps": [
+      "Simular en un test con sqflite_common_ffi una BD en versión 4 donde un ALTER TABLE del tramo de upgrade falle por una causa distinta a 'duplicate column name'",
+      "Ejecutar la apertura de la BD que dispara _onUpgrade",
+      "Verificar que el error se loguea con logDebug y se propaga en lugar de tragarse en catch (_) {}",
+      "Verificar que user_version NO queda en 6 con un esquema incompleto",
+      "Resultado actual: cada paso está envuelto en catch (_) {} y sqflite escribe user_version = 6 igualmente, dejando una BD irreparable con ventas_pendientes sin sincronizar dentro"
+    ],
+    "passes": false
+  },
+  {
+    "category": "security",
+    "description": "La contraseña del usuario nunca se persiste en texto plano aunque FlutterSecureStorage no esté disponible (hallazgo #5, lib/core/network/secure_storage_service.dart:50-72 y lib/providers/auth_provider.dart:84)",
+    "steps": [
+      "Forzar que SecureStorageService.init() detecte el secure storage como no confiable (caso real en arm64-v8a, donde KeyStore puede colgarse)",
+      "Iniciar sesión con usuario y contraseña",
+      "Inspeccionar el archivo de SharedPreferences de la app",
+      "Verificar que la clave de credenciales no contiene la contraseña",
+      "Resultado actual: saveCredentials escribe {usuario, password} en JSON plano en SharedPreferences",
+      "Alternativa aceptable: no persistir credenciales en modo fallback y renunciar al re-login automático"
+    ],
+    "passes": false
+  },
+  {
+    "category": "release",
+    "description": "La app se publica con un applicationId propio en lugar del package por defecto de la plantilla (hallazgo #6, android/app/build.gradle.kts:9,24)",
+    "steps": [
+      "Abrir android/app/build.gradle.kts",
+      "Verificar que namespace y applicationId no empiezan por 'com.example.'",
+      "Verificar que el MethodChannel de lib/core/utils/apk_install_helper.dart:5 usa el mismo prefijo actualizado",
+      "Resultado actual: ambos valen 'com.example.cuadre_caja_app', que Google Play rechaza",
+      "Nota: cambiarlo con instalaciones ya en campo obliga a reinstalar, porque Android lo trata como otra app"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "Los TextEditingController de los diálogos de cantidad se liberan al cerrarse (hallazgo #7, lib/screens/pos/pos_home_screen.dart:868 y lib/screens/pos/productos_screen.dart:334)",
+    "steps": [
+      "Abrir y cerrar repetidamente el diálogo de cantidad desde el POS y desde la pantalla de productos",
+      "Observar en DevTools el número de instancias vivas de TextEditingController",
+      "Verificar que no crece de forma monótona",
+      "Resultado actual: cada apertura fuga un controller; ambos diálogos ya usan .whenComplete() para desbloquear el escáner, que es donde debería ir el dispose()"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "POSHomeScreen limpia en dispose() los callbacks que registró en SyncService (hallazgo #8, lib/screens/pos/pos_home_screen.dart:101-120 vs 322-331)",
+    "steps": [
+      "Iniciar sesión y llegar al POS",
+      "Hacer logout para que POSHomeScreen se destruya",
+      "Inspeccionar el SyncService (singleton que vive todo el proceso)",
+      "Verificar que onAuthRequired, onDataRefreshed y onTokenRefreshed quedan en null",
+      "Resultado actual: dispose() solo llama a stopMonitoring(); las clausuras siguen reteniendo el State y su context, y solo se sobrescriben por casualidad en el siguiente login"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "AppConstants no contiene constantes muertas ni valores que contradigan el código real (hallazgo #9, lib/core/constants/app_constants.dart)",
+    "steps": [
+      "Buscar usos de AppConstants.databaseVersion, defaultCartName, syncInterval, maxSyncAttempts, productSyncInterval, appName y databaseName",
+      "Verificar que cada constante que permanece tiene al menos un uso",
+      "Verificar que databaseVersion coincide con DatabaseHelper._databaseVersion (hoy 1 vs 6)",
+      "Verificar que defaultCartName coincide con el literal que usa CartProvider (hoy 'Cuenta #1' vs 'Carrito 1', literal load-bearing en onPurchaseCompleted:249)",
+      "Verificar que appVersion no duplique a mano el version: de pubspec.yaml",
+      "Resultado actual: 6 constantes con cero usos y 2 de ellas con valores falsos"
+    ],
+    "passes": false
+  },
+  {
+    "category": "performance",
+    "description": "El parcheo de payload no relee el catálogo completo en cada intento de sync de negocios de una sola moneda (hallazgo #10, lib/services/venta_sync_payload_patcher.dart:29)",
+    "steps": [
+      "Configurar un negocio solo-CUP, cuyas ventas tienen tasaSnapshot legítimamente vacío",
+      "Crear una venta y dejar que el ciclo de sync la reintente",
+      "Instrumentar productosLocal.getProductos y multimonedaLocal.getConfig",
+      "Verificar que no se invocan cuando la venta no necesita parche real",
+      "Resultado actual: needsPatch devuelve true siempre por la condición 'tasaSnapshot.isEmpty && pagosDetalle.isNotEmpty', y _prepareVentaForSync (sync_service.dart:490-517) lee todo el catálogo desde SQLite por venta y por intento, para acabar sin aplicar ningún fix"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "VentaLocalModel.copyWith permite limpiar errorMessage a null y el estado synced no arrastra el error anterior (hallazgo #11, lib/data/models/venta_model.dart:110 y lib/services/sync_service.dart:508)",
+    "steps": [
+      "Tomar una venta en estado error con errorMessage poblado",
+      "Aplicar copyWith(errorMessage: null)",
+      "Verificar que el resultado tiene errorMessage == null",
+      "Sincronizar una venta que antes falló y verificar que la fila pasa a synced con errorMessage limpio",
+      "Resultado actual: 'errorMessage ?? this.errorMessage' hace que la llamada sea un no-op, y updateSyncState no incluye errorMessage al pasar a synced",
+      "Nota: hoy no es visible porque la UI filtra por syncState == error (ventas_list_screen.dart:214), pero el código expresa una intención que no se cumple"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "El diálogo de cantidad existe una sola vez y ambas pantallas lo reutilizan (hallazgo #12, lib/screens/pos/pos_home_screen.dart:851-1010 y lib/screens/pos/productos_screen.dart:318-482)",
+    "steps": [
+      "Comparar _showAddToCartDialog con _showQuantityDialog",
+      "Verificar que parseQty, adjustQty, los chips [0.01, 0.1, 0.5, 1, 10, 50, 100], el AlertDialog y los snackbars viven en un único widget compartido",
+      "Agregar un producto al carrito desde el POS y comprobar que se muestra un solo snackbar",
+      "Resultado actual: son ~165 líneas copiadas y ya divergieron — productos_screen.dart:294-314 unificó los dos snackbars en uno, y pos_home_screen.dart:829-847 sigue mostrando dos seguidos, de modo que el primer mensaje se pierde",
+      "Extraer a lib/screens/pos/widgets/cantidad_dialog.dart"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "El cálculo de la cantidad ya presente en el carrito vive en CartProvider y no repetido en cada pantalla (hallazgo #13)",
+    "steps": [
+      "Buscar el patrón 'items.where((i) => i.productoTiendaId == producto.id).fold(...)' en lib/",
+      "Verificar que aparece una sola vez, dentro de CartProvider",
+      "Resultado actual: se repite en 8 sitios — pos_home_screen.dart:801,857; barcode_scanner_screen.dart:403,500,1048; productos_screen.dart:107,275,323; barcode_scan_processor.dart:71",
+      "Exponer double cantidadEnCarrito(String productoTiendaId, {bool todosLosCarritos = false}), que además resuelve el hallazgo #3"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "El parseo de color hexadecimal está centralizado y tolera strings con y sin '#' (hallazgo #14)",
+    "steps": [
+      "Localizar la conversión hex -> Color en lib/screens/pos/widgets/categorias_grid.dart:117-118 y lib/screens/pos/punto_de_partida_screen.dart:179",
+      "Verificar que ambas usan un único helper en lib/core/constants/app_colors.dart",
+      "Probar el helper con '#1976D2' y con '1976D2'",
+      "Resultado actual: dos implementaciones distintas, y la de punto_de_partida (int.parse(hex.replaceAll('#', '0xFF'))) falla si el string no trae '#'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "code-quality",
+    "description": "El código sin usos está eliminado del repo (hallazgo #15)",
+    "steps": [
+      "Verificar que ProductosLocalDataSource ya no expone updateExistencia (singular), searchProductos, getProductosByCategoria ni hasCache",
+      "Verificar que VentasLocalDataSource ya no expone getAllVentas, clearSyncedVentas ni hasPendientes",
+      "Verificar que MonedasProvider.clear() y ProductoPosRules.tieneStockLocal se eliminaron o se usan",
+      "Revisar ProductosProvider.updateExistenciaLocal: solo lo llama un test y reconstruye el ProductoModel a mano perdiendo monedaPrecioCode (productos_provider.dart:186-201), justo lo que copyWith evita",
+      "Resultado actual: todos siguen presentes con cero usos en lib/"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "El logout borra la caché local de la tienda anterior (hallazgo #15, nota sobre clearAllData)",
+    "steps": [
+      "Iniciar sesión con un usuario de la tienda A y dejar que sincronice productos, período, destinos y ventas",
+      "Hacer logout desde el POS",
+      "Iniciar sesión con un usuario de otra tienda y abrir el POS sin conexión",
+      "Verificar que no se ve el catálogo ni las ventas cacheadas de la tienda A",
+      "Verificar que ventas_pendientes sin sincronizar SÍ se preservan",
+      "Resultado actual: AuthProvider.logout() (auth_provider.dart:130) solo borra token, usuario y credenciales; DatabaseHelper.clearAllData() ya existe y ya preserva ventas_pendientes, pero nunca se llama"
+    ],
+    "passes": false
+  },
+  {
+    "category": "testing",
+    "description": "ProductoPosRules tiene cobertura de tests (hallazgo de cobertura, lib/core/utils/producto_pos_rules.dart, 284 líneas)",
+    "steps": [
+      "Buscar en test/ algún archivo que importe producto_pos_rules.dart",
+      "Verificar que existen tests para getMaxQuantity, maxPorTransaccionFraccion, disponibilidadTotalFraccion, existenciaLocalEfectiva y debeMostrarEnPos, en modo online y offline",
+      "Resultado actual: ningún test lo importa, pese a ser el motor de reglas de negocio del POS y ser lógica pura — el candidato más barato y rentable"
+    ],
+    "passes": false
+  },
+  {
+    "category": "testing",
+    "description": "SyncService tiene cobertura de tests sobre el hot path de venta y sincronización (lib/services/sync_service.dart, 820 líneas)",
+    "steps": [
+      "Buscar en test/ tests que ejerciten SyncService con datasources fake",
+      "Cubrir crearVenta en modo online (persiste en syncing) y offline (persiste en pending)",
+      "Cubrir _syncSingleVenta en éxito, duplicado y error",
+      "Cubrir _reconciliarInventario para que el refresco de inventario no pise el stock optimista de ventas pendientes",
+      "Resultado actual: sync_service.dart solo aparece en test/fakes/, sin tests propios"
+    ],
+    "passes": false
+  },
+  {
+    "category": "testing",
+    "description": "VentaSyncPayloadPatcher tiene cobertura de tests (lib/services/venta_sync_payload_patcher.dart, 143 líneas)",
+    "steps": [
+      "Añadir tests para needsPatch, patch e isPayloadReady",
+      "Cubrir una venta pre-multimoneda que se completa correctamente",
+      "Cubrir una venta con precio o name faltantes que se rellenan desde el catálogo",
+      "Cubrir el caso de negocio solo-CUP que hoy dispara needsPatch en bucle (ver hallazgo #10)",
+      "Resultado actual: sin tests, pese a ser lógica pura y decidir si una venta llega al servidor o queda con 'datos incompletos'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "testing",
+    "description": "Las migraciones de DatabaseHelper tienen cobertura de tests (lib/data/datasources/local/database_helper.dart, 245 líneas)",
+    "steps": [
+      "Montar tests con sqflite_common_ffi",
+      "Crear BDs en versiones 1 a 5 y abrirlas con la versión actual",
+      "Verificar el esquema resultante en cada salto",
+      "Verificar que ventas_pendientes conserva sus filas en todos los caminos, incluido el reset de v1 que las aparta y recopia por columnas comunes",
+      "Resultado actual: sin tests, y un fallo aquí destruye ventas sin sincronizar (ver hallazgo #4)"
+    ],
+    "passes": false
+  }
+]
