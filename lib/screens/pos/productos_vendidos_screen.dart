@@ -370,7 +370,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
             Text(
               filtroProveedorRestrictivo ? 'Totales (según filtro proveedor)' : 'Totales',
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -378,11 +378,11 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Total vendido:', style: TextStyle(fontSize: 14)),
+                const Text('Total vendido:', style: TextStyle(fontSize: 15)),
                 Text(
                   Formatters.formatCurrency(totalVendido),
                   style: tabularNums(TextStyle(
-                    fontSize: 18,
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
                     color: context.colors.accent,
                   )),
@@ -394,11 +394,11 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Total en transferencia:', style: TextStyle(fontSize: 14)),
+                  const Text('Total en transferencia:', style: TextStyle(fontSize: 15)),
                   Text(
                     Formatters.formatCurrency(totalTransferencia),
                     style: tabularNums(const TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                     )),
                   ),
@@ -410,7 +410,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
               const Text(
                 'Transferencias por destino',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -428,7 +428,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                       Text(
                         Formatters.formatCurrency(e.value),
                         style: tabularNums(const TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w500,
                         )),
                       ),
@@ -454,7 +454,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         const Text(
           'Vendido por',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -497,7 +497,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         const Text(
           'Proveedor',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -547,7 +547,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         const Text(
           'Vista',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -649,7 +649,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                       p.nombre,
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 14,
+                        fontSize: 15,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -679,7 +679,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                             Formatters.formatCurrency(p.total),
                             style: tabularNums(const TextStyle(
                               fontWeight: FontWeight.w600,
-                              fontSize: 14,
+                              fontSize: 15,
                             )),
                           ),
                         ),
@@ -784,7 +784,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                       p.nombre,
                       style: const TextStyle(
                         fontWeight: FontWeight.w500,
-                        fontSize: 14,
+                        fontSize: 15,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -814,7 +814,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                             Formatters.formatCurrency(p.total),
                             style: tabularNums(const TextStyle(
                               fontWeight: FontWeight.w600,
-                              fontSize: 14,
+                              fontSize: 15,
                             )),
                           ),
                         ),
@@ -827,7 +827,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                         Text(
                           Formatters.formatDateTime(date),
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11.5,
                             color: context.colors.textSecondary,
                           ),
                         ),
@@ -845,7 +845,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                                           ? 'Error'
                                           : 'Sincronizando',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 11.5,
                                 color: syncColor,
                                 fontWeight: FontWeight.w500,
                               ),

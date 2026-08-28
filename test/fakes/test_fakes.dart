@@ -3,11 +3,14 @@ import 'package:cuadre_caja_app/core/network/api_client.dart';
 import 'package:cuadre_caja_app/core/network/secure_storage_service.dart';
 import 'package:cuadre_caja_app/data/datasources/local/cart_local_datasource.dart';
 import 'package:cuadre_caja_app/data/datasources/local/productos_local_datasource.dart';
+import 'package:cuadre_caja_app/data/datasources/local/ventas_local_datasource.dart';
 import 'package:cuadre_caja_app/data/datasources/remote/auth_remote_datasource.dart';
 import 'package:cuadre_caja_app/data/models/cart_model.dart';
 import 'package:cuadre_caja_app/data/models/categoria_model.dart';
+import 'package:cuadre_caja_app/data/models/periodo_model.dart';
 import 'package:cuadre_caja_app/data/models/producto_model.dart';
 import 'package:cuadre_caja_app/data/models/transfer_destination_model.dart';
+import 'package:cuadre_caja_app/data/models/venta_model.dart';
 import 'package:cuadre_caja_app/services/sync_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,21 +49,50 @@ class FakeProductosLocalDataSource extends Fake
   }
 }
 
+/// Local de ventas pendientes falso: siempre vacío, alcanza para que
+/// `VentasProvider.refreshPendientes()` no lance tras `crearVenta`.
+class FakeVentasLocalDataSource extends Fake implements VentasLocalDataSource {
+  @override
+  Future<List<VentaLocalModel>> getVentasPendientes() async => [];
+}
+
 class FakeSyncService extends Fake implements SyncService {
   FakeSyncService({
     this.destinations = const [],
     this.productos = const [],
     this.categorias = const [],
+    this.periodoAbierto,
     ProductosLocalDataSource? productosLocal,
-  }) : _productosLocal = productosLocal ?? FakeProductosLocalDataSource();
+    VentasLocalDataSource? ventasLocal,
+  })  : _productosLocal = productosLocal ?? FakeProductosLocalDataSource(),
+        _ventasLocal = ventasLocal ?? FakeVentasLocalDataSource();
 
   final List<TransferDestinationModel> destinations;
   final List<ProductoModel> productos;
   final List<CategoriaModel> categorias;
+
+  /// Si se define, `loadPeriodoActual` lo devuelve — necesario para que
+  /// `PaymentModal._processPayment()` encuentre un período activo en tests.
+  final PeriodoModel? periodoAbierto;
+
   final ProductosLocalDataSource _productosLocal;
+  final VentasLocalDataSource _ventasLocal;
 
   @override
   ProductosLocalDataSource get productosLocal => _productosLocal;
+
+  @override
+  VentasLocalDataSource get ventasLocal => _ventasLocal;
+
+  @override
+  Future<PeriodoModel> loadPeriodoActual(String tiendaId) async {
+    final periodo = periodoAbierto;
+    if (periodo == null) throw UnimplementedError();
+    return periodo;
+  }
+
+  @override
+  Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async => venta;
 
   // SyncProvider registra estos callbacks en su constructor; el fake solo
   // necesita aceptarlos para poder montarlo en widget tests.

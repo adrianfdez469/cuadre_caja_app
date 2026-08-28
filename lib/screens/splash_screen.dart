@@ -72,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Text(
               'Cuadre de Caja',
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 26,
                 fontWeight: FontWeight.bold,
                 color: colors.accent,
               ),

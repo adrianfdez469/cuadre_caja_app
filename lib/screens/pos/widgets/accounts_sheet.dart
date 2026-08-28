@@ -6,6 +6,93 @@ import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
 
+/// Diálogo "Nueva cuenta", compartido por `AccountsSheet` y `CartItemsScreen`
+/// (los chips de cuenta de ambas vistas crean cuentas de la misma forma).
+void showCreateCartDialog(BuildContext context, CartProvider cartProvider) {
+  final controller =
+      TextEditingController(text: 'Carrito ${cartProvider.cartCount + 1}');
+
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Nueva cuenta'),
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(
+          labelText: 'Nombre',
+          border: OutlineInputBorder(),
+        ),
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            cartProvider.createCart(controller.text);
+          },
+          child: const Text('Crear'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Confirma y vacía el carrito en [index] (compartido por `AccountsSheet` y
+/// `CartItemsScreen`).
+void confirmClearCart(BuildContext context, CartProvider cartProvider, int index) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Vaciar carrito'),
+      content: const Text('¿Eliminar todos los productos de esta cuenta?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            cartProvider.switchCart(index);
+            cartProvider.clearActiveCart();
+          },
+          child: Text('Vaciar', style: TextStyle(color: context.colors.negative)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Confirma y elimina la cuenta en [index] (compartido por `AccountsSheet` y
+/// `CartItemsScreen`).
+void confirmDeleteCart(BuildContext context, CartProvider cartProvider, int index) {
+  final nombre = cartProvider.carts[index].nombre;
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Eliminar cuenta'),
+      content: Text('¿Eliminar "$nombre"?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            cartProvider.deleteCart(index);
+          },
+          child: Text('Eliminar', style: TextStyle(color: context.colors.negative)),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Hoja "Cuentas abiertas": cambiar de carrito activo, crear uno nuevo,
 /// vaciar o eliminar uno vacío. Reemplaza el menú y los diálogos que antes
 /// vivían en la pantalla de carrito a pantalla completa, según
@@ -77,7 +164,7 @@ class _AccountsSheetContent extends StatelessWidget {
                             ),
                             alignment: Alignment.center,
                             child: isActive
-                                ? const Icon(Icons.check, color: Colors.white, size: 20)
+                                ? Icon(Icons.check, color: colors.onAccent, size: 20)
                                 : Text(
                                     '${index + 1}',
                                     style: TextStyle(
@@ -115,10 +202,10 @@ class _AccountsSheetContent extends StatelessWidget {
                             onSelected: (value) {
                               switch (value) {
                                 case 'vaciar':
-                                  _confirmClear(context, cartProvider, index);
+                                  confirmClearCart(context, cartProvider, index);
                                   break;
                                 case 'eliminar':
-                                  _confirmDelete(context, cartProvider, index);
+                                  confirmDeleteCart(context, cartProvider, index);
                                   break;
                               }
                             },
@@ -146,12 +233,12 @@ class _AccountsSheetContent extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ElevatedButton.icon(
-                onPressed: () => _createCart(context, cartProvider),
+                onPressed: () => showCreateCartDialog(context, cartProvider),
                 icon: const Icon(Icons.add),
                 label: const Text('Nueva cuenta'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colors.accent,
-                  foregroundColor: Colors.white,
+                  foregroundColor: colors.onAccent,
                   minimumSize: const Size.fromHeight(AppTapTarget.comfortable),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.md),
@@ -161,87 +248,6 @@ class _AccountsSheetContent extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _createCart(BuildContext context, CartProvider cartProvider) {
-    final controller =
-        TextEditingController(text: 'Carrito ${cartProvider.cartCount + 1}');
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Nueva cuenta'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nombre',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              cartProvider.createCart(controller.text);
-            },
-            child: const Text('Crear'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _confirmClear(BuildContext context, CartProvider cartProvider, int index) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Vaciar carrito'),
-        content: const Text('¿Eliminar todos los productos de esta cuenta?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              cartProvider.switchCart(index);
-              cartProvider.clearActiveCart();
-            },
-            child: Text('Vaciar', style: TextStyle(color: context.colors.negative)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _confirmDelete(BuildContext context, CartProvider cartProvider, int index) {
-    final nombre = cartProvider.carts[index].nombre;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar cuenta'),
-        content: Text('¿Eliminar "$nombre"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              cartProvider.deleteCart(index);
-            },
-            child: Text('Eliminar', style: TextStyle(color: context.colors.negative)),
-          ),
-        ],
       ),
     );
   }

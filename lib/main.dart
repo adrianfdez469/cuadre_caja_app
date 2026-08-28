@@ -11,6 +11,7 @@ import 'providers/ventas_provider.dart';
 import 'providers/periodo_provider.dart';
 import 'providers/monedas_provider.dart';
 import 'providers/sync_provider.dart';
+import 'providers/theme_mode_provider.dart';
 import 'services/sync_service.dart';
 import 'screens/splash_screen.dart';
 
@@ -72,14 +73,18 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => SyncProvider(injection.syncService),
         ),
+
+        ChangeNotifierProvider(create: (_) => ThemeModeProvider()),
       ],
-      child: MaterialApp(
-        title: 'Cuadre de Caja',
-        debugShowCheckedModeBanner: false,
-        theme: appLightTheme,
-        darkTheme: appDarkTheme,
-        themeMode: ThemeMode.light,
-        home: const SplashScreen(),
+      child: Consumer<ThemeModeProvider>(
+        builder: (context, themeModeProvider, _) => MaterialApp(
+          title: 'Cuadre de Caja',
+          debugShowCheckedModeBanner: false,
+          theme: appLightTheme,
+          darkTheme: appDarkTheme,
+          themeMode: themeModeProvider.themeMode,
+          home: const SplashScreen(),
+        ),
       ),
     );
   }

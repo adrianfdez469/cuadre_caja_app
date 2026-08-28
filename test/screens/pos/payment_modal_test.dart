@@ -1,19 +1,204 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cuadre_caja_app/data/models/cart_model.dart';
+import 'package:cuadre_caja_app/data/models/periodo_model.dart';
+import 'package:cuadre_caja_app/data/models/transfer_destination_model.dart';
+
+import '../../fakes/test_fakes.dart';
 import '../../helpers/payment_test_harness.dart';
 
 void main() {
-  group('PaymentModal UI', () {
-    testWidgets('no muestra selector Efectivo/Transferencia/Mixto', (tester) async {
-      await pumpPaymentModal(tester);
+  group('PaymentModal UI — paso "elegir forma de pago"', () {
+    testWidgets('muestra tarjetas dinámicas por moneda y el CTA se habilita al elegir',
+        (tester) async {
+      final config = buildTestConfig();
+      final sync = FakeSyncService(
+        destinations: [TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true)],
+      );
+      final cart = CartModel(
+        id: 'c1',
+        nombre: 'Carrito',
+        items: [
+          CartItemModel(
+            productoTiendaId: 'p1',
+            nombre: 'Producto',
+            precio: 1500,
+            monedaPrecioCode: 'CUP',
+          ),
+        ],
+      );
 
-      expect(find.text('Efectivo'), findsOneWidget);
-      expect(find.text('Transfer.'), findsNothing);
-      expect(find.text('Mixto'), findsNothing);
-      expect(find.byType(SegmentedButton<String>), findsNothing);
+      await tester.pumpWidget(
+        buildPaymentModalHarness(config: config, cart: cart, syncService: sync),
+      );
+      await tester.pumpAndSettle();
+
+      // Una tarjeta "Efectivo <moneda>" por cada moneda que admite efectivo,
+      // una "Transferencia <moneda>" por cada moneda que admite transferencia
+      // (MLC no, según buildTestConfig), y siempre "Pago mixto".
+      expect(find.text('Efectivo CUP'), findsOneWidget);
+      expect(find.text('Efectivo USD'), findsOneWidget);
+      expect(find.text('Efectivo MLC'), findsOneWidget);
+      expect(find.text('Transferencia CUP'), findsOneWidget);
+      expect(find.text('Transferencia USD'), findsOneWidget);
+      expect(find.text('Transferencia MLC'), findsNothing);
+      expect(find.text('Pago mixto'), findsOneWidget);
+
+      final ctaAntes = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Confirmar cobro'),
+      );
+      expect(ctaAntes.onPressed, isNull);
+
+      await tester.tap(find.text('Efectivo CUP'));
+      await tester.pumpAndSettle();
+
+      final ctaDespues = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Confirmar cobro'),
+      );
+      expect(ctaDespues.onPressed, isNotNull);
     });
 
+    testWidgets(
+        'el efectivo se redondea por exceso a un entero; la transferencia usa el monto exacto',
+        (tester) async {
+      final config = buildTestConfig();
+      final sync = FakeSyncService(
+        destinations: [TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true)],
+      );
+      // Total: 999,50 CUP ≈ 2,49875 USD (tasa 400). El efectivo en USD debe
+      // subir al entero superior (3); la transferencia en USD debe quedar en
+      // el monto exacto de la conversión (2.50), sin redondear.
+      final cart = CartModel(
+        id: 'c1',
+        nombre: 'Carrito',
+        items: [
+          CartItemModel(
+            productoTiendaId: 'p1',
+            nombre: 'Producto',
+            precio: 999.5,
+            monedaPrecioCode: 'CUP',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        buildPaymentModalHarness(config: config, cart: cart, syncService: sync),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 USD'), findsOneWidget);
+      expect(find.text('2.50 USD'), findsOneWidget);
+    });
+  });
+
+  group('PaymentModal UI — paso "efectivo y vuelto"', () {
+    testWidgets('el atajo "Exacto" precarga el sugerido y el teclado edita el monto',
+        (tester) async {
+      final config = buildTestConfig();
+      final sync = FakeSyncService(
+        destinations: [TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true)],
+      );
+      final cart = CartModel(
+        id: 'c1',
+        nombre: 'Carrito',
+        items: [
+          CartItemModel(
+            productoTiendaId: 'p1',
+            nombre: 'Producto',
+            precio: 1000,
+            monedaPrecioCode: 'CUP',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        buildPaymentModalHarness(config: config, cart: cart, syncService: sync),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Efectivo CUP'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar cobro'));
+      await tester.pumpAndSettle();
+
+      // El panel de falta/cambio queda debajo del teclado numérico: los
+      // finders por defecto ignoran contenido "offstage" (fuera del scroll
+      // visible), así que hay que desplazarlo a la vista primero.
+      await tester.ensureVisible(find.text('Cambio:', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      // Ya en el paso "Efectivo CUP": el sugerido cubre el total exacto.
+      expect(find.text('Cambio:'), findsOneWidget);
+      expect(find.text('Falta:'), findsNothing);
+
+      // Tocar dígitos del teclado propio edita el monto tecleado.
+      await tester.ensureVisible(find.text('5', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Falta:', skipOffstage: false));
+      await tester.pumpAndSettle();
+      expect(find.text('Falta:'), findsOneWidget);
+
+      // "Exacto" vuelve a cubrir el total.
+      await tester.ensureVisible(find.text('Exacto', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Exacto', skipOffstage: false));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Cambio:', skipOffstage: false));
+      await tester.pumpAndSettle();
+      expect(find.text('Cambio:'), findsOneWidget);
+      expect(find.text('Falta:'), findsNothing);
+    });
+  });
+
+  group('PaymentModal UI — paso "cobro registrado"', () {
+    testWidgets('confirmar una venta en efectivo exacto muestra la pantalla de éxito',
+        (tester) async {
+      final config = buildTestConfig();
+      final sync = FakeSyncService(
+        destinations: [TransferDestinationModel(id: 'd1', nombre: 'Banco', isDefault: true)],
+        periodoAbierto: PeriodoModel(
+          id: 'periodo-1',
+          tiendaId: 't1',
+          fechaInicio: DateTime(2026, 1, 1),
+          estaAbierto: true,
+        ),
+      );
+      final cart = CartModel(
+        id: 'c1',
+        nombre: 'Carrito',
+        items: [
+          CartItemModel(
+            productoTiendaId: 'p1',
+            nombre: 'Producto',
+            precio: 1000,
+            monedaPrecioCode: 'CUP',
+          ),
+        ],
+      );
+
+      await pumpPaymentModalFull(tester, config: config, cart: cart, syncService: sync);
+
+      await tester.tap(find.text('Efectivo CUP'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar cobro'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar Venta'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cobro registrado'), findsOneWidget);
+      expect(find.text('Nueva venta'), findsOneWidget);
+      // Offline por defecto en el harness: se muestra la nota de sincronización.
+      expect(find.textContaining('Sin conexión'), findsOneWidget);
+    });
+  });
+
+  group('PaymentModal UI — paso "mixto" (multimoneda)', () {
     testWidgets('oculta transferencia hasta expandir', (tester) async {
       await pumpPaymentModal(tester);
 
@@ -68,6 +253,9 @@ void main() {
       await pumpPaymentModal(tester, total: 1000);
 
       await tester.enterText(cashField, '2000');
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Cambio:', skipOffstage: false));
       await tester.pumpAndSettle();
 
       expect(find.text('Cambio:'), findsOneWidget);

@@ -301,7 +301,7 @@ class _VersionScreenState extends State<VersionScreen> {
         Expanded(
           child: Text(
             message,
-            style: TextStyle(color: color, fontSize: 14),
+            style: TextStyle(color: color, fontSize: 13),
           ),
         ),
       ],
@@ -381,7 +381,7 @@ class _VersionScreenState extends State<VersionScreen> {
                   Text(
                     'Versión actual',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11.5,
                       color: colors.textSecondary,
                     ),
                   ),
@@ -391,7 +391,7 @@ class _VersionScreenState extends State<VersionScreen> {
                         ? 'v$_currentVersion (build $_currentBuildNumber)'
                         : 'v$_currentVersion',
                     style: const TextStyle(
-                      fontSize: 24,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -415,7 +415,6 @@ class _VersionScreenState extends State<VersionScreen> {
             if (_hasUpdate) ...[
               const SizedBox(height: 16),
               Card(
-                elevation: 4,
                 color: colors.infoWash,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -431,7 +430,7 @@ class _VersionScreenState extends State<VersionScreen> {
                             child: Text(
                               'Hay una actualización disponible: v${_remoteRelease!.version}',
                               style: const TextStyle(
-                                fontSize: 18,
+                                fontSize: 17,
                                 fontWeight: FontWeight.bold,
                               ),
                               softWrap: true,
@@ -495,7 +494,7 @@ class _VersionScreenState extends State<VersionScreen> {
           const SizedBox(height: 8),
           SelectableText(
             AppConstants.driveFolderUrl,
-            style: TextStyle(fontSize: 12, color: colors.textSecondary),
+            style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
           ),
         ],
       ),

@@ -40,7 +40,7 @@ ThemeData _buildTheme({
   final colorScheme = ColorScheme(
     brightness: brightness,
     primary: colors.accent,
-    onPrimary: brightness == Brightness.light ? Colors.white : colors.page,
+    onPrimary: colors.onAccent,
     secondary: colors.neutral,
     onSecondary: brightness == Brightness.light ? Colors.white : colors.page,
     error: colors.negative,
@@ -112,7 +112,7 @@ ThemeData _buildTheme({
       backgroundColor: colors.sunken,
       selectedColor: colors.accent,
       labelStyle: TextStyle(color: colors.textPrimary, fontSize: 13),
-      secondaryLabelStyle: const TextStyle(color: Colors.white, fontSize: 13),
+      secondaryLabelStyle: TextStyle(color: colors.onAccent, fontSize: 13),
       shape: const StadiumBorder(),
       side: BorderSide.none,
     ),
@@ -125,14 +125,14 @@ ThemeData _buildTheme({
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: colors.accent,
-        foregroundColor: Colors.white,
+        foregroundColor: colors.onAccent,
         shape: RoundedRectangleBorder(borderRadius: radiusMd),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: colors.accent,
-        foregroundColor: Colors.white,
+        foregroundColor: colors.onAccent,
         shape: RoundedRectangleBorder(borderRadius: radiusMd),
       ),
     ),

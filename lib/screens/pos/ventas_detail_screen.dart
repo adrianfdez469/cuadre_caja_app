@@ -156,7 +156,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                     Text(
                       Formatters.formatDateTime(date),
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -176,7 +176,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                           Text(
                             'Destino transferencia: $nombreDestino',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: colors.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
@@ -237,7 +237,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const Text(
               'Totales',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -265,7 +265,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const Text(
               'Filtrar por proveedor',
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -305,7 +305,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                       Text(
                         'Total (productos filtrados)',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: colors.accent,
                         ),
@@ -314,7 +314,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                         Formatters.formatCurrency(subtotalFiltrado),
                         style: tabularNums(
                           TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
                             color: colors.accent,
                           ),
@@ -329,7 +329,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const Text(
               'Productos',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -400,7 +400,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                               name,
                               style: const TextStyle(
                                 fontWeight: FontWeight.w500,
-                                fontSize: 14,
+                                fontSize: 15,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -430,7 +430,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                                     Formatters.formatCurrency(subtotal),
                                     style: tabularNums(const TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 14,
+                                      fontSize: 15,
                                     )),
                                   ),
                                 ),
@@ -497,14 +497,14 @@ class _TotalRow extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontSize: isTotal ? 18 : 15,
+              fontSize: isTotal ? 17 : 15,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
             ),
           ),
           Text(
             Formatters.formatCurrency(value),
             style: tabularNums(TextStyle(
-              fontSize: isTotal ? 18 : 15,
+              fontSize: isTotal ? 17 : 15,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
               color: isTotal ? colors.accent : null,
             )),

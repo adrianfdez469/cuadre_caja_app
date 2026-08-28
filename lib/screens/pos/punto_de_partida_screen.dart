@@ -273,7 +273,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(fontSize: 12, color: caution),
+              style: TextStyle(fontSize: 11.5, color: caution),
             ),
           ),
           GestureDetector(
@@ -383,7 +383,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
             const SizedBox(height: 12),
             Text(
               'No hay productos para mostrar',
-              style: TextStyle(color: context.colors.textSecondary, fontSize: 14),
+              style: TextStyle(color: context.colors.textSecondary, fontSize: 13),
             ),
           ],
         ),
@@ -421,7 +421,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
                   Text(
                     cat.toUpperCase(),
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.bold,
                       color: catColor,
                       letterSpacing: 0.5,
@@ -462,7 +462,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14),
+              style: const TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -510,14 +510,14 @@ class _TotalCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: TextStyle(fontSize: 11, color: context.colors.textSecondary),
+            style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
           ),
           const SizedBox(height: 2),
           Text(
             valor % 1 == 0 ? valor.toInt().toString() : valor.toStringAsFixed(1),
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: 15,
               color: color,
             ),
           ),
@@ -556,7 +556,7 @@ class _ProductoCard extends StatelessWidget {
         children: [
           Text(
             p.nombre,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
           ),
           const SizedBox(height: 8),
           Row(
@@ -589,7 +589,7 @@ class _ProductoCard extends StatelessWidget {
               Text(
                 'MOVIMIENTOS',
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 11.5,
                   fontWeight: FontWeight.bold,
                   color: context.colors.textSecondary,
                   letterSpacing: 0.5,
@@ -659,13 +659,13 @@ class _InfoBox extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.7)),
+            style: TextStyle(fontSize: 11.5, color: textColor.withValues(alpha: 0.7)),
           ),
           const SizedBox(height: 2),
           Text(
             valor,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 17,
               fontWeight: bold ? FontWeight.bold : FontWeight.normal,
               color: textColor,
             ),
@@ -702,7 +702,7 @@ class _MovimientoBox extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 11.5,
               color: color.withValues(alpha: 0.8),
             ),
           ),

@@ -175,10 +175,10 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                       decimals: d == d.roundToDouble() ? 0 : 2,
                     ),
                     textAlign: TextAlign.right,
-                    style: const TextStyle(
+                    style: tabularNums(const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                    ),
+                    )),
                   ),
                 ),
                 _stepButton(
@@ -193,11 +193,11 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
                     maxLength: 4,
-                    style: TextStyle(
+                    style: tabularNums(TextStyle(
                       fontSize: 13,
                       fontWeight:
                           highlighted ? FontWeight.bold : FontWeight.normal,
-                    ),
+                    )),
                     decoration: const InputDecoration(
                       isDense: true,
                       counterText: '',
@@ -235,11 +235,11 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: tabularNums(TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: colors.textPrimary,
-                  ),
+                  )),
                 ),
               ),
           ],
@@ -289,7 +289,9 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
           children: [
             Text(
               'Total: ${Formatters.formatNumber(_total)}',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              style: tabularNums(
+                const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
             ),
             if (diff != null && _total > 0)
               Text(
@@ -298,11 +300,11 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                     : diff > 0
                         ? 'Sobra: ${Formatters.formatNumber(diff)}'
                         : 'Faltan: ${Formatters.formatNumber(diff.abs())}',
-                style: TextStyle(
+                style: tabularNums(TextStyle(
                   fontSize: 13,
                   color: diff >= 0 ? colors.positive : colors.negative,
                   fontWeight: FontWeight.w500,
-                ),
+                )),
               ),
           ],
         ),

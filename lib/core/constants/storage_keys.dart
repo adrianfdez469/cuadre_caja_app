@@ -4,4 +4,5 @@ class StorageKeys {
   static const String credentials = 'credentials';
   static const String scanAutoMode = 'scan_auto_mode';
   static const String scanAsociarEnabled = 'scan_asociar_enabled';
+  static const String darkModeEnabled = 'dark_mode_enabled';
 }

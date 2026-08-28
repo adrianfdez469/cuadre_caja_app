@@ -46,13 +46,13 @@ class VentasListScreen extends StatefulWidget {
             children: [
               Text(
                 detail,
-                style: TextStyle(fontSize: 14, color: colors.textPrimary),
+                style: TextStyle(fontSize: 13, color: colors.textPrimary),
               ),
               if (venta.syncAttempts > 0) ...[
                 const SizedBox(height: 12),
                 Text(
                   'Intentos de sincronización: ${venta.syncAttempts}',
-                  style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                  style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
                 ),
               ],
               if (isPeriodConflict && currentPeriodoId != null) ...[
@@ -340,7 +340,7 @@ class _VentaListItem extends StatelessWidget {
                       Text(
                         'Período anterior — requiere actualización',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           color: colors.caution,
                           fontWeight: FontWeight.w600,
                         ),
@@ -373,14 +373,14 @@ class _VentaListItem extends StatelessWidget {
                               child: Text(
                                 syncLabel,
                                 style: tabularNums(
-                                  TextStyle(fontSize: 12, color: syncColor, fontWeight: FontWeight.w500),
+                                  TextStyle(fontSize: 11.5, color: syncColor, fontWeight: FontWeight.w500),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
                               '${venta.itemCount} ítems',
-                              style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                              style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
                             ),
                           ],
                         ),
@@ -394,7 +394,7 @@ class _VentaListItem extends StatelessWidget {
                         Formatters.formatCurrency(venta.total),
                         style: tabularNums(
                           TextStyle(
-                            fontSize: 18,
+                            fontSize: 17,
                             fontWeight: FontWeight.bold,
                             color: colors.accent,
                           ),
@@ -402,12 +402,12 @@ class _VentaListItem extends StatelessWidget {
                       ),
                       Text(
                         'Efectivo: ${Formatters.formatCurrency(venta.totalcash)}',
-                        style: tabularNums(TextStyle(fontSize: 11, color: colors.textSecondary)),
+                        style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
                       ),
                       if (venta.totaltransfer > 0)
                         Text(
                           'Transf: ${Formatters.formatCurrency(venta.totaltransfer)}',
-                          style: tabularNums(TextStyle(fontSize: 11, color: colors.textSecondary)),
+                          style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
                         ),
                     ],
                   ),

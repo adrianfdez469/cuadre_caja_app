@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Cuadre de Caja',
                     style: TextStyle(
-                      fontSize: 28,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
                       color: colors.accent,
                     ),
@@ -73,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Punto de Venta',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       color: colors.textSecondary,
                     ),
                   ),
@@ -147,24 +147,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           auth.status == AuthStatus.loading ? null : _login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: colors.accent,
-                        foregroundColor: Colors.white,
+                        foregroundColor: colors.onAccent,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                       ),
                       child: auth.status == AuthStatus.loading
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 24,
                               height: 24,
                               child: CircularProgressIndicator(
-                                color: Colors.white,
+                                color: colors.onAccent,
                                 strokeWidth: 2,
                               ),
                             )
                           : const Text(
                               'Iniciar Sesión',
                               style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold),
+                                  fontSize: 15, fontWeight: FontWeight.bold),
                             ),
                     ),
                   ),

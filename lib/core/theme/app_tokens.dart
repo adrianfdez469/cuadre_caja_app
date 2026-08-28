@@ -40,6 +40,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   const AppSemanticColors({
     required this.accent,
     required this.accentWash,
+    required this.onAccent,
     required this.positive,
     required this.positiveWash,
     required this.negative,
@@ -65,6 +66,9 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
 
   final Color accent;
   final Color accentWash;
+  /// Texto/ícono sobre [accent]: blanco en claro, casi negro en oscuro (el
+  /// ámbar del Tablero C es demasiado claro para texto blanco encima).
+  final Color onAccent;
   final Color positive;
   final Color positiveWash;
   final Color negative;
@@ -94,6 +98,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   static const light = AppSemanticColors(
     accent: Color(0xFF5B4CA8),
     accentWash: Color(0xFFF4F2FB),
+    onAccent: Color(0xFFFFFFFF),
     positive: Color(0xFF1F6B3F),
     positiveWash: Color(0xFFF1F7F3),
     negative: Color(0xFFA5382A),
@@ -117,9 +122,15 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     textDisabled: Color(0xFF9B9AA3),
   );
 
+  /// Modo oscuro: fondo casi negro tomado del Tablero C
+  /// (`pos/pos-mobile-4-variantes.html`), pero con el morado de marca de la
+  /// Dirección B como acento (no el ámbar de Tablero C) — mismo look en
+  /// claro y oscuro, solo cambia el fondo. `inverse`/`onInverse` (la barra de
+  /// cobro) son un panel oscuro con texto claro, como en claro.
   static const dark = AppSemanticColors(
     accent: Color(0xFFA493E8),
     accentWash: Color(0xFF241E38),
+    onAccent: Color(0xFFFFFFFF),
     positive: Color(0xFF5FB37E),
     positiveWash: Color(0xFF17281D),
     negative: Color(0xFFE08376),
@@ -130,23 +141,24 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     infoWash: Color(0xFF16242C),
     neutral: Color(0xFFA2A1AB),
     neutralWash: Color(0xFF232329),
-    page: Color(0xFF141517),
-    raised: Color(0xFF1C1E20),
-    sunken: Color(0xFF111214),
-    border: Color(0xFF2A2C2F),
-    borderStrong: Color(0xFF3A3C40),
-    inverse: Color(0xFFF3F2F6),
-    onInverse: Color(0xFF131417),
-    onInverseMuted: Color(0xFF6B6E73),
-    textPrimary: Color(0xFFE9E8E5),
-    textSecondary: Color(0xFF9A99A3),
-    textDisabled: Color(0xFF5F5E68),
+    page: Color(0xFF121316),
+    raised: Color(0xFF1D1F23),
+    sunken: Color(0xFF17191C),
+    border: Color(0xFF2E3136),
+    borderStrong: Color(0xFF3A3D43),
+    inverse: Color(0xFF17191C),
+    onInverse: Color(0xFFF0EFEC),
+    onInverseMuted: Color(0xFF8D9096),
+    textPrimary: Color(0xFFF0EFEC),
+    textSecondary: Color(0xFF8D9096),
+    textDisabled: Color(0xFF7E8188),
   );
 
   @override
   AppSemanticColors copyWith({
     Color? accent,
     Color? accentWash,
+    Color? onAccent,
     Color? positive,
     Color? positiveWash,
     Color? negative,
@@ -172,6 +184,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     return AppSemanticColors(
       accent: accent ?? this.accent,
       accentWash: accentWash ?? this.accentWash,
+      onAccent: onAccent ?? this.onAccent,
       positive: positive ?? this.positive,
       positiveWash: positiveWash ?? this.positiveWash,
       negative: negative ?? this.negative,
@@ -202,6 +215,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     return AppSemanticColors(
       accent: Color.lerp(accent, other.accent, t)!,
       accentWash: Color.lerp(accentWash, other.accentWash, t)!,
+      onAccent: Color.lerp(onAccent, other.onAccent, t)!,
       positive: Color.lerp(positive, other.positive, t)!,
       positiveWash: Color.lerp(positiveWash, other.positiveWash, t)!,
       negative: Color.lerp(negative, other.negative, t)!,

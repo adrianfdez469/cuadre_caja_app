@@ -10,6 +10,7 @@ import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../providers/productos_provider.dart';
 import '../../../services/hardware_scanner_gate.dart';
+import '../../../widgets/numeric_keypad.dart';
 
 /// Hoja de cantidad compartida por la pantalla de venta y el catálogo: elegir
 /// cuántas unidades de un producto agregar al carrito, con teclado numérico
@@ -235,8 +236,8 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                 .toList(),
           ),
           const SizedBox(height: 12),
-          _NumericKeypad(
-            allowDecimal: _permiteDecimal,
+          NumericKeypad(
+            cornerLabel: _permiteDecimal ? null : '00',
             onDigit: _appendDigit,
             onBackspace: _backspace,
           ),
@@ -273,7 +274,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                 : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
+              foregroundColor: colors.onAccent,
               minimumSize: const Size.fromHeight(AppTapTarget.comfortable),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.md),
@@ -283,70 +284,6 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _NumericKeypad extends StatelessWidget {
-  final bool allowDecimal;
-  final void Function(String digit) onDigit;
-  final VoidCallback onBackspace;
-
-  const _NumericKeypad({
-    required this.allowDecimal,
-    required this.onDigit,
-    required this.onBackspace,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    Widget key(String label, {VoidCallback? onTap, bool enabled = true}) {
-      return Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Material(
-            color: colors.sunken,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            child: InkWell(
-              onTap: enabled ? onTap : null,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              child: SizedBox(
-                height: AppTapTarget.comfortable,
-                child: Center(
-                  child: label == '⌫'
-                      ? Icon(Icons.backspace_outlined, color: colors.textPrimary)
-                      : Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w600,
-                            color: enabled ? colors.textPrimary : colors.textDisabled,
-                          ),
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Row(children: [key('1', onTap: () => onDigit('1')), key('2', onTap: () => onDigit('2')), key('3', onTap: () => onDigit('3'))]),
-        Row(children: [key('4', onTap: () => onDigit('4')), key('5', onTap: () => onDigit('5')), key('6', onTap: () => onDigit('6'))]),
-        Row(children: [key('7', onTap: () => onDigit('7')), key('8', onTap: () => onDigit('8')), key('9', onTap: () => onDigit('9'))]),
-        Row(children: [
-          key('00', onTap: () {
-            onDigit('0');
-            onDigit('0');
-          }, enabled: !allowDecimal),
-          key('0', onTap: () => onDigit('0')),
-          key('⌫', onTap: onBackspace),
-        ]),
-      ],
     );
   }
 }

@@ -25,6 +25,7 @@ import '../../services/hardware_scanner_gate.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
 import '../../widgets/multi_currency_amount.dart';
+import '../../widgets/numeric_keypad.dart';
 
 class _PagoMoneda {
   double cash;
@@ -35,6 +36,25 @@ class _PagoMoneda {
     this.cash = 0,
     this.transfer = 0,
     this.transferDestId = '',
+  });
+}
+
+/// Pasos del flujo de cobro, según `pos/cobro.html`.
+enum _PaymentStep { metodo, efectivo, transferencia, mixto, exito }
+
+/// Snapshot de la venta ya confirmada, tomado antes de vaciar el carrito, para
+/// poder mostrar la pantalla de éxito con datos que ya no viven en el carrito.
+class _UltimaVenta {
+  final double totalBase;
+  final List<VueltoLinea> vuelto;
+  final String monedaCobro;
+  final bool isOnline;
+
+  const _UltimaVenta({
+    required this.totalBase,
+    required this.vuelto,
+    required this.monedaCobro,
+    required this.isOnline,
   });
 }
 
@@ -72,6 +92,11 @@ class PaymentModal extends StatefulWidget {
 class _PaymentModalState extends State<PaymentModal> {
   bool _isProcessing = false;
   bool _initialized = false;
+
+  _PaymentStep _step = _PaymentStep.metodo;
+  String? _metodoSeleccionado;
+  String? _efectivoKeypadRaw;
+  _UltimaVenta? _ultimaVenta;
 
   List<TransferDestinationModel> _transferDestinations = [];
   Map<String, _PagoMoneda> _pagosMap = {};
@@ -191,6 +216,78 @@ class _PaymentModalState extends State<PaymentModal> {
         text: formatCashDisplay(cash),
       );
       _transferControllers[moneda] = TextEditingController(text: '');
+    }
+  }
+
+  /// Limpia todo el estado de pagos y lo deja con una sola moneda (sin
+  /// importe), para los pasos "efectivo" y "tarjeta" que cobran en una única
+  /// moneda a la vez. El paso "mixto" no usa esto — conserva lo que ya había.
+  void _resetToSingleMoneda(String moneda) {
+    for (final c in _cashControllers.values) {
+      c.dispose();
+    }
+    for (final c in _transferControllers.values) {
+      c.dispose();
+    }
+    for (final c in _vueltoControllers.values) {
+      c.dispose();
+    }
+    _cashControllers.clear();
+    _transferControllers.clear();
+    _vueltoControllers.clear();
+    _pagosMap.clear();
+    _showPayBreakdown.clear();
+    _payBreakdownResetKeys.clear();
+    _savedBillBreakdowns.clear();
+    _showTransfer.clear();
+    _vueltoMap = {};
+    _vueltoLocked = false;
+    _initMoneda(moneda, transferDestId: _defaultDestId(_transferDestinations));
+  }
+
+  void _selectEfectivo(String moneda) {
+    _resetToSingleMoneda(moneda);
+    _efectivoKeypadRaw = null;
+    _updatePago(moneda, cash: _suggestCash(moneda, excludeMoneda: moneda));
+    setState(() => _step = _PaymentStep.efectivo);
+  }
+
+  /// Monto exacto (con decimales) que corresponde transferir en [moneda] para
+  /// cubrir el total — a diferencia del efectivo, la transferencia no se
+  /// redondea.
+  double _transferExacta(String moneda) => _convertFromBase(_total, moneda);
+
+  /// Vista previa del efectivo sugerido en [moneda] para la tarjeta del paso
+  /// 1, calculada **desde cero** (el total completo, redondeado por exceso) —
+  /// a diferencia de [_suggestCash], que resta lo ya pagado en otras monedas
+  /// y no sirve aquí porque `_pagosMap` todavía tiene el sembrado inicial de
+  /// `_initialize()` en la moneda base.
+  double _cashPreview(String moneda) =>
+      PaymentLogic.ceilCash(_convertFromBase(_total, moneda));
+
+  void _selectTransferencia(String moneda) {
+    _resetToSingleMoneda(moneda);
+    _toggleTransfer(moneda);
+    _updatePago(moneda, transfer: _transferExacta(moneda));
+    setState(() => _step = _PaymentStep.transferencia);
+  }
+
+  void _selectMixto() {
+    setState(() => _step = _PaymentStep.mixto);
+  }
+
+  static const _cashPrefix = 'cash:';
+  static const _transferPrefix = 'transfer:';
+
+  void _onConfirmMetodo() {
+    final metodo = _metodoSeleccionado;
+    if (metodo == null) return;
+    if (metodo == 'mixto') {
+      _selectMixto();
+    } else if (metodo.startsWith(_transferPrefix)) {
+      _selectTransferencia(metodo.substring(_transferPrefix.length));
+    } else if (metodo.startsWith(_cashPrefix)) {
+      _selectEfectivo(metodo.substring(_cashPrefix.length));
     }
   }
 
@@ -604,13 +701,6 @@ class _PaymentModalState extends State<PaymentModal> {
       );
     }
 
-    final monedasKeys = _pagosMap.keys.toList();
-    final items = context.watch<CartProvider>().activeCart?.items ?? [];
-    final unidades = items.fold<double>(0, (s, i) => s + i.cantidad);
-    final unidadesText = unidades == unidades.roundToDouble()
-        ? unidades.toStringAsFixed(0)
-        : unidades.toStringAsFixed(1);
-
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -621,93 +711,80 @@ class _PaymentModalState extends State<PaymentModal> {
         ),
         child: Material(
           color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          RichText(
-                            text: TextSpan(
-                              style: DefaultTextStyle.of(context).style,
-                              children: [
-                                const TextSpan(
-                                  text: 'Cobrar: ',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: _fmtBase(_total),
-                                  style: tabularNums(TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: context.colors.accent,
-                                  )),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (items.isNotEmpty)
-                            Text(
-                              '${items.length} ${items.length == 1 ? 'producto' : 'productos'} · $unidadesText ${unidades == 1 ? 'unidad' : 'unidades'}',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: context.colors.textSecondary,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    ...monedasKeys.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final moneda = entry.value;
-                      return _buildMonedaSection(moneda, idx > 0);
-                    }),
-                    if (_hasExtraCurrencies && _monedasDisponibles.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: () => _pickMoneda(
-                            context,
-                            _monedasDisponibles,
-                            _addCurrency,
-                          ),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Agregar moneda'),
-                        ),
-                      ),
-                    if (!_falta && _vueltoTotalBase >= 0.0001) ...[
-                      const Divider(height: 32),
-                      _buildVueltoSection(),
-                    ],
-                    const SizedBox(height: 24),
-                    _buildSummary(),
-                  ],
-                ),
-              ),
-              _buildCheckoutFooter(),
-            ],
-          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+          child: switch (_step) {
+            _PaymentStep.metodo => _buildMetodoStep(),
+            _PaymentStep.efectivo => _buildEfectivoStep(),
+            _PaymentStep.transferencia => _buildTransferenciaStep(),
+            _PaymentStep.mixto => _buildMixtoStep(),
+            _PaymentStep.exito => _buildExitoStep(),
+          },
         ),
+      ),
+    );
+  }
+
+  /// Encabezado común a todos los pasos: "←" (si hay paso anterior), título,
+  /// "✕" para cerrar el modal.
+  Widget _buildHeader(String title, {VoidCallback? onBack}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 8, 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            child: onBack != null
+                ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: onBack)
+                : null,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Resumen "A cobrar": monto y "N productos · M unidades", igual al de
+  /// `pos/cobro.html` (resuelve el contador ambiguo de antes).
+  Widget _buildResumen() {
+    final colors = context.colors;
+    final items = context.watch<CartProvider>().activeCart?.items ?? [];
+    final unidades = items.fold<double>(0, (s, i) => s + i.cantidad);
+    final unidadesText = unidades == unidades.roundToDouble()
+        ? unidades.toStringAsFixed(0)
+        : unidades.toStringAsFixed(1);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('A cobrar', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+          if (items.isNotEmpty)
+            Text(
+              '${items.length} ${items.length == 1 ? 'producto' : 'productos'} · $unidadesText ${unidades == 1 ? 'unidad' : 'unidades'}',
+              style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            _fmtBase(_total),
+            style: tabularNums(TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
+            )),
+          ),
+        ],
       ),
     );
   }
@@ -721,35 +798,34 @@ class _PaymentModalState extends State<PaymentModal> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: SafeArea(
         top: false,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: MultiCurrencyAmount(
-                amount: _total,
-                variant: MultiCurrencyVariant.checkout,
-                onInverseSurface: true,
-              ),
+            MultiCurrencyAmount(
+              amount: _total,
+              variant: MultiCurrencyVariant.checkout,
+              onInverseSurface: true,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(height: 12),
             SizedBox(
+              width: double.infinity,
               height: AppTapTarget.comfortable,
               child: ElevatedButton(
                 onPressed: _canConfirm && !_isProcessing ? _processPayment : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colors.accent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  foregroundColor: colors.onAccent,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
                 ),
                 child: _isProcessing
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
-                          color: Colors.white,
+                          color: colors.onAccent,
                           strokeWidth: 2,
                         ),
                       )
@@ -765,6 +841,424 @@ class _PaymentModalState extends State<PaymentModal> {
           ],
         ),
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Paso 1: elegir forma de pago
+  // ---------------------------------------------------------------------
+
+  Widget _buildMetodoStep() {
+    final colors = context.colors;
+    // Una tarjeta "Efectivo <moneda>" / "Transferencia <moneda>" por cada
+    // moneda activa que admita ese método — no una por moneda, sino una por
+    // combinación (moneda, método) realmente disponible. El efectivo siempre
+    // redondeado por exceso a un entero; la transferencia, con el monto
+    // exacto de la conversión.
+    final opciones = <(String id, String label, String subtitle)>[
+      for (final moneda in _todasMonedas) ...[
+        if (_admiteEfectivoMoneda(moneda))
+          (
+            '$_cashPrefix$moneda',
+            'Efectivo $moneda',
+            '${Formatters.formatNumber(_cashPreview(moneda), decimals: 0)} $moneda',
+          ),
+        if (_admiteTransferMoneda(moneda))
+          (
+            '$_transferPrefix$moneda',
+            'Transferencia $moneda',
+            Formatters.formatMonedaAmount(_transferExacta(moneda), code: moneda),
+          ),
+      ],
+      ('mixto', 'Pago mixto', 'Dos o más formas'),
+    ];
+
+    return Column(
+      children: [
+        _buildHeader('Elegir forma de pago'),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 16),
+            children: [
+              _buildResumen(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Forma de pago',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: colors.textSecondary),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 9,
+                  crossAxisSpacing: 9,
+                  childAspectRatio: 2.3,
+                  children: opciones
+                      .map(
+                        (o) => _buildMetodoCard(
+                          label: o.$2,
+                          subtitle: o.$3,
+                          selected: _metodoSeleccionado == o.$1,
+                          onTap: () => setState(() => _metodoSeleccionado = o.$1),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildMetodoFooter(),
+      ],
+    );
+  }
+
+  Widget _buildMetodoCard({
+    required String label,
+    required String subtitle,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final colors = context.colors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? colors.accentWash : colors.raised,
+          border: Border.all(
+            color: selected ? colors.accent : colors.border,
+            width: selected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: selected ? colors.accent : colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetodoFooter() {
+    final colors = context.colors;
+    return Container(
+      color: colors.inverse,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _metodoSeleccionado == null ? 'Elegí una forma de pago' : 'Total a cobrar',
+              style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
+            ),
+            const SizedBox(height: 6),
+            MultiCurrencyAmount(
+              amount: _total,
+              variant: MultiCurrencyVariant.checkout,
+              onInverseSurface: true,
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: AppTapTarget.comfortable,
+              child: ElevatedButton(
+                onPressed: _metodoSeleccionado == null ? null : _onConfirmMetodo,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colors.accent,
+                  foregroundColor: colors.onAccent,
+                  disabledBackgroundColor: colors.onInverseMuted.withValues(alpha: 0.3),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+                child: const Text(
+                  'Confirmar cobro',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Paso 2: efectivo y vuelto (una sola moneda)
+  // ---------------------------------------------------------------------
+
+  void _efectivoAppendDigit(String moneda, String digit) {
+    final raw = (_efectivoKeypadRaw ?? '') + digit;
+    final value = double.tryParse(raw);
+    if (value == null) return;
+    _efectivoKeypadRaw = raw;
+    _updatePago(moneda, cash: value);
+  }
+
+  void _efectivoBackspace(String moneda) {
+    final raw = _efectivoKeypadRaw ?? '';
+    if (raw.length <= 1) {
+      _efectivoKeypadRaw = null;
+      _updatePago(moneda, cash: 0);
+      return;
+    }
+    final trimmed = raw.substring(0, raw.length - 1);
+    _efectivoKeypadRaw = trimmed;
+    _updatePago(moneda, cash: double.tryParse(trimmed) ?? 0);
+  }
+
+  void _efectivoSetExacto(String moneda) {
+    _efectivoKeypadRaw = null;
+    // excludeMoneda: el propio pago ya tecleado no debe restarse de sí mismo,
+    // o "Exacto" sugeriría cada vez menos según lo que ya hubiera en el campo.
+    _updatePago(moneda, cash: _suggestCash(moneda, excludeMoneda: moneda));
+  }
+
+  Widget _buildEfectivoStep() {
+    final colors = context.colors;
+    final moneda = _pagosMap.keys.first;
+    final pago = _pagosMap[moneda]!;
+    final tasa = moneda != _monedaBase ? _tasas[moneda] : null;
+    final totalEnMoneda = _convertFromBase(_total, moneda);
+
+    return Column(
+      children: [
+        _buildHeader(
+          'Efectivo $moneda',
+          onBack: () => setState(() => _step = _PaymentStep.metodo),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            children: [
+              Text('A cobrar en $moneda', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+              if (tasa != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Tasa ${tasa.toStringAsFixed(2)}',
+                  style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text(
+                Formatters.formatMonedaAmount(totalEnMoneda, code: moneda),
+                style: tabularNums(TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                )),
+              ),
+              if (moneda != _monedaBase) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '= ${_fmtBase(_total)}',
+                  style: tabularNums(TextStyle(fontSize: 12.5, color: colors.textSecondary)),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      formatCashDisplay(pago.cash),
+                      style: tabularNums(TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: colors.accent,
+                      )),
+                    ),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => _efectivoSetExacto(moneda),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, AppTapTarget.min),
+                      side: BorderSide(color: colors.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                    ),
+                    child: const Text('Exacto'),
+                  ),
+                ],
+              ),
+              Text('Recibido', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+              const SizedBox(height: 12),
+              NumericKeypad(
+                cornerLabel: '000',
+                onDigit: (d) => _efectivoAppendDigit(moneda, d),
+                onBackspace: () => _efectivoBackspace(moneda),
+              ),
+              if (!_falta && _vueltoTotalBase >= 0.0001) ...[
+                const Divider(height: 32),
+                _buildVueltoSection(),
+              ],
+              const SizedBox(height: 16),
+              _buildSummary(),
+            ],
+          ),
+        ),
+        _buildCheckoutFooter(),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Paso "tarjeta" (transferencia por el total, vía POS bancario)
+  // ---------------------------------------------------------------------
+
+  Widget _buildTransferenciaStep() {
+    final colors = context.colors;
+    final moneda = _pagosMap.keys.first;
+    final pago = _pagosMap[moneda]!;
+    final tasa = moneda != _monedaBase ? _tasas[moneda] : null;
+
+    return Column(
+      children: [
+        _buildHeader(
+          'Transferencia $moneda',
+          onBack: () => setState(() => _step = _PaymentStep.metodo),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            children: [
+              Text('A transferir en $moneda', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+              if (tasa != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Tasa ${tasa.toStringAsFixed(2)}',
+                  style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text(
+                Formatters.formatMonedaAmount(pago.transfer, code: moneda),
+                style: tabularNums(TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                )),
+              ),
+              if (moneda != _monedaBase) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '= ${_fmtBase(_total)}',
+                  style: tabularNums(TextStyle(fontSize: 12.5, color: colors.textSecondary)),
+                ),
+              ],
+              const SizedBox(height: 20),
+              if (_transferDestinations.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  initialValue: pago.transferDestId.isNotEmpty ? pago.transferDestId : null,
+                  decoration: InputDecoration(
+                    labelText: 'Destino de transferencia',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                  ),
+                  items: _transferDestinations
+                      .map((d) => DropdownMenuItem<String>(value: d.id, child: Text(d.nombre)))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) _updatePago(moneda, transferDestId: value);
+                  },
+                )
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: colors.textSecondary),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Sin destinos de transferencia configurados. La venta se '
+                        'registrará sin destino.',
+                        style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        _buildCheckoutFooter(),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Paso "mixto": el contenido multimoneda de siempre, sin cambios.
+  // ---------------------------------------------------------------------
+
+  Widget _buildMixtoStep() {
+    final monedasKeys = _pagosMap.keys.toList();
+    return Column(
+      children: [
+        _buildHeader('Pago mixto', onBack: () => setState(() => _step = _PaymentStep.metodo)),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              ...monedasKeys.asMap().entries.map((entry) {
+                final idx = entry.key;
+                final moneda = entry.value;
+                return _buildMonedaSection(moneda, idx > 0);
+              }),
+              if (_hasExtraCurrencies && _monedasDisponibles.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickMoneda(
+                      context,
+                      _monedasDisponibles,
+                      _addCurrency,
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Agregar moneda'),
+                  ),
+                ),
+              if (!_falta && _vueltoTotalBase >= 0.0001) ...[
+                const Divider(height: 32),
+                _buildVueltoSection(),
+              ],
+              const SizedBox(height: 24),
+              _buildSummary(),
+            ],
+          ),
+        ),
+        _buildCheckoutFooter(),
+      ],
     );
   }
 
@@ -800,7 +1294,7 @@ class _PaymentModalState extends State<PaymentModal> {
               padding: const EdgeInsets.symmetric(horizontal: 4),
               backgroundColor: isBase ? context.colors.accent : null,
               labelStyle: TextStyle(
-                color: isBase ? Colors.white : null,
+                color: isBase ? context.colors.onAccent : null,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1005,7 +1499,7 @@ class _PaymentModalState extends State<PaymentModal> {
             _transferDestinations.isNotEmpty) ...[
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: pago.transferDestId.isNotEmpty ? pago.transferDestId : null,
+              initialValue: pago.transferDestId.isNotEmpty ? pago.transferDestId : null,
               decoration: InputDecoration(
                 labelText: 'Destino de transferencia',
                 border: OutlineInputBorder(
@@ -1119,8 +1613,7 @@ class _PaymentModalState extends State<PaymentModal> {
   }
 
   /// Panel de "falta"/"cambio", en el mismo lenguaje que `cobro.html`: rojo
-  /// tenue mientras no se cubre el total, verde tenue una vez que sí. El total
-  /// en sí ya vive en la barra de cobro fija (`_buildCheckoutFooter`).
+  /// tenue mientras no se cubre el total, verde tenue una vez que sí.
   Widget _buildSummary() {
     final colors = context.colors;
     final falta = _falta;
@@ -1142,13 +1635,111 @@ class _PaymentModalState extends State<PaymentModal> {
           Text(
             _fmtBase(amount),
             style: tabularNums(TextStyle(
-              fontSize: 20,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
               color: color,
             )),
           ),
         ],
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Paso 4: cobro registrado
+  // ---------------------------------------------------------------------
+
+  Widget _buildExitoStep() {
+    final colors = context.colors;
+    final venta = _ultimaVenta;
+    if (venta == null) return const SizedBox.shrink();
+
+    final vueltoTotalBase = venta.vuelto.fold<double>(
+      0,
+      (s, v) => s + _convertToBase(v.monto, v.moneda),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 8, 4),
+          child: Row(
+            children: [
+              const SizedBox(width: 48),
+              const Expanded(
+                child: Text(
+                  'Cobro registrado',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context, true),
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(color: colors.positive, shape: BoxShape.circle),
+                    child: const Icon(Icons.check, color: Colors.white, size: 36),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Cobrado ${_fmtBase(venta.totalBase)}',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  if (vueltoTotalBase >= 0.0001) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '${_fmtBase(vueltoTotalBase)} de vuelto',
+                      style: tabularNums(TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.85,
+                        color: colors.positive,
+                      )),
+                    ),
+                  ],
+                  if (!venta.isOnline) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Sin conexión: la venta queda guardada y se sube al sincronizar.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12.5, color: colors.textSecondary),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.accent,
+              foregroundColor: colors.onAccent,
+              minimumSize: const Size.fromHeight(AppTapTarget.comfortable),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+            ),
+            child: const Text('Nueva venta', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1207,6 +1798,12 @@ class _PaymentModalState extends State<PaymentModal> {
 
       final tasaSnapshot = Map<String, double>.from(_tasasSnapshot);
 
+      // Snapshot tomado antes de vaciar el carrito: la pantalla de éxito ya no
+      // puede leer `_total`/`_vueltoMap` una vez que dependen del carrito vacío.
+      final totalSnapshot = _total;
+      final monedaCobroSnapshot = _monedaBase;
+      final isOnlineSnapshot = sync.isOnline;
+
       await ventas.crearVenta(
         tiendaId: auth.tiendaId,
         periodoId: periodo.periodoId!,
@@ -1227,19 +1824,15 @@ class _PaymentModalState extends State<PaymentModal> {
       await cart.onPurchaseCompleted();
 
       if (mounted) {
-        // Un único pop (el del propio modal) devolviendo `true`. Quien lo abrió
-        // decide qué hacer después: CartScreen vuelve al POS, el escáner se
-        // queda escaneando.
-        Navigator.pop(context, true);
-        AppSnackBar.show(
-          context,
-          content: Text(
-            sync.isOnline
-                ? 'Venta guardada. Sincronización con el servidor en segundo plano.'
-                : 'Venta guardada - se sincronizará al conectarse',
-          ),
-          backgroundColor: context.colors.positive,
-        );
+        setState(() {
+          _ultimaVenta = _UltimaVenta(
+            totalBase: totalSnapshot,
+            vuelto: vuelto,
+            monedaCobro: monedaCobroSnapshot,
+            isOnline: isOnlineSnapshot,
+          );
+          _step = _PaymentStep.exito;
+        });
       }
 
       unawaited(productos.loadProductos(auth.tiendaId, showLoading: false));

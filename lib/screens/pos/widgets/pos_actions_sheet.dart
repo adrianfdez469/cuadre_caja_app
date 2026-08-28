@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/sync_provider.dart';
+import '../../../providers/theme_mode_provider.dart';
 import '../../version_screen.dart';
 import 'accounts_sheet.dart';
 import '../productos_vendidos_screen.dart';
@@ -41,6 +42,7 @@ class _PosActionsSheetContent extends StatelessWidget {
     final colors = context.colors;
     final syncProvider = context.watch<SyncProvider>();
     final cartProvider = context.watch<CartProvider>();
+    final themeModeProvider = context.watch<ThemeModeProvider>();
 
     return SafeArea(
       child: ConstrainedBox(
@@ -132,6 +134,20 @@ class _PosActionsSheetContent extends StatelessWidget {
                           ),
                         );
                       },
+                    ),
+                    _ActionRow(
+                      icon: themeModeProvider.isDarkMode
+                          ? Icons.dark_mode
+                          : Icons.light_mode_outlined,
+                      title: 'Modo oscuro',
+                      subtitle: themeModeProvider.isDarkMode ? 'Activado' : 'Desactivado',
+                      trailing: Switch(
+                        value: themeModeProvider.isDarkMode,
+                        activeTrackColor: colors.accent,
+                        onChanged: (v) => themeModeProvider.setDarkMode(v),
+                      ),
+                      onTap: () =>
+                          themeModeProvider.setDarkMode(!themeModeProvider.isDarkMode),
                     ),
                     _ActionRow(
                       icon: Icons.info_outline,

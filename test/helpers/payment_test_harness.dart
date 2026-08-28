@@ -5,6 +5,10 @@ import 'package:cuadre_caja_app/data/models/usuario_model.dart';
 import 'package:cuadre_caja_app/providers/auth_provider.dart';
 import 'package:cuadre_caja_app/providers/cart_provider.dart';
 import 'package:cuadre_caja_app/providers/monedas_provider.dart';
+import 'package:cuadre_caja_app/providers/periodo_provider.dart';
+import 'package:cuadre_caja_app/providers/productos_provider.dart';
+import 'package:cuadre_caja_app/providers/sync_provider.dart';
+import 'package:cuadre_caja_app/providers/ventas_provider.dart';
 import 'package:cuadre_caja_app/core/theme/app_theme.dart';
 import 'package:cuadre_caja_app/screens/pos/payment_modal.dart';
 import 'package:cuadre_caja_app/services/sync_service.dart';
@@ -142,7 +146,70 @@ Future<void> pumpPaymentModal(
     ),
   );
   await tester.pumpAndSettle();
+
+  // El cobro ahora abre en el paso "elegir forma de pago" (pos/cobro.html);
+  // los tests existentes verifican el comportamiento multimoneda, que vive
+  // en el paso "Pago mixto" — se navega hasta ahí para no reescribir cada test.
+  // La tarjeta "Pago mixto" puede quedar fuera del viewport chico de test,
+  // así que hay que desplazarla a la vista antes de tocarla.
+  await tester.ensureVisible(find.text('Pago mixto'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Pago mixto'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmar cobro'));
+  await tester.pumpAndSettle();
 }
 
 Finder get cashField => find.widgetWithText(TextField, 'Efectivo');
 Finder get transferField => find.widgetWithText(TextField, 'Transferencia');
+
+/// Monta el modal con el árbol completo de providers que usa
+/// `_processPayment()` (Periodo/Ventas/Sync/Productos), para poder llegar
+/// hasta confirmar una venta real y ver la pantalla de éxito.
+Future<void> pumpPaymentModalFull(
+  WidgetTester tester, {
+  required MultimonedaConfig config,
+  required CartModel cart,
+  required FakeSyncService syncService,
+  String tiendaId = 't1',
+  bool isOnline = false,
+}) async {
+  final auth = createTestAuthProvider()
+    ..debugSetUsuario(buildTestUsuario(monedaBase: config.monedaBase));
+  final monedas = MonedasProvider(syncService)..debugSetConfig(config);
+  final cartProvider = CartProvider(FakeCartLocalDataSource())
+    ..debugSetActiveCart(cart);
+  final periodoProvider = PeriodoProvider(syncService);
+  await periodoProvider.loadPeriodo(tiendaId);
+  final ventasProvider = VentasProvider(syncService);
+  final syncProvider = SyncProvider(syncService);
+  if (isOnline) {
+    syncService.onConnectionChanged?.call(ConnectionStatus.online);
+  }
+  final productosProvider = ProductosProvider(syncService);
+
+  await tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthProvider>.value(value: auth),
+        ChangeNotifierProvider<MonedasProvider>.value(value: monedas),
+        ChangeNotifierProvider<CartProvider>.value(value: cartProvider),
+        ChangeNotifierProvider<PeriodoProvider>.value(value: periodoProvider),
+        ChangeNotifierProvider<VentasProvider>.value(value: ventasProvider),
+        ChangeNotifierProvider<SyncProvider>.value(value: syncProvider),
+        ChangeNotifierProvider<ProductosProvider>.value(value: productosProvider),
+        Provider<SyncService>.value(value: syncService),
+      ],
+      child: MaterialApp(
+        theme: appLightTheme,
+        home: Scaffold(
+          body: PaymentModal(
+            getTransferDestinationsLocalOverride:
+                syncService.getTransferDestinationsLocal,
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}

@@ -265,7 +265,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                   style: TextStyle(
                     color: context.colors.accent,
                     fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                    fontSize: 15,
                     letterSpacing: 0.6,
                   ),
                 ),
@@ -360,7 +360,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                     style: TextStyle(
                       fontWeight:
                           isSelected ? FontWeight.w700 : FontWeight.w500,
-                      fontSize: 14,
+                      fontSize: 15,
                       color: isSelected ? accent : null,
                     ),
                     maxLines: 1,
@@ -373,7 +373,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                         '\$${producto.precio.toStringAsFixed(2)}',
                         style: TextStyle(
                           color: context.colors.positive,
-                          fontSize: 12,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -390,7 +390,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                             : producto.existencia.toStringAsFixed(2),
                         style: TextStyle(
                           color: sinStock ? caution : context.colors.textSecondary,
-                          fontSize: 12,
+                          fontSize: 11.5,
                           fontWeight: sinStock
                               ? FontWeight.w600
                               : FontWeight.normal,
@@ -402,7 +402,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                           '(sin stock)',
                           style: TextStyle(
                             color: caution,
-                            fontSize: 11,
+                            fontSize: 11.5,
                           ),
                         ),
                       ],
@@ -438,7 +438,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
               child: Text(
                 'Se asociará "${widget.scannedCode}" a "${_selectedProduct!.nombre}"',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11.5,
                   color: context.colors.positive,
                   fontWeight: FontWeight.w500,
                 ),
@@ -469,7 +469,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
             Expanded(
               child: Text(
                 _errorMessage!,
-                style: TextStyle(fontSize: 12, color: context.colors.negative),
+                style: TextStyle(fontSize: 11.5, color: context.colors.negative),
               ),
             ),
           ],
@@ -497,19 +497,19 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
               onPressed:
                   (_selectedProduct != null && !_isLoading) ? _asociar : null,
               icon: _isLoading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: context.colors.onAccent,
                       ),
                     )
                   : const Icon(Icons.add_link, size: 18),
               label: Text(_isLoading ? 'Asociando...' : 'Asociar código'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: context.colors.accent,
-                foregroundColor: Colors.white,
+                foregroundColor: context.colors.onAccent,
                 disabledBackgroundColor: context.colors.border,
                 disabledForegroundColor: context.colors.textDisabled,
                 padding: const EdgeInsets.symmetric(vertical: 12),

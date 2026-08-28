@@ -393,8 +393,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 backgroundColor: colors.accent,
                 child: Text(
                   _initials(auth.usuario?.nombre ?? ''),
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: colors.onAccent,
                     fontSize: 12.5,
                     fontWeight: FontWeight.bold,
                   ),
@@ -533,7 +533,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   tooltip: 'Escanear con cámara',
                   style: IconButton.styleFrom(
                     backgroundColor: context.colors.accent,
-                    foregroundColor: Colors.white,
+                    foregroundColor: context.colors.onAccent,
                   ),
                 ),
               ),
@@ -791,7 +791,7 @@ class _CategoriaChipsState extends State<_CategoriaChips> {
           labelStyle: TextStyle(
             fontSize: 13,
             fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-            color: selected ? Colors.white : colors.textSecondary,
+            color: selected ? colors.onAccent : colors.textSecondary,
           ),
           backgroundColor: colors.sunken,
           selectedColor: colors.accent,
@@ -969,7 +969,7 @@ class _CatalogoResultados extends StatelessWidget {
                     icon: const Icon(Icons.add),
                     style: IconButton.styleFrom(
                       backgroundColor: context.colors.accent,
-                      foregroundColor: Colors.white,
+                      foregroundColor: context.colors.onAccent,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
