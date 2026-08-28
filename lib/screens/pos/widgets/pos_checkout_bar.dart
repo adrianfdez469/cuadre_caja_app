@@ -58,6 +58,24 @@ class PosCheckoutBar extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (items.isNotEmpty)
+                  InkWell(
+                    onTap: () => confirmClearCart(
+                      context,
+                      cartProvider,
+                      cartProvider.activeCartIndex,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.remove_shopping_cart_outlined,
+                        size: 16,
+                        color: colors.onInverseMuted,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 4),
                 InkWell(
                   onTap: items.isEmpty ? null : () => showCartItemsScreen(context),
                   child: Row(

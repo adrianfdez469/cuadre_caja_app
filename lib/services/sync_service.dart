@@ -154,10 +154,10 @@ class SyncService {
       },
     );
 
-    // Sincronización periódica cada 30 segundos si hay conexión.
+    // Sincronización periódica cada hora si hay conexión.
     // Igual que en el reconnect, se valida/renueva la sesión ANTES de
     // sincronizar: si el token no se puede refrescar, el sync no se intenta.
-    _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+    _syncTimer = Timer.periodic(const Duration(hours: 1), (_) async {
       if (isOnline && !_isSyncing && !_isFullSyncRunning) {
         if (await _ensureAuthenticated()) {
           await _syncPendingVentas();

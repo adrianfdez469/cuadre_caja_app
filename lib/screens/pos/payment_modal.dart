@@ -764,26 +764,54 @@ class _PaymentModalState extends State<PaymentModal> {
         ? unidades.toStringAsFixed(0)
         : unidades.toStringAsFixed(1);
 
+    // Todas las monedas activas contra CUP, incluida la moneda base: el
+    // hecho de que una moneda sea la base de la contabilidad no la excluye
+    // de tener una tasa vigente que mostrar. Solo CUP en sí (ancla = 1) no
+    // aporta información.
+    final tasasVigentes = _todasMonedas.where((m) => m != 'CUP' && _tasas[m] != null).toList();
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('A cobrar', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
-          if (items.isNotEmpty)
-            Text(
-              '${items.length} ${items.length == 1 ? 'producto' : 'productos'} · $unidadesText ${unidades == 1 ? 'unidad' : 'unidades'}',
-              style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('A cobrar', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+                if (items.isNotEmpty)
+                  Text(
+                    '${items.length} ${items.length == 1 ? 'producto' : 'productos'} · $unidadesText ${unidades == 1 ? 'unidad' : 'unidades'}',
+                    style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
+                  ),
+                const SizedBox(height: 4),
+                Text(
+                  _fmtBase(_total),
+                  style: tabularNums(TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textPrimary,
+                  )),
+                ),
+              ],
             ),
-          const SizedBox(height: 4),
-          Text(
-            _fmtBase(_total),
-            style: tabularNums(TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: colors.textPrimary,
-            )),
           ),
+          if (tasasVigentes.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('Tasas vigentes', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+                const SizedBox(height: 4),
+                for (final moneda in tasasVigentes)
+                  Text(
+                    '$moneda ${_tasas[moneda]!.toStringAsFixed(2)}',
+                    style: tabularNums(TextStyle(fontSize: 11.5, color: colors.textSecondary)),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

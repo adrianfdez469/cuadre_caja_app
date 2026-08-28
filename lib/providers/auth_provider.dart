@@ -32,6 +32,7 @@ class AuthProvider extends ChangeNotifier {
   String get tiendaId => _usuario?.localActual.id ?? '';
   String get tiendaNombre => _usuario?.localActual.nombre ?? '';
   String get negocioId => _usuario?.negocio.id ?? '';
+  String get negocioNombre => _usuario?.negocio.nombre ?? '';
   String get monedaBase => _usuario?.negocio.monedaBase ?? 'CUP';
   String get monedaFuerte => _usuario?.negocio.monedaFuerte ?? 'CUP';
   List<TiendaModel> get locales => _usuario?.locales ?? [];

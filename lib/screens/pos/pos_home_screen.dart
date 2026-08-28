@@ -3,6 +3,7 @@ import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -45,6 +46,27 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   bool? _lastOnline;
+
+  /// La cabecera (barra superior + buscador + categorías) se oculta al
+  /// desplazar el catálogo hacia abajo y reaparece de inmediato al primer
+  /// gesto hacia arriba, para dejarle más espacio al listado.
+  bool _headerVisible = true;
+
+  bool _onCatalogScroll(ScrollNotification notification) {
+    if (notification is UserScrollNotification) {
+      final pixels = notification.metrics.pixels;
+      final showHeader =
+          pixels <= 0 || notification.direction == ScrollDirection.forward;
+      final hideHeader =
+          notification.direction == ScrollDirection.reverse && pixels > 0;
+      if (showHeader && !_headerVisible) {
+        setState(() => _headerVisible = true);
+      } else if (hideHeader && _headerVisible) {
+        setState(() => _headerVisible = false);
+      }
+    }
+    return false;
+  }
 
   /// Clave en SharedPreferences para recordar la versión que el usuario decidió omitir.
   static const _skippedVersionKey = 'update_skipped_version';
@@ -368,42 +390,18 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     return HardwareScannerListener(
       enabled: _isInitialized && periodoProvider.hasActivePeriodo,
       child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      auth.tiendaNombre,
-                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      _statusSubtitle(syncProvider, ventasProvider),
-                      style: TextStyle(fontSize: 11, color: colors.textSecondary),
-                    ),
-                  ],
-                ),
-              ),
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: colors.accent,
-                child: Text(
-                  _initials(auth.usuario?.nombre ?? ''),
-                  style: TextStyle(
-                    color: colors.onAccent,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
+        body: SafeArea(
+          top: true,
+          bottom: false,
+          child: _buildBody(
+            productosProvider,
+            periodoProvider,
+            syncProvider,
+            auth: auth,
+            ventasProvider: ventasProvider,
+            colors: colors,
           ),
         ),
-        body: _buildBody(productosProvider, periodoProvider, syncProvider),
         bottomNavigationBar: _isInitialized &&
                 periodoProvider.hasActivePeriodo &&
                 cartProvider.activeItemCount > 0
@@ -413,155 +411,243 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     );
   }
 
+  /// Barra superior (tienda + estado de sincronía + avatar), antes vivía en
+  /// `Scaffold.appBar`. Ahora es un widget normal para poder incluirla en el
+  /// bloque de cabecera que se oculta al desplazar el catálogo.
+  Widget _buildTopBar(
+    AuthProvider auth,
+    SyncProvider syncProvider,
+    VentasProvider ventasProvider,
+    AppSemanticColors colors,
+  ) {
+    return Container(
+      color: colors.raised,
+      height: kToolbarHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  auth.negocioNombre.isNotEmpty
+                      ? '${auth.negocioNombre} · ${auth.tiendaNombre}'
+                      : auth.tiendaNombre,
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  _statusSubtitle(syncProvider, ventasProvider),
+                  style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: colors.accent,
+            child: Text(
+              _initials(auth.usuario?.nombre ?? ''),
+              style: TextStyle(
+                color: colors.onAccent,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBody(
     ProductosProvider productosProvider,
     PeriodoProvider periodoProvider,
-    SyncProvider syncProvider,
-  ) {
+    SyncProvider syncProvider, {
+    required AuthProvider auth,
+    required VentasProvider ventasProvider,
+    required AppSemanticColors colors,
+  }) {
     if (!_isInitialized && _initError == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          _buildTopBar(auth, syncProvider, ventasProvider, colors),
+          const Expanded(child: Center(child: CircularProgressIndicator())),
+        ],
+      );
     }
 
     if (_initError != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: context.colors.negative),
-            const SizedBox(height: 16),
-            Text('Error: $_initError'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _initialize,
-              child: const Text('Reintentar'),
+      return Column(
+        children: [
+          _buildTopBar(auth, syncProvider, ventasProvider, colors),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline, size: 48, color: context.colors.negative),
+                  const SizedBox(height: 16),
+                  Text('Error: $_initError'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _initialize,
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       );
     }
 
     // Verificar período
     if (!periodoProvider.hasActivePeriodo) {
-      return _buildNoPeriodoView(periodoProvider);
+      return Column(
+        children: [
+          _buildTopBar(auth, syncProvider, ventasProvider, colors),
+          Expanded(child: _buildNoPeriodoView(periodoProvider)),
+        ],
+      );
     }
 
     return Column(
       children: [
-        // Sync status bar
-        if (syncProvider.lastMessage.isNotEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: syncProvider.isOnline
-                ? context.colors.positiveWash
-                : context.colors.cautionWash,
-            child: Text(
-              syncProvider.lastMessage,
-              style: TextStyle(
-                fontSize: 12,
-                color: syncProvider.isOnline
-                    ? context.colors.positive
-                    : context.colors.caution,
-              ),
-            ),
-          ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          alignment: Alignment.topCenter,
+          child: !_headerVisible
+              ? const SizedBox(width: double.infinity)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildTopBar(auth, syncProvider, ventasProvider, colors),
 
-        // Buscador + "⋯" + escáner (Dirección B: el catálogo se busca, no se navega)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  decoration: InputDecoration(
-                    hintText: 'Buscar entre ${productosProvider.allProductos.length} productos',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              productosProvider.searchProductos('');
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: context.colors.raised,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                    // Sync status bar
+                    if (syncProvider.lastMessage.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        color: syncProvider.isOnline
+                            ? context.colors.positiveWash
+                            : context.colors.cautionWash,
+                        child: Text(
+                          syncProvider.lastMessage,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: syncProvider.isOnline
+                                ? context.colors.positive
+                                : context.colors.caution,
+                          ),
+                        ),
+                      ),
+
+                    // Buscador + "⋯" + escáner (Dirección B: el catálogo se busca, no se navega)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _searchController,
+                              focusNode: _searchFocusNode,
+                              decoration: InputDecoration(
+                                hintText: 'Buscar entre ${productosProvider.allProductos.length} productos',
+                                prefixIcon: const Icon(Icons.search),
+                                suffixIcon: _searchController.text.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear),
+                                        onPressed: () {
+                                          _searchController.clear();
+                                          productosProvider.searchProductos('');
+                                        },
+                                      )
+                                    : null,
+                                filled: true,
+                                fillColor: context.colors.raised,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppRadius.md),
+                                  borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(AppRadius.md),
+                                  borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              onChanged: productosProvider.searchProductos,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: AppTapTarget.comfortable,
+                            height: AppTapTarget.comfortable,
+                            child: IconButton.filledTonal(
+                              onPressed: () => PosActionsSheet.show(
+                                context,
+                                onSync: _performSync,
+                                onLogout: _confirmLogout,
+                              ),
+                              icon: const Icon(Icons.more_horiz),
+                              tooltip: 'Acciones del POS',
+                              style: IconButton.styleFrom(
+                                backgroundColor: context.colors.sunken,
+                                foregroundColor: context.colors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: AppTapTarget.comfortable,
+                            height: AppTapTarget.comfortable,
+                            child: IconButton.filled(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                              ),
+                              icon: const Icon(Icons.qr_code_scanner),
+                              tooltip: 'Escanear con cámara',
+                              style: IconButton.styleFrom(
+                                backgroundColor: context.colors.accent,
+                                foregroundColor: context.colors.onAccent,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  onChanged: productosProvider.searchProductos,
+
+                    _CategoriaChips(productosProvider: productosProvider),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: AppTapTarget.comfortable,
-                height: AppTapTarget.comfortable,
-                child: IconButton.filledTonal(
-                  onPressed: () => PosActionsSheet.show(
-                    context,
-                    onSync: _performSync,
-                    onLogout: _confirmLogout,
-                  ),
-                  icon: const Icon(Icons.more_horiz),
-                  tooltip: 'Acciones del POS',
-                  style: IconButton.styleFrom(
-                    backgroundColor: context.colors.sunken,
-                    foregroundColor: context.colors.textPrimary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: AppTapTarget.comfortable,
-                height: AppTapTarget.comfortable,
-                child: IconButton.filled(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
-                  ),
-                  icon: const Icon(Icons.qr_code_scanner),
-                  tooltip: 'Escanear con cámara',
-                  style: IconButton.styleFrom(
-                    backgroundColor: context.colors.accent,
-                    foregroundColor: context.colors.onAccent,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
 
-        _CategoriaChips(productosProvider: productosProvider),
-
         Expanded(
-          child: RefreshIndicator(
-            color: context.colors.accent,
-            onRefresh: _performSync,
-            child: productosProvider.isLoading
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      SizedBox(
-                        height: 200,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    ],
-                  )
-                : _CatalogoResultados(
-                    productosProvider: productosProvider,
-                    onProductTap: _showQuantitySheet,
-                    onQuickAdd: _quickAddToCart,
-                  ),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onCatalogScroll,
+            child: RefreshIndicator(
+              color: context.colors.accent,
+              onRefresh: _performSync,
+              child: productosProvider.isLoading
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(
+                          height: 200,
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      ],
+                    )
+                  : _CatalogoResultados(
+                      productosProvider: productosProvider,
+                      onProductTap: _showQuantitySheet,
+                      onQuickAdd: _quickAddToCart,
+                    ),
+            ),
           ),
         ),
       ],

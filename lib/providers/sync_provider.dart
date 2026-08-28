@@ -23,14 +23,14 @@ class SyncProvider extends ChangeNotifier {
       _lastMessage = message;
       notifyListeners();
       _refreshPendingCount();
-      // Ocultar "Datos actualizados" tras 3 segundos para ahorrar espacio
-      if (message == 'Datos actualizados ✓') {
-        _messageClearTimer = Timer(const Duration(seconds: 3), () {
-          _lastMessage = '';
-          _messageClearTimer = null;
-          notifyListeners();
-        });
-      }
+      // Todo mensaje de sincronización es un aviso transitorio ("N productos
+      // sincronizados", "Venta guardada"...), no un estado permanente: se
+      // oculta solo a los 3 segundos para no ocupar la cabecera para siempre.
+      _messageClearTimer = Timer(const Duration(seconds: 3), () {
+        _lastMessage = '';
+        _messageClearTimer = null;
+        notifyListeners();
+      });
     };
   }
 
