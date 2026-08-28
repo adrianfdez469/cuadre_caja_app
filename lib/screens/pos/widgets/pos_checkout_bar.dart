@@ -41,52 +41,111 @@ class PosCheckoutBar extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: InkWell(
-                    onTap: () => AccountsSheet.show(context),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            'A cobrar · ${activeCart?.nombre ?? '-'}',
-                            style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
-                            overflow: TextOverflow.ellipsis,
+                  child: Semantics(
+                    button: true,
+                    excludeSemantics: true,
+                    label: 'Cuenta activa: ${activeCart?.nombre ?? "-"}. Cambiar de cuenta.',
+                    child: InkWell(
+                      onTap: () => AccountsSheet.show(context),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: AppTapTarget.min),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: colors.onInverseMuted.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    'A cobrar · ${activeCart?.nombre ?? '-'}',
+                                    style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Icon(Icons.expand_more, size: 16, color: colors.onInverseMuted),
+                              ],
+                            ),
                           ),
                         ),
-                        Icon(Icons.expand_more, size: 16, color: colors.onInverseMuted),
-                      ],
+                      ),
                     ),
                   ),
                 ),
                 if (items.isNotEmpty)
-                  InkWell(
-                    onTap: () => confirmClearCart(
-                      context,
-                      cartProvider,
-                      cartProvider.activeCartIndex,
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.remove_shopping_cart_outlined,
-                        size: 16,
-                        color: colors.onInverseMuted,
+                  Tooltip(
+                    message: 'Vaciar carrito',
+                    child: Semantics(
+                      button: true,
+                      excludeSemantics: true,
+                      label: 'Vaciar carrito',
+                      child: InkWell(
+                        onTap: () => confirmClearCart(
+                          context,
+                          cartProvider,
+                          cartProvider.activeCartIndex,
+                        ),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minWidth: AppTapTarget.min,
+                            minHeight: AppTapTarget.min,
+                          ),
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: colors.onInverseMuted.withValues(alpha: 0.14),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.remove_shopping_cart_outlined,
+                                size: 16,
+                                color: colors.onInverseMuted,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: items.isEmpty ? null : () => showCartItemsScreen(context),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}',
-                        style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
+                const SizedBox(width: 12),
+                Semantics(
+                  button: true,
+                  excludeSemantics: true,
+                  label: 'Ver el detalle del carrito, ${items.length} '
+                      '${items.length == 1 ? 'artículo' : 'artículos'}.',
+                  child: InkWell(
+                    onTap: items.isEmpty ? null : () => showCartItemsScreen(context),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: AppTapTarget.min,
+                        minHeight: AppTapTarget.min,
                       ),
-                      Icon(Icons.chevron_right, size: 16, color: colors.onInverseMuted),
-                    ],
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: colors.onInverseMuted.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}',
+                                style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
+                              ),
+                              Icon(Icons.chevron_right, size: 16, color: colors.onInverseMuted),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],

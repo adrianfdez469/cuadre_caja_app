@@ -1021,7 +1021,7 @@ class _CatalogoResultados extends StatelessWidget {
                     children: [
                       Text(
                         ProductoPosRules.nombreParaMostrar(p),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
                       ),
