@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/sync_error_messages.dart';
 import '../../data/models/producto_model.dart';
@@ -122,6 +122,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final venta = widget.venta;
     final date = DateTime.fromMillisecondsSinceEpoch(venta.createdAtMs);
     final productosProvider = context.watch<ProductosProvider>();
@@ -140,8 +141,6 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalle de venta'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -165,20 +164,20 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                       const SizedBox(height: 4),
                       Text(
                         'Usuario: ${venta.usuarioNombre}',
-                        style: TextStyle(color: AppColors.textSecondary),
+                        style: TextStyle(color: colors.textSecondary),
                       ),
                     ],
                     if (venta.transferDestinationId != null && nombreDestino != null) ...[
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(Icons.account_balance_wallet, size: 18, color: AppColors.textSecondary),
+                          Icon(Icons.account_balance_wallet, size: 18, color: colors.textSecondary),
                           const SizedBox(width: 6),
                           Text(
                             'Destino transferencia: $nombreDestino',
                             style: TextStyle(
                               fontSize: 14,
-                              color: AppColors.textSecondary,
+                              color: colors.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -192,7 +191,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             if (venta.syncState == SyncState.error && (venta.errorMessage?.isNotEmpty ?? false)) ...[
               const SizedBox(height: 16),
               Card(
-                color: AppColors.syncError.withOpacity(0.08),
+                color: colors.negativeWash,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -200,14 +199,14 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.warning_amber_rounded, color: AppColors.syncError, size: 24),
+                          Icon(Icons.warning_amber_rounded, color: colors.negative, size: 24),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               SyncErrorMessages.title(venta.errorMessage),
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.syncError,
+                                color: colors.negative,
                                 fontSize: 15,
                               ),
                             ),
@@ -217,7 +216,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                       const SizedBox(height: 8),
                       Text(
                         SyncErrorMessages.detail(venta.errorMessage),
-                        style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                        style: TextStyle(fontSize: 13, color: colors.textPrimary),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
@@ -225,8 +224,8 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                         icon: const Icon(Icons.info_outline, size: 18),
                         label: const Text('Ver log completo'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.syncError,
-                          side: BorderSide(color: AppColors.syncError),
+                          foregroundColor: colors.negative,
+                          side: BorderSide(color: colors.negative),
                         ),
                       ),
                     ],
@@ -297,7 +296,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             if (filtrados.length != venta.productos.length) ...[
               const SizedBox(height: 12),
               Card(
-                color: AppColors.primary.withOpacity(0.08),
+                color: colors.accentWash,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Row(
@@ -308,15 +307,17 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
+                          color: colors.accent,
                         ),
                       ),
                       Text(
                         Formatters.formatCurrency(subtotalFiltrado),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
+                        style: tabularNums(
+                          TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: colors.accent,
+                          ),
                         ),
                       ),
                     ],
@@ -340,7 +341,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                   // Encabezado: Cant, Precio, Total (nombre va en cada fila a todo el ancho)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: colors.accentWash,
                     child: Row(
                       children: [
                         const SizedBox(width: 8),
@@ -351,7 +352,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: AppColors.primary,
+                              color: colors.accent,
                             ),
                           ),
                         ),
@@ -362,7 +363,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: AppColors.primary,
+                              color: colors.accent,
                             ),
                           ),
                         ),
@@ -373,7 +374,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: AppColors.primary,
+                              color: colors.accent,
                             ),
                           ),
                         ),
@@ -413,24 +414,24 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                                       p.cantidad,
                                       decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
                                     ),
-                                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                                    style: tabularNums(TextStyle(fontSize: 13, color: colors.textSecondary)),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     Formatters.formatCurrency(p.precio),
-                                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                                    style: tabularNums(TextStyle(fontSize: 13, color: colors.textSecondary)),
                                   ),
                                 ),
                                 SizedBox(
                                   width: 80,
                                   child: Text(
                                     Formatters.formatCurrency(subtotal),
-                                    style: const TextStyle(
+                                    style: tabularNums(const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
-                                    ),
+                                    )),
                                   ),
                                 ),
                               ],
@@ -463,12 +464,13 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return FilterChip(
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: AppColors.primary.withOpacity(0.3),
-      checkmarkColor: AppColors.primary,
+      selectedColor: colors.accentWash,
+      checkmarkColor: colors.accent,
     );
   }
 }
@@ -486,6 +488,7 @@ class _TotalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -500,11 +503,11 @@ class _TotalRow extends StatelessWidget {
           ),
           Text(
             Formatters.formatCurrency(value),
-            style: TextStyle(
+            style: tabularNums(TextStyle(
               fontSize: isTotal ? 18 : 15,
               fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              color: isTotal ? AppColors.primary : null,
-            ),
+              color: isTotal ? colors.accent : null,
+            )),
           ),
         ],
       ),

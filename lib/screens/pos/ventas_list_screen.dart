@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/sync_error_messages.dart';
@@ -27,13 +27,14 @@ class VentasListScreen extends StatefulWidget {
     final title = SyncErrorMessages.title(venta.errorMessage);
     final detail = SyncErrorMessages.detail(venta.errorMessage);
     final isPeriodConflict = SyncErrorMessages.isPeriodConflict(venta.errorMessage);
+    final colors = context.colors;
 
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: AppColors.syncError, size: 28),
+            Icon(Icons.warning_amber_rounded, color: colors.negative, size: 28),
             const SizedBox(width: 8),
             Expanded(child: Text(title)),
           ],
@@ -45,13 +46,13 @@ class VentasListScreen extends StatefulWidget {
             children: [
               Text(
                 detail,
-                style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
+                style: TextStyle(fontSize: 14, color: colors.textPrimary),
               ),
               if (venta.syncAttempts > 0) ...[
                 const SizedBox(height: 12),
                 Text(
                   'Intentos de sincronización: ${venta.syncAttempts}',
-                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  style: TextStyle(fontSize: 12, color: colors.textSecondary),
                 ),
               ],
               if (isPeriodConflict && currentPeriodoId != null) ...[
@@ -59,14 +60,14 @@ class VentasListScreen extends StatefulWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: AppColors.warning.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                    color: colors.cautionWash,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: colors.caution.withValues(alpha: 0.4)),
                   ),
                   child: Text(
                     'Esta venta fue registrada en un período que ya fue cerrado. '
                     'Puedes moverla al período actual para sincronizarla nuevamente.',
-                    style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                    style: TextStyle(fontSize: 13, color: colors.textPrimary),
                   ),
                 ),
               ],
@@ -112,14 +113,14 @@ class VentasListScreen extends StatefulWidget {
                     AppSnackBar.show(
                       context,
                       content: const Text('Venta movida al período actual. Se sincronizará pronto.'),
-                      backgroundColor: AppColors.success,
+                      backgroundColor: context.colors.positive,
                     );
                   }
                 }
               },
               child: Text(
                 'Actualizar período',
-                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+                style: TextStyle(color: colors.accent, fontWeight: FontWeight.bold),
               ),
             ),
         ],
@@ -160,8 +161,6 @@ class _VentasListScreenState extends State<VentasListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ventas y Sincronizaciones'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
         actions: [
           if (hasPendientes && syncProvider.isOnline)
             TextButton.icon(
@@ -176,20 +175,20 @@ class _VentasListScreenState extends State<VentasListScreen> {
                           content: Text(
                             '${result.failed} venta(s) no se sincronizaron. Toca "Ver detalle" en cada una para más información.',
                           ),
-                          backgroundColor: AppColors.warning,
+                          backgroundColor: context.colors.caution,
                           duration: const Duration(seconds: 5),
                         );
                       }
                     },
-              icon: const Icon(Icons.sync, size: 20, color: Colors.white),
-              label: const Text('Sincronizar todos', style: TextStyle(color: Colors.white)),
+              icon: const Icon(Icons.sync, size: 20),
+              label: const Text('Sincronizar todos'),
             ),
         ],
       ),
       body: ventasProvider.isLoadingVentas
           ? const Center(child: CircularProgressIndicator())
           : list.isEmpty
-              ? _buildEmpty()
+              ? _buildEmpty(context)
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.builder(
@@ -229,16 +228,17 @@ class _VentasListScreenState extends State<VentasListScreen> {
     );
   }
 
-  Widget _buildEmpty() {
+  Widget _buildEmpty(BuildContext context) {
+    final colors = context.colors;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.receipt_long, size: 64, color: AppColors.textHint),
+          Icon(Icons.receipt_long, size: 64, color: colors.textDisabled),
           const SizedBox(height: 16),
           Text(
             'No hay ventas en este período',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: colors.textSecondary),
           ),
         ],
       ),
@@ -253,6 +253,7 @@ class _VentasListScreenState extends State<VentasListScreen> {
     String? periodoId,
     VentasProvider ventasProvider,
   ) async {
+    final negative = context.colors.negative;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -267,7 +268,7 @@ class _VentasListScreenState extends State<VentasListScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar', style: TextStyle(color: AppColors.error)),
+            child: Text('Eliminar', style: TextStyle(color: negative)),
           ),
         ],
       ),
@@ -284,7 +285,7 @@ class _VentasListScreenState extends State<VentasListScreen> {
       AppSnackBar.show(
         context,
         content: const Text('Venta eliminada'),
-        backgroundColor: AppColors.success,
+        backgroundColor: context.colors.positive,
       );
     }
   }
@@ -311,9 +312,10 @@ class _VentaListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final date = DateTime.fromMillisecondsSinceEpoch(venta.createdAtMs);
     final syncLabel = _syncStateLabel(venta.syncState);
-    final syncColor = _syncStateColor(venta.syncState);
+    final syncColor = _syncStateColor(venta.syncState, colors);
     final canSync = !venta.synced && venta.syncState != SyncState.syncing && isOnline;
     final isFromOtherPeriod = currentPeriodoId != null &&
         venta.periodoId != currentPeriodoId;
@@ -322,7 +324,7 @@ class _VentaListItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -333,13 +335,13 @@ class _VentaListItem extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.history_toggle_off, size: 14, color: AppColors.warning),
+                      Icon(Icons.history_toggle_off, size: 14, color: colors.caution),
                       const SizedBox(width: 4),
                       Text(
                         'Período anterior — requiere actualización',
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.warning,
+                          color: colors.caution,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -365,18 +367,20 @@ class _VentaListItem extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: syncColor.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
+                                color: syncColor.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(AppRadius.sm),
                               ),
                               child: Text(
                                 syncLabel,
-                                style: TextStyle(fontSize: 12, color: syncColor, fontWeight: FontWeight.w500),
+                                style: tabularNums(
+                                  TextStyle(fontSize: 12, color: syncColor, fontWeight: FontWeight.w500),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
                               '${venta.itemCount} ítems',
-                              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              style: TextStyle(fontSize: 12, color: colors.textSecondary),
                             ),
                           ],
                         ),
@@ -388,20 +392,22 @@ class _VentaListItem extends StatelessWidget {
                     children: [
                       Text(
                         Formatters.formatCurrency(venta.total),
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
+                        style: tabularNums(
+                          TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: colors.accent,
+                          ),
                         ),
                       ),
                       Text(
                         'Efectivo: ${Formatters.formatCurrency(venta.totalcash)}',
-                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                        style: tabularNums(TextStyle(fontSize: 11, color: colors.textSecondary)),
                       ),
                       if (venta.totaltransfer > 0)
                         Text(
                           'Transf: ${Formatters.formatCurrency(venta.totaltransfer)}',
-                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                          style: tabularNums(TextStyle(fontSize: 11, color: colors.textSecondary)),
                         ),
                     ],
                   ),
@@ -414,23 +420,23 @@ class _VentaListItem extends StatelessWidget {
                   if (onViewError != null)
                     TextButton.icon(
                       onPressed: onViewError,
-                      icon: const Icon(Icons.info_outline, size: 18, color: AppColors.syncError),
+                      icon: Icon(Icons.info_outline, size: 18, color: colors.negative),
                       label: Text(
                         'Ver detalle del error',
-                        style: TextStyle(color: AppColors.syncError, fontSize: 13),
+                        style: TextStyle(color: colors.negative, fontSize: 13),
                       ),
                     ),
                   if (canSync)
                     IconButton(
                       onPressed: onSync,
                       icon: const Icon(Icons.sync),
-                      color: AppColors.primary,
+                      color: colors.accent,
                       tooltip: 'Sincronizar',
                     ),
                   IconButton(
                     onPressed: onDelete,
                     icon: const Icon(Icons.delete_outline),
-                    color: AppColors.error,
+                    color: colors.negative,
                     tooltip: 'Eliminar',
                   ),
                 ],
@@ -455,16 +461,16 @@ class _VentaListItem extends StatelessWidget {
     }
   }
 
-  Color _syncStateColor(SyncState s) {
+  Color _syncStateColor(SyncState s, AppSemanticColors colors) {
     switch (s) {
       case SyncState.synced:
-        return AppColors.synced;
+        return colors.positive;
       case SyncState.syncing:
-        return AppColors.syncing;
+        return colors.info;
       case SyncState.pending:
-        return AppColors.notSynced;
+        return colors.caution;
       case SyncState.error:
-        return AppColors.syncError;
+        return colors.negative;
     }
   }
 }

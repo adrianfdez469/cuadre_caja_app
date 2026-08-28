@@ -5,6 +5,7 @@ import 'package:cuadre_caja_app/data/models/usuario_model.dart';
 import 'package:cuadre_caja_app/providers/auth_provider.dart';
 import 'package:cuadre_caja_app/providers/cart_provider.dart';
 import 'package:cuadre_caja_app/providers/monedas_provider.dart';
+import 'package:cuadre_caja_app/core/theme/app_theme.dart';
 import 'package:cuadre_caja_app/screens/pos/payment_modal.dart';
 import 'package:cuadre_caja_app/services/sync_service.dart';
 import 'package:flutter/material.dart';
@@ -94,6 +95,7 @@ Widget buildPaymentModalHarness({
       Provider<SyncService>.value(value: syncService),
     ],
     child: MaterialApp(
+      theme: appLightTheme,
       home: Scaffold(
         body: PaymentModal(
           getTransferDestinationsLocalOverride:

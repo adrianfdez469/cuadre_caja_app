@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../core/constants/app_colors.dart';
+import '../core/theme/app_tokens.dart';
 import '../providers/auth_provider.dart';
 import 'pos/pos_home_screen.dart';
 
@@ -43,6 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final colors = context.colors;
 
     return Scaffold(
       body: SafeArea(
@@ -57,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Icon(
                     Icons.point_of_sale,
                     size: 80,
-                    color: AppColors.primary,
+                    color: colors.accent,
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -65,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
+                      color: colors.accent,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -73,7 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Punto de Venta',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppColors.textSecondary,
+                      color: colors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 48),
@@ -84,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Usuario',
                       prefixIcon: const Icon(Icons.person),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                     ),
                     validator: (v) =>
@@ -107,7 +108,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             setState(() => _obscurePassword = !_obscurePassword),
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                     ),
                     validator: (v) =>
@@ -121,17 +122,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       padding: const EdgeInsets.all(12),
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
-                        color: AppColors.error.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+                        color: colors.negativeWash,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.error_outline, color: AppColors.error),
+                          Icon(Icons.error_outline, color: colors.negative),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               auth.errorMessage!,
-                              style: TextStyle(color: AppColors.error),
+                              style: TextStyle(color: colors.negative),
                             ),
                           ),
                         ],
@@ -140,15 +141,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
+                    height: AppTapTarget.comfortable,
                     child: ElevatedButton(
                       onPressed:
                           auth.status == AuthStatus.loading ? null : _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: colors.accent,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                       ),
                       child: auth.status == AuthStatus.loading

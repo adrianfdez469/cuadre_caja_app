@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:cuadre_caja_app/core/theme/app_theme.dart';
 import 'package:cuadre_caja_app/data/models/cart_model.dart';
 import 'package:cuadre_caja_app/data/models/producto_model.dart';
 import 'package:cuadre_caja_app/providers/cart_provider.dart';
@@ -65,6 +66,7 @@ void main() {
           ChangeNotifierProvider<SyncProvider>(create: (_) => SyncProvider(sync)),
         ],
         child: MaterialApp(
+          theme: appLightTheme,
           home: Scaffold(
             body: ScannerCartPanel(
               scrollController: ScrollController(),

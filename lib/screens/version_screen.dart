@@ -6,7 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/constants/app_colors.dart';
+import '../core/theme/app_tokens.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/apk_install_helper.dart';
@@ -148,7 +148,7 @@ class _VersionScreenState extends State<VersionScreen> {
         context,
         content: const Text(
             'La actualización automática solo está disponible en Android.'),
-        backgroundColor: AppColors.warning,
+        backgroundColor: context.colors.caution,
       );
       return;
     }
@@ -159,7 +159,7 @@ class _VersionScreenState extends State<VersionScreen> {
       AppSnackBar.show(
         context,
         content: const Text('No hay APK disponible para este dispositivo.'),
-        backgroundColor: AppColors.error,
+        backgroundColor: context.colors.negative,
       );
       return;
     }
@@ -185,7 +185,7 @@ class _VersionScreenState extends State<VersionScreen> {
           content: const Text(
             'Error al descargar el APK. Descárgalo manualmente desde la carpeta de Drive.',
           ),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
         return;
       }
@@ -241,7 +241,7 @@ class _VersionScreenState extends State<VersionScreen> {
           content: const Text(
             'No se pudo abrir el instalador. Descarga el APK manualmente desde Drive.',
           ),
-          backgroundColor: AppColors.warning,
+          backgroundColor: context.colors.caution,
         );
       }
     } catch (e) {
@@ -250,7 +250,7 @@ class _VersionScreenState extends State<VersionScreen> {
         AppSnackBar.show(
           context,
           content: Text('Error: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
       }
     }
@@ -260,28 +260,29 @@ class _VersionScreenState extends State<VersionScreen> {
   /// "Comprobar actualizaciones": la comprobación ahora es automática al abrir
   /// la pantalla, así que aquí solo se refleja su progreso/resultado.
   Widget _buildStatusText() {
+    final colors = context.colors;
     late final IconData icon;
     late final Color color;
     late final String message;
 
     if (_loading) {
-      color = AppColors.textSecondary;
+      color = colors.textSecondary;
       message = 'Comprobando actualizaciones...';
     } else if (_error) {
       icon = Icons.error_outline;
-      color = AppColors.error;
+      color = colors.negative;
       message = _errorMessage ?? 'Error al conectar con Drive.';
     } else if (_hasUpdate) {
       icon = Icons.system_update;
-      color = AppColors.info;
+      color = colors.info;
       message = 'Hay una actualización disponible.';
     } else if (_remoteRelease != null) {
       icon = Icons.check_circle_outline;
-      color = AppColors.success;
+      color = colors.positive;
       message = 'Estás usando la última versión disponible.';
     } else {
       icon = Icons.info_outline;
-      color = AppColors.textSecondary;
+      color = colors.textSecondary;
       message = 'Sin información de actualizaciones.';
     }
 
@@ -335,10 +336,10 @@ class _VersionScreenState extends State<VersionScreen> {
           padding: EdgeInsets.only(top: i == 0 ? 0 : 12, bottom: 6),
           child: Text(
             'v${section.version}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
-              color: AppColors.info,
+              color: context.colors.info,
             ),
           ),
         ));
@@ -363,11 +364,10 @@ class _VersionScreenState extends State<VersionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Versión'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -378,11 +378,11 @@ class _VersionScreenState extends State<VersionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Versión actual',
                     style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textSecondary,
+                      color: colors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -402,7 +402,7 @@ class _VersionScreenState extends State<VersionScreen> {
           const SizedBox(height: 16),
           if (AppConstants.driveReleasesJsonFileId.isEmpty)
             Card(
-              color: AppColors.warning.withOpacity(0.2),
+              color: colors.cautionWash,
               child: const Padding(
                 padding: EdgeInsets.all(16),
                 child: Text(
@@ -416,7 +416,7 @@ class _VersionScreenState extends State<VersionScreen> {
               const SizedBox(height: 16),
               Card(
                 elevation: 4,
-                color: AppColors.info.withOpacity(0.1),
+                color: colors.infoWash,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -425,7 +425,7 @@ class _VersionScreenState extends State<VersionScreen> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.system_update, color: AppColors.info, size: 28),
+                          Icon(Icons.system_update, color: colors.info, size: 28),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -495,7 +495,7 @@ class _VersionScreenState extends State<VersionScreen> {
           const SizedBox(height: 8),
           SelectableText(
             AppConstants.driveFolderUrl,
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 12, color: colors.textSecondary),
           ),
         ],
       ),

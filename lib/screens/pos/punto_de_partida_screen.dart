@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/di/injection.dart';
 import '../../data/datasources/remote/resumen_dia_remote_datasource.dart';
 import '../../data/models/resumen_dia_model.dart';
@@ -174,18 +174,18 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   }
 
   Color _parseCategoriaColor(String? hex) {
-    if (hex == null || hex.isEmpty) return AppColors.primary;
+    if (hex == null || hex.isEmpty) return context.colors.accent;
     try {
       return Color(int.parse(hex.replaceAll('#', '0xFF')));
     } catch (_) {
-      return AppColors.primary;
+      return context.colors.accent;
     }
   }
 
   Color _colorExistencia(double cantidad) {
-    if (cantidad <= 0) return Colors.red;
-    if (cantidad <= 5) return Colors.orange;
-    return Colors.green;
+    if (cantidad <= 0) return context.colors.negative;
+    if (cantidad <= 5) return context.colors.caution;
+    return context.colors.positive;
   }
 
   String _formatNum(double value, bool permiteDecimal) {
@@ -196,7 +196,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.colors.page,
       body: SafeArea(
         child: Column(
           children: [
@@ -217,18 +217,15 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
 
   Widget _buildHeader() {
     return Container(
-      color: Colors.white,
+      color: context.colors.raised,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
         children: [
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
               'Punto de partida y comportamiento',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
           IconButton(
@@ -264,23 +261,24 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   }
 
   Widget _buildErrorBanner(String message) {
+    final caution = context.colors.caution;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Colors.orange.shade100,
+      color: context.colors.cautionWash,
       child: Row(
         children: [
-          const Icon(Icons.wifi_off, size: 16, color: Colors.orange),
+          Icon(Icons.wifi_off, size: 16, color: caution),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(fontSize: 12, color: Colors.orange),
+              style: TextStyle(fontSize: 12, color: caution),
             ),
           ),
           GestureDetector(
             onTap: () => setState(() => _error = null),
-            child: const Icon(Icons.close, size: 16, color: Colors.orange),
+            child: Icon(Icons.close, size: 16, color: caution),
           ),
         ],
       ),
@@ -297,7 +295,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
               icono: Icons.shopping_cart,
               label: 'Ventas',
               valor: totales.ventas,
-              color: Colors.red,
+              color: context.colors.negative,
             ),
           ),
           const SizedBox(width: 8),
@@ -306,7 +304,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
               icono: Icons.trending_up,
               label: 'Entradas',
               valor: totales.entradas,
-              color: Colors.green,
+              color: context.colors.positive,
             ),
           ),
           const SizedBox(width: 8),
@@ -315,7 +313,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
               icono: Icons.trending_down,
               label: 'Salidas',
               valor: totales.salidas,
-              color: Colors.orange,
+              color: context.colors.caution,
             ),
           ),
         ],
@@ -342,15 +340,15 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
                     vertical: 0,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: context.colors.border),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    borderSide: BorderSide(color: context.colors.border),
                   ),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: context.colors.raised,
                 ),
                 onChanged: (v) => setState(() => _searchQuery = v),
               ),
@@ -359,7 +357,9 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
           IconButton(
             icon: Icon(
               _mostrarTodos ? Icons.visibility : Icons.visibility_off,
-              color: _mostrarTodos ? AppColors.primary : Colors.grey,
+              color: _mostrarTodos
+                  ? context.colors.accent
+                  : context.colors.textSecondary,
             ),
             tooltip: _mostrarTodos
                 ? 'Mostrando todos los productos'
@@ -379,11 +379,11 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.bar_chart, size: 56, color: Colors.grey.shade400),
+            Icon(Icons.bar_chart, size: 56, color: context.colors.textDisabled),
             const SizedBox(height: 12),
             Text(
               'No hay productos para mostrar',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              style: TextStyle(color: context.colors.textSecondary, fontSize: 14),
             ),
           ],
         ),
@@ -443,7 +443,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
 
   Widget _buildLoadingOverlay() {
     return Container(
-      color: Colors.white.withValues(alpha: 0.6),
+      color: context.colors.raised.withValues(alpha: 0.6),
       child: const Center(
         child: CircularProgressIndicator(),
       ),
@@ -457,7 +457,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, size: 48, color: AppColors.error),
+            Icon(Icons.error_outline, size: 48, color: context.colors.negative),
             const SizedBox(height: 12),
             Text(
               _error!,
@@ -499,8 +499,8 @@ class _TotalCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        color: context.colors.raised,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Column(
@@ -510,7 +510,7 @@ class _TotalCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 11, color: context.colors.textSecondary),
           ),
           const SizedBox(height: 2),
           Text(
@@ -547,9 +547,9 @@ class _ProductoCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        color: context.colors.raised,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: context.colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -565,8 +565,8 @@ class _ProductoCard extends StatelessWidget {
                 child: _InfoBox(
                   label: 'Inicial',
                   valor: fmt(p.cantidadInicial, p.permiteDecimal),
-                  backgroundColor: Colors.grey.shade100,
-                  textColor: Colors.grey.shade800,
+                  backgroundColor: context.colors.sunken,
+                  textColor: context.colors.textPrimary,
                 ),
               ),
               const SizedBox(width: 8),
@@ -586,12 +586,12 @@ class _ProductoCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              const Text(
+              Text(
                 'MOVIMIENTOS',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey,
+                  color: context.colors.textSecondary,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -604,7 +604,7 @@ class _ProductoCard extends StatelessWidget {
                 child: _MovimientoBox(
                   label: 'Ventas',
                   valor: fmt(p.ventas, p.permiteDecimal),
-                  color: Colors.red,
+                  color: context.colors.negative,
                 ),
               ),
               const SizedBox(width: 6),
@@ -612,7 +612,7 @@ class _ProductoCard extends StatelessWidget {
                 child: _MovimientoBox(
                   label: 'Entradas',
                   valor: fmt(p.entradas, p.permiteDecimal),
-                  color: Colors.green,
+                  color: context.colors.positive,
                 ),
               ),
               const SizedBox(width: 6),
@@ -620,7 +620,7 @@ class _ProductoCard extends StatelessWidget {
                 child: _MovimientoBox(
                   label: 'Salidas',
                   valor: fmt(p.salidas, p.permiteDecimal),
-                  color: Colors.orange,
+                  color: context.colors.caution,
                 ),
               ),
             ],

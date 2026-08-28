@@ -6,7 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../services/scan_audio_service.dart';
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/constants/storage_keys.dart';
 import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
@@ -166,9 +166,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.cardBackground,
+      backgroundColor: context.colors.raised,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (sheetContext) {
         // El sheet mantiene su propio estado para reflejar el switch al instante;
@@ -187,7 +188,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                         width: 40,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: context.colors.border,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -195,23 +196,19 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        const Icon(Icons.settings_outlined,
-                            color: AppColors.primary, size: 22),
+                        Icon(Icons.settings_outlined,
+                            color: context.colors.accent, size: 22),
                         const SizedBox(width: 8),
-                        const Text(
+                        Text(
                           'Configuración del escáner',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
+                          style: Theme.of(context).textTheme.headlineSmall,
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
                     _buildOpcionConfig(
                       icon: Icons.bolt,
-                      iconColor: AppColors.success,
+                      iconColor: context.colors.positive,
                       titulo: 'Escaneo automático',
                       descripcion:
                           'Agrega al carrito los productos leídos automáticamente, '
@@ -226,7 +223,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                       const Divider(height: 24),
                       _buildOpcionConfig(
                         icon: Icons.add_link,
-                        iconColor: AppColors.warning,
+                        iconColor: context.colors.caution,
                         titulo: 'Asociar código',
                         descripcion:
                             'Permite asociar códigos nuevos, que el sistema aún no '
@@ -262,8 +259,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(10),
+            color: iconColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
           ),
           child: Icon(icon, color: iconColor, size: 20),
         ),
@@ -274,19 +271,19 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             children: [
               Text(
                 titulo,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: context.colors.textPrimary,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 descripcion,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12.5,
                   height: 1.3,
-                  color: AppColors.textSecondary,
+                  color: context.colors.textSecondary,
                 ),
               ),
             ],
@@ -296,7 +293,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         Switch(
           value: value,
           onChanged: onChanged,
-          activeThumbColor: AppColors.primary,
+          activeThumbColor: context.colors.accent,
         ),
       ],
     );
@@ -391,7 +388,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         AppSnackBar.show(
           context,
           content: Text('Producto no encontrado para el código: $code'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
         if (autoMode) _startAutoScanCooldown();
       }
@@ -419,7 +416,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           content: Text(
             '${ProductoPosRules.nombreParaMostrar(producto)}: sin existencias disponibles',
           ),
-          backgroundColor: AppColors.warning,
+          backgroundColor: context.colors.caution,
         );
         return;
       }
@@ -436,7 +433,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         AppSnackBar.show(
           context,
           content: const Text('Cantidad supera el máximo permitido'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
         return;
       }
@@ -463,7 +460,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           AppSnackBar.show(
             context,
             content: const Text('Cantidad supera el máximo'),
-            backgroundColor: AppColors.error,
+            backgroundColor: context.colors.negative,
             duration: const Duration(seconds: 1),
           );
         }
@@ -607,7 +604,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         AppSnackBar.show(
           context,
           content: const Text('Cantidad supera el máximo'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
           duration: const Duration(seconds: 1),
         );
       }
@@ -655,7 +652,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       content: Text(
         'Código asociado a "${ProductoPosRules.nombreParaMostrar(producto)}"',
       ),
-      backgroundColor: AppColors.success,
+      backgroundColor: context.colors.positive,
     );
 
     // El código ya está en la lista local: procesarlo directamente
@@ -675,8 +672,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Escáner'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -855,7 +850,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     } else if (previewActive) {
       frameColor = maxDisp > 0
           ? Colors.greenAccent.withOpacity(0.8)
-          : AppColors.warning.withOpacity(0.8);
+          : context.colors.caution.withValues(alpha: 0.8);
       frameWidth = 2.5;
     } else {
       frameColor = Colors.white.withOpacity(0.6);
@@ -894,7 +889,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: previewActive && maxDisp <= 0
-                      ? AppColors.warning
+                      ? context.colors.caution
                       : Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
@@ -963,11 +958,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       ringColor = Colors.greenAccent;
       icon = Icons.add_shopping_cart;
     } else if (noStock) {
+      final caution = context.colors.caution;
       gradientColors = [
-        AppColors.warning.withOpacity(0.7),
-        AppColors.warning.withOpacity(0.5),
+        caution.withValues(alpha: 0.7),
+        caution.withValues(alpha: 0.5),
       ];
-      ringColor = AppColors.warning;
+      ringColor = caution;
       icon = Icons.remove_shopping_cart_outlined;
     } else {
       gradientColors = [
@@ -1074,7 +1070,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: sinStockLocal
-              ? SinStockLocalStyles.border
+              ? SinStockLocalStyles.border(context)
               : Colors.white.withOpacity(0.18),
           width: 1,
         ),
@@ -1095,7 +1091,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                 ? Icons.cloud_off_outlined
                 : Icons.qr_code_2_outlined,
             color: sinStockLocal
-                ? SinStockLocalStyles.accent
+                ? SinStockLocalStyles.accent(context)
                 : Colors.greenAccent,
             size: 20,
           ),
@@ -1130,7 +1126,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: sinStockLocal
-                    ? SinStockLocalStyles.badgeBg.withOpacity(0.9)
+                    ? SinStockLocalStyles.badgeBg(context).withOpacity(0.9)
                     : Colors.white.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
@@ -1140,7 +1136,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: sinStockLocal
-                      ? SinStockLocalStyles.accent
+                      ? SinStockLocalStyles.accent(context)
                       : Colors.white,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/constants/app_colors.dart';
 import '../core/di/injection.dart';
+import '../core/theme/app_tokens.dart';
 import '../core/utils/producto_pos_rules.dart';
 import '../core/widgets/app_snackbar.dart';
 import '../providers/auth_provider.dart';
@@ -50,7 +50,7 @@ class BarcodeScanProcessor {
             content: Text(
               'Código asociado a "${ProductoPosRules.nombreParaMostrar(asociado)}"',
             ),
-            backgroundColor: AppColors.success,
+            backgroundColor: context.colors.positive,
           );
           await processHardwareScan(context, code);
         } else {
@@ -61,7 +61,7 @@ class BarcodeScanProcessor {
         AppSnackBar.show(
           context,
           content: const Text('Producto no encontrado para el código escaneado'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
       }
       return;
@@ -86,7 +86,7 @@ class BarcodeScanProcessor {
         content: Text(
           '${ProductoPosRules.nombreParaMostrar(producto)}: sin existencias disponibles',
         ),
-        backgroundColor: AppColors.warning,
+        backgroundColor: context.colors.caution,
       );
       return;
     }
@@ -101,7 +101,7 @@ class BarcodeScanProcessor {
       AppSnackBar.show(
         context,
         content: const Text('Cantidad supera el máximo permitido'),
-        backgroundColor: AppColors.error,
+        backgroundColor: context.colors.negative,
       );
       return;
     }
@@ -136,7 +136,7 @@ class BarcodeScanProcessor {
               : '$nombre agregado',
         ),
         backgroundColor:
-            sinStockLocal ? AppColors.warning : AppColors.success,
+            sinStockLocal ? context.colors.caution : context.colors.positive,
         duration: Duration(seconds: sinStockLocal ? 2 : 1),
       );
     } else {
@@ -144,7 +144,7 @@ class BarcodeScanProcessor {
       AppSnackBar.show(
         context,
         content: const Text('Cantidad supera el máximo'),
-        backgroundColor: AppColors.error,
+        backgroundColor: context.colors.negative,
       );
     }
   }

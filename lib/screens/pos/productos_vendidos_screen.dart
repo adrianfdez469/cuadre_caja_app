@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/producto_model.dart';
 import '../../data/models/venta_model.dart';
@@ -321,8 +321,6 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Productos Vendidos'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
       ),
       body: ventasProvider.isLoadingVentas
           ? const Center(child: CircularProgressIndicator())
@@ -383,11 +381,11 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                 const Text('Total vendido:', style: TextStyle(fontSize: 14)),
                 Text(
                   Formatters.formatCurrency(totalVendido),
-                  style: const TextStyle(
+                  style: tabularNums(TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
+                    color: context.colors.accent,
+                  )),
                 ),
               ],
             ),
@@ -399,10 +397,10 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                   const Text('Total en transferencia:', style: TextStyle(fontSize: 14)),
                   Text(
                     Formatters.formatCurrency(totalTransferencia),
-                    style: const TextStyle(
+                    style: tabularNums(const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                    ),
+                    )),
                   ),
                 ],
               ),
@@ -426,13 +424,13 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(nombre, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                      Text(nombre, style: TextStyle(fontSize: 13, color: context.colors.textSecondary)),
                       Text(
                         Formatters.formatCurrency(e.value),
-                        style: const TextStyle(
+                        style: tabularNums(const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
-                        ),
+                        )),
                       ),
                     ],
                   ),
@@ -560,14 +558,14 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
               label: const Text('Agrupada'),
               selected: _vista == VistaProductosVendidos.agrupada,
               onSelected: (_) => setState(() => _vista = VistaProductosVendidos.agrupada),
-              selectedColor: AppColors.primary.withOpacity(0.3),
+              selectedColor: context.colors.accentWash,
             ),
             const SizedBox(width: 8),
             ChoiceChip(
               label: const Text('Histórica'),
               selected: _vista == VistaProductosVendidos.historica,
               onSelected: (_) => setState(() => _vista = VistaProductosVendidos.historica),
-              selectedColor: AppColors.primary.withOpacity(0.3),
+              selectedColor: context.colors.accentWash,
             ),
           ],
         ),
@@ -577,12 +575,12 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
 
   Widget _buildTablaAgrupada(List<ProductoVendidoAgrupado> items) {
     if (items.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
           child: Text(
             'No hay productos que coincidan con los filtros',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: context.colors.textSecondary),
             textAlign: TextAlign.center,
           ),
         ),
@@ -594,7 +592,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: AppColors.primary.withOpacity(0.1),
+            color: context.colors.accentWash,
             child: Row(
               children: [
                 const SizedBox(width: 4),
@@ -605,7 +603,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -616,7 +614,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -627,7 +625,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -665,24 +663,24 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                               p.cantidad,
                               decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
                             ),
-                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             Formatters.formatCurrency(p.precioUnitario),
-                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
                           ),
                         ),
                         SizedBox(
                           width: 92,
                           child: Text(
                             Formatters.formatCurrency(p.total),
-                            style: const TextStyle(
+                            style: tabularNums(const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
-                            ),
+                            )),
                           ),
                         ),
                       ],
@@ -699,12 +697,12 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
 
   Widget _buildTablaHistorica(List<ProductoVendidoItem> items) {
     if (items.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
           child: Text(
             'No hay productos que coincidan con los filtros',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: context.colors.textSecondary),
             textAlign: TextAlign.center,
           ),
         ),
@@ -716,7 +714,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: AppColors.primary.withOpacity(0.1),
+            color: context.colors.accentWash,
             child: Row(
               children: [
                 const SizedBox(width: 4),
@@ -727,7 +725,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -738,7 +736,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -749,7 +747,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: AppColors.primary,
+                      color: context.colors.accent,
                     ),
                   ),
                 ),
@@ -772,10 +770,10 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                           ? Icons.cloud_sync
                           : Icons.cloud_queue;
               final syncColor = p.syncState == SyncState.synced
-                  ? AppColors.synced
+                  ? context.colors.positive
                   : p.syncState == SyncState.error
-                      ? AppColors.syncError
-                      : AppColors.syncing;
+                      ? context.colors.negative
+                      : context.colors.info;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Column(
@@ -800,24 +798,24 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                               p.cantidad,
                               decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
                             ),
-                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             Formatters.formatCurrency(p.precio),
-                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
                           ),
                         ),
                         SizedBox(
                           width: 92,
                           child: Text(
                             Formatters.formatCurrency(p.total),
-                            style: const TextStyle(
+                            style: tabularNums(const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
-                            ),
+                            )),
                           ),
                         ),
                       ],
@@ -830,7 +828,7 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
                           Formatters.formatDateTime(date),
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
+                            color: context.colors.textSecondary,
                           ),
                         ),
                         Row(
@@ -884,8 +882,8 @@ class _FilterChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: AppColors.primary.withOpacity(0.3),
-      checkmarkColor: AppColors.primary,
+      selectedColor: context.colors.accentWash,
+      checkmarkColor: context.colors.accent,
     );
   }
 }

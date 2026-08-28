@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../core/utils/producto_pos_rules.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../data/models/producto_model.dart';
@@ -9,15 +9,8 @@ import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
 import '../../../widgets/stock_local_badge.dart';
 
-/// [full]: fila del carrito a pantalla completa (CartScreen).
-/// [compact]: fila para el panel del escáner, con menos alto.
-enum CartItemTileVariant { full, compact }
-
-/// Fila de un item del carrito con sus controles de cantidad.
-///
-/// Compartida por CartScreen y el panel del escáner para que las reglas de
-/// stock, el paso de incremento y el borrado al llegar al mínimo sean
-/// literalmente las mismas en ambos sitios.
+/// Fila de un item del carrito con sus controles de cantidad, para el panel
+/// del escáner.
 ///
 /// Muta el carrito **por `productoTiendaId`**, no por índice: el panel del
 /// escáner reordena la lista al escanear, y un índice capturado en el build
@@ -28,7 +21,6 @@ class CartItemTile extends StatelessWidget {
     required this.item,
     required this.allProductos,
     required this.isOnline,
-    this.variant = CartItemTileVariant.full,
     this.highlighted = false,
     this.dismissible = true,
   });
@@ -38,13 +30,10 @@ class CartItemTile extends StatelessWidget {
   /// Catálogo local; lo observa el padre una sola vez por lista.
   final List<ProductoModel> allProductos;
   final bool isOnline;
-  final CartItemTileVariant variant;
 
   /// Resalta temporalmente la fila (producto recién escaneado).
   final bool highlighted;
   final bool dismissible;
-
-  bool get _isCompact => variant == CartItemTileVariant.compact;
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +74,6 @@ class CartItemTile extends StatelessWidget {
         : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
 
     final monedaItem = item.monedaPrecioCode ?? producto?.monedaPrecioCode;
-    final precioUnitBase = monedas.precioEnBase(item.precio, monedaItem);
     final subtotalBase = monedas.convertToBase(
       item.subtotal,
       monedaItem ?? monedas.monedaBase,
@@ -118,11 +106,13 @@ class CartItemTile extends StatelessWidget {
       );
     }
 
+    final colors = context.colors;
+
     final card = _buildCard(
       context: context,
+      colors: colors,
       sinStockLocal: sinStockLocal,
       subtotalBase: subtotalBase,
-      precioUnitBase: precioUnitBase,
       canIncrement: canIncrement,
       onDecrement: onDecrement,
       onIncrement: onIncrement,
@@ -136,7 +126,7 @@ class CartItemTile extends StatelessWidget {
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        color: AppColors.error,
+        color: colors.negative,
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       onDismissed: (_) => cartProvider.removeItemById(item.productoTiendaId),
@@ -146,45 +136,34 @@ class CartItemTile extends StatelessWidget {
 
   Widget _buildCard({
     required BuildContext context,
+    required AppSemanticColors colors,
     required bool sinStockLocal,
     required double subtotalBase,
-    required double precioUnitBase,
     required bool canIncrement,
     required VoidCallback onDecrement,
     required Future<void> Function() onIncrement,
   }) {
     // El naranja de "sin stock local" tiene prioridad sobre el resaltado verde:
     // es una señal de negocio y no debe perderse al escanear.
-    final baseColor = SinStockLocalStyles.cardColor(sinStockLocal: sinStockLocal);
+    final baseColor =
+        SinStockLocalStyles.cardColor(context, sinStockLocal: sinStockLocal);
 
     final content = Padding(
-      padding: _isCompact
-          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
-          : const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      child: _isCompact
-          ? _buildCompactBody(
-              sinStockLocal: sinStockLocal,
-              subtotalBase: subtotalBase,
-              canIncrement: canIncrement,
-              onDecrement: onDecrement,
-              onIncrement: onIncrement,
-            )
-          : _buildFullBody(
-              sinStockLocal: sinStockLocal,
-              subtotalBase: subtotalBase,
-              precioUnitBase: precioUnitBase,
-              canIncrement: canIncrement,
-              onDecrement: onDecrement,
-              onIncrement: onIncrement,
-            ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: _buildCompactBody(
+        colors: colors,
+        sinStockLocal: sinStockLocal,
+        subtotalBase: subtotalBase,
+        canIncrement: canIncrement,
+        onDecrement: onDecrement,
+        onIncrement: onIncrement,
+      ),
     );
 
     final card = Card(
-      margin: _isCompact
-          ? const EdgeInsets.only(bottom: 6)
-          : const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 6),
       color: baseColor,
-      shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
+      shape: SinStockLocalStyles.cardShape(context, sinStockLocal: sinStockLocal),
       child: content,
     );
 
@@ -198,76 +177,21 @@ class CartItemTile extends StatelessWidget {
       duration: const Duration(milliseconds: 900),
       curve: Curves.easeOut,
       builder: (_, t, child) => Card(
-        margin: _isCompact
-            ? const EdgeInsets.only(bottom: 6)
-            : const EdgeInsets.only(bottom: 8),
+        margin: const EdgeInsets.only(bottom: 6),
         color: Color.lerp(
           baseColor ?? Theme.of(context).cardColor,
-          AppColors.success.withOpacity(0.28),
+          colors.positive.withValues(alpha: 0.28),
           t,
         ),
-        shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
+        shape: SinStockLocalStyles.cardShape(context, sinStockLocal: sinStockLocal),
         child: child,
       ),
       child: content,
     );
   }
 
-  Widget _buildFullBody({
-    required bool sinStockLocal,
-    required double subtotalBase,
-    required double precioUnitBase,
-    required bool canIncrement,
-    required VoidCallback onDecrement,
-    required Future<void> Function() onIncrement,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                item.nombre,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            const SizedBox(width: 8),
-            MultiCurrencyAmount(
-              amount: subtotalBase,
-              variant: MultiCurrencyVariant.compact,
-              textAlign: TextAlign.end,
-            ),
-          ],
-        ),
-        if (sinStockLocal) ...[
-          const SizedBox(height: 6),
-          const StockLocalBadge(compact: true),
-        ],
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: MultiCurrencyAmount(
-                amount: precioUnitBase,
-                variant: MultiCurrencyVariant.compact,
-              ),
-            ),
-            _buildStepper(
-              canIncrement: canIncrement,
-              onDecrement: onDecrement,
-              onIncrement: onIncrement,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildCompactBody({
+    required AppSemanticColors colors,
     required bool sinStockLocal,
     required double subtotalBase,
     required bool canIncrement,
@@ -303,6 +227,7 @@ class CartItemTile extends StatelessWidget {
         ),
         const SizedBox(width: 4),
         _buildStepper(
+          colors: colors,
           canIncrement: canIncrement,
           onDecrement: onDecrement,
           onIncrement: onIncrement,
@@ -315,6 +240,7 @@ class CartItemTile extends StatelessWidget {
   /// Controles − / cantidad / +. Los targets táctiles se mantienen en 36x36
   /// también en compacto: es un POS que se usa con el dedo.
   Widget _buildStepper({
+    required AppSemanticColors colors,
     required bool canIncrement,
     required VoidCallback onDecrement,
     required Future<void> Function() onIncrement,
@@ -329,7 +255,7 @@ class CartItemTile extends StatelessWidget {
           iconSize: iconSize,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          color: AppColors.error,
+          color: colors.negative,
         ),
         SizedBox(
           width: 36,
@@ -347,7 +273,7 @@ class CartItemTile extends StatelessWidget {
           iconSize: iconSize,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          color: AppColors.success,
+          color: colors.positive,
         ),
       ],
     );

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/constants/app_colors.dart';
+import '../core/theme/app_tokens.dart';
 import '../core/utils/formatters.dart';
 
 /// Desglose de billetes por denominación (equivalente a BillBreakdownDynamic en web).
@@ -155,11 +155,10 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
     final count = _counts[d] ?? 0;
     final subtotal = d * count;
     final highlighted = count > 0;
+    final colors = context.colors;
 
     return Material(
-      color: highlighted
-          ? AppColors.primary.withValues(alpha: 0.08)
-          : Colors.transparent,
+      color: highlighted ? colors.accentWash : Colors.transparent,
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
@@ -236,10 +235,10 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
                   ),
                 ),
               ),
@@ -278,6 +277,7 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
   @override
   Widget build(BuildContext context) {
     final diff = widget.targetAmount != null ? _total - widget.targetAmount! : null;
+    final colors = context.colors;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -300,7 +300,7 @@ class _BillBreakdownInputState extends State<BillBreakdownInput> {
                         : 'Faltan: ${Formatters.formatNumber(diff.abs())}',
                 style: TextStyle(
                   fontSize: 13,
-                  color: diff >= 0 ? AppColors.success : AppColors.error,
+                  color: diff >= 0 ? colors.positive : colors.negative,
                   fontWeight: FontWeight.w500,
                 ),
               ),

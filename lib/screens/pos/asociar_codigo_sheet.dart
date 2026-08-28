@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../data/datasources/remote/productos_remote_datasource.dart';
 import '../../data/models/producto_model.dart';
@@ -150,9 +150,10 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
 
     return Container(
       margin: const EdgeInsets.only(top: 80),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: context.colors.raised,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       child: SafeArea(
         top: false,
@@ -186,7 +187,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: Colors.grey.shade300,
+          color: context.colors.border,
           borderRadius: BorderRadius.circular(2),
         ),
       ),
@@ -201,23 +202,20 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: AppColors.warning.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
+              color: context.colors.cautionWash,
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.link_off_rounded,
-              color: AppColors.warning,
+              color: context.colors.caution,
               size: 22,
             ),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Text(
               'Código no reconocido',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
           ),
           IconButton(
@@ -238,7 +236,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
           Text(
             'El código escaneado no está registrado. Puedes asociarlo a un producto existente para agilizar futuras ventas.',
             style: TextStyle(
-              color: Colors.grey.shade700,
+              color: context.colors.textSecondary,
               fontSize: 13,
               height: 1.4,
             ),
@@ -247,24 +245,25 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(20),
-              border:
-                  Border.all(color: AppColors.primary.withOpacity(0.25)),
+              color: context.colors.accentWash,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(
+                color: context.colors.accent.withValues(alpha: 0.25),
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
+                Icon(
                   Icons.qr_code_2,
                   size: 14,
-                  color: AppColors.primary,
+                  color: context.colors.accent,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   widget.scannedCode,
-                  style: const TextStyle(
-                    color: AppColors.primary,
+                  style: TextStyle(
+                    color: context.colors.accent,
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
                     letterSpacing: 0.6,
@@ -289,7 +288,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
           hintText: 'Buscar producto...',
           prefixIcon: const Icon(Icons.search, size: 20),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           isDense: true,
           contentPadding:
@@ -306,7 +305,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Text(
             'Sin resultados para "${_searchController.text}"',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            style: TextStyle(color: context.colors.textSecondary, fontSize: 13),
             textAlign: TextAlign.center,
           ),
         );
@@ -321,7 +320,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         itemCount: _searchResults.length,
         separatorBuilder: (_, __) =>
-            Divider(height: 1, color: Colors.grey.shade200),
+            Divider(height: 1, color: context.colors.border),
         itemBuilder: (_, i) {
           final p = _searchResults[i];
           return _buildProductTile(p, _selectedProduct?.id == p.id);
@@ -332,20 +331,22 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
 
   Widget _buildProductTile(ProductoModel producto, bool isSelected) {
     final sinStock = !producto.hasStock;
+    final accent = context.colors.accent;
+    final caution = context.colors.caution;
     return InkWell(
       onTap: () => _selectProduct(producto),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppRadius.sm),
       child: Container(
-        color: isSelected ? AppColors.primary.withOpacity(0.07) : null,
+        color: isSelected ? context.colors.accentWash : null,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         child: Row(
           children: [
             SizedBox(
               width: 24,
               child: isSelected
-                  ? const Icon(
+                  ? Icon(
                       Icons.check_circle,
-                      color: AppColors.primary,
+                      color: accent,
                       size: 18,
                     )
                   : null,
@@ -360,7 +361,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                       fontWeight:
                           isSelected ? FontWeight.w700 : FontWeight.w500,
                       fontSize: 14,
-                      color: isSelected ? AppColors.primary : null,
+                      color: isSelected ? accent : null,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -370,8 +371,8 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                     children: [
                       Text(
                         '\$${producto.precio.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: AppColors.success,
+                        style: TextStyle(
+                          color: context.colors.positive,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -380,7 +381,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                       Icon(
                         Icons.inventory_2_outlined,
                         size: 11,
-                        color: sinStock ? AppColors.warning : Colors.grey,
+                        color: sinStock ? caution : context.colors.textSecondary,
                       ),
                       const SizedBox(width: 3),
                       Text(
@@ -388,9 +389,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                             ? producto.existencia.toInt().toString()
                             : producto.existencia.toStringAsFixed(2),
                         style: TextStyle(
-                          color: sinStock
-                              ? AppColors.warning
-                              : Colors.grey.shade600,
+                          color: sinStock ? caution : context.colors.textSecondary,
                           fontSize: 12,
                           fontWeight: sinStock
                               ? FontWeight.w600
@@ -399,10 +398,10 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                       ),
                       if (sinStock) ...[
                         const SizedBox(width: 4),
-                        const Text(
+                        Text(
                           '(sin stock)',
                           style: TextStyle(
-                            color: AppColors.warning,
+                            color: caution,
                             fontSize: 11,
                           ),
                         ),
@@ -424,21 +423,23 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: AppColors.success.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.success.withOpacity(0.35)),
+          color: context.colors.positiveWash,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: context.colors.positive.withValues(alpha: 0.35),
+          ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.check_circle_outline,
-                color: AppColors.success, size: 16),
+            Icon(Icons.check_circle_outline,
+                color: context.colors.positive, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Se asociará "${widget.scannedCode}" a "${_selectedProduct!.nombre}"',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.success,
+                  color: context.colors.positive,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -455,18 +456,20 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: AppColors.error.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.error.withOpacity(0.35)),
+          color: context.colors.negativeWash,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: context.colors.negative.withValues(alpha: 0.35),
+          ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.error_outline, color: AppColors.error, size: 16),
+            Icon(Icons.error_outline, color: context.colors.negative, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _errorMessage!,
-                style: const TextStyle(fontSize: 12, color: AppColors.error),
+                style: TextStyle(fontSize: 12, color: context.colors.negative),
               ),
             ),
           ],
@@ -505,10 +508,10 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
                   : const Icon(Icons.add_link, size: 18),
               label: Text(_isLoading ? 'Asociando...' : 'Asociar código'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: context.colors.accent,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey.shade300,
-                disabledForegroundColor: Colors.grey.shade500,
+                disabledBackgroundColor: context.colors.border,
+                disabledForegroundColor: context.colors.textDisabled,
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),

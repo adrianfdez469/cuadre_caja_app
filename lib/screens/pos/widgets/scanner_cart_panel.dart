@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/productos_provider.dart';
@@ -86,12 +86,13 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
     final items = activeCart?.items ?? const [];
     final allProductos = context.watch<ProductosProvider>().allProductos;
     final isOnline = context.watch<SyncProvider>().isOnline;
+    final colors = context.colors;
 
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       child: Material(
         elevation: 12,
-        color: AppColors.cardBackground,
+        color: colors.raised,
         child: CustomScrollView(
           controller: widget.scrollController,
           slivers: [
@@ -121,7 +122,6 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
                     item: items[i],
                     allProductos: allProductos,
                     isOnline: isOnline,
-                    variant: CartItemTileVariant.compact,
                     highlighted: hid == items[i].productoTiendaId,
                   ),
                 ),
@@ -140,6 +140,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
     required List<CartItemModel> items,
   }) {
     final cantidadItems = items.length;
+    final colors = context.colors;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -155,7 +156,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade400,
+                color: colors.borderStrong,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -168,7 +169,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
               Icon(
                 Icons.shopping_cart_outlined,
                 size: 16,
-                color: AppColors.textSecondary,
+                color: colors.textSecondary,
               ),
               const SizedBox(width: 6),
               Flexible(
@@ -187,7 +188,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
                 cantidadItems == 1 ? '1 ítem' : '$cantidadItems ítems',
                 style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.textSecondary,
+                  color: colors.textSecondary,
                 ),
               ),
             ],
@@ -195,7 +196,6 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
         ),
         CartCheckoutBar(
           items: items,
-          dense: true,
           onSaleCompleted: widget.onSaleCompleted,
         ),
       ],
@@ -221,7 +221,7 @@ class _PanelHeaderDelegate extends SliverPersistentHeaderDelegate {
     // sliver reporta un paintExtent menor que el layoutExtent y falla.
     return SizedBox(
       height: height,
-      child: Material(color: AppColors.cardBackground, child: child),
+      child: Material(color: context.colors.raised, child: child),
     );
   }
 
@@ -235,18 +235,19 @@ class _EmptyHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.qr_code_scanner, size: 40, color: AppColors.textHint),
+            Icon(Icons.qr_code_scanner, size: 40, color: colors.textDisabled),
             const SizedBox(height: 12),
             Text(
               'Escanea un producto para agregarlo',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+              style: TextStyle(fontSize: 14, color: colors.textSecondary),
             ),
           ],
         ),

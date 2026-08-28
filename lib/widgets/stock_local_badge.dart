@@ -1,25 +1,33 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Estilos compartidos para productos sin stock local (modo offline).
+///
+/// "Sin stock local" es un aviso, no un error: usa el tono `caution` del
+/// design system ("todavía no es problema"), no `negative`.
 class SinStockLocalStyles {
   SinStockLocalStyles._();
 
-  static const Color accent = Color(0xFFC45C00);
-  static const Color surface = Color(0xFFFFFAF5);
-  static const Color border = Color(0xFFFFD8A8);
-  static const Color badgeBg = Color(0xFFFFF0E0);
+  static Color accent(BuildContext context) => context.colors.caution;
+  static Color surface(BuildContext context) => context.colors.cautionWash;
+  static Color border(BuildContext context) =>
+      context.colors.caution.withValues(alpha: 0.45);
+  static Color badgeBg(BuildContext context) => context.colors.cautionWash;
 
-  static ShapeBorder cardShape({required bool sinStockLocal}) {
+  static ShapeBorder cardShape(
+    BuildContext context, {
+    required bool sinStockLocal,
+  }) {
     return RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       side: sinStockLocal
-          ? const BorderSide(color: border, width: 1)
+          ? BorderSide(color: border(context), width: 1)
           : BorderSide.none,
     );
   }
 
-  static Color? cardColor({required bool sinStockLocal}) {
-    return sinStockLocal ? surface : null;
+  static Color? cardColor(BuildContext context, {required bool sinStockLocal}) {
+    return sinStockLocal ? surface(context) : null;
   }
 }
 
@@ -41,9 +49,9 @@ class StockLocalBadge extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: double.infinity),
       padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
       decoration: BoxDecoration(
-        color: SinStockLocalStyles.badgeBg,
-        borderRadius: BorderRadius.circular(compact ? 10 : 12),
-        border: Border.all(color: SinStockLocalStyles.border),
+        color: SinStockLocalStyles.badgeBg(context),
+        borderRadius: BorderRadius.circular(compact ? AppRadius.sm : AppRadius.md),
+        border: Border.all(color: SinStockLocalStyles.border(context)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -51,7 +59,7 @@ class StockLocalBadge extends StatelessWidget {
           Icon(
             Icons.cloud_off_outlined,
             size: iconSize,
-            color: SinStockLocalStyles.accent,
+            color: SinStockLocalStyles.accent(context),
           ),
           const SizedBox(width: 4),
           Flexible(
@@ -62,7 +70,7 @@ class StockLocalBadge extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
-                color: SinStockLocalStyles.accent,
+                color: SinStockLocalStyles.accent(context),
                 letterSpacing: compact ? 0 : 0.3,
               ),
             ),

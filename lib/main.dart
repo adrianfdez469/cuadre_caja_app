@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/di/injection.dart';
-import 'core/constants/app_colors.dart';
+import 'core/theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/productos_provider.dart';
 import 'providers/cart_provider.dart';
@@ -76,31 +76,9 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Cuadre de Caja',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorSchemeSeed: AppColors.primary,
-          useMaterial3: true,
-          scaffoldBackgroundColor: AppColors.background,
-          appBarTheme: const AppBarTheme(
-            centerTitle: false,
-            elevation: 0,
-          ),
-          cardTheme: CardThemeData(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          snackBarTheme: SnackBarThemeData(
-            behavior: SnackBarBehavior.floating,
-            showCloseIcon: true,
-            dismissDirection: DismissDirection.horizontal,
-          ),
-        ),
+        theme: appLightTheme,
+        darkTheme: appDarkTheme,
+        themeMode: ThemeMode.light,
         home: const SplashScreen(),
       ),
     );

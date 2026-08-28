@@ -1,7 +1,7 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../core/constants/app_colors.dart';
+import '../core/theme/app_tokens.dart';
 import '../core/di/injection.dart';
 import '../providers/auth_provider.dart';
 import 'login_screen.dart';
@@ -57,6 +57,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
       body: Center(
         child: Column(
@@ -65,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Icon(
               Icons.point_of_sale,
               size: 80,
-              color: AppColors.primary,
+              color: colors.accent,
             ),
             const SizedBox(height: 24),
             Text(
@@ -73,11 +74,11 @@ class _SplashScreenState extends State<SplashScreen> {
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: AppColors.primary,
+                color: colors.accent,
               ),
             ),
             const SizedBox(height: 32),
-            CircularProgressIndicator(color: AppColors.primary),
+            CircularProgressIndicator(color: colors.accent),
           ],
         ),
       ),

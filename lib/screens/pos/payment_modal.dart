@@ -3,8 +3,8 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/bill_denominations.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/app_logger.dart';
 import '../../core/utils/cash_amount_input_formatter.dart';
@@ -24,6 +24,7 @@ import '../../providers/ventas_provider.dart';
 import '../../services/hardware_scanner_gate.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
+import '../../widgets/multi_currency_amount.dart';
 
 class _PagoMoneda {
   double cash;
@@ -604,6 +605,11 @@ class _PaymentModalState extends State<PaymentModal> {
     }
 
     final monedasKeys = _pagosMap.keys.toList();
+    final items = context.watch<CartProvider>().activeCart?.items ?? [];
+    final unidades = items.fold<double>(0, (s, i) => s + i.cantidad);
+    final unidadesText = unidades == unidades.roundToDouble()
+        ? unidades.toStringAsFixed(0)
+        : unidades.toStringAsFixed(1);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -623,27 +629,40 @@ class _PaymentModalState extends State<PaymentModal> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: DefaultTextStyle.of(context).style,
-                          children: [
-                            const TextSpan(
-                              text: 'Cobrar: ',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: TextSpan(
+                              style: DefaultTextStyle.of(context).style,
+                              children: [
+                                const TextSpan(
+                                  text: 'Cobrar: ',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: _fmtBase(_total),
+                                  style: tabularNums(TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: context.colors.accent,
+                                  )),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (items.isNotEmpty)
+                            Text(
+                              '${items.length} ${items.length == 1 ? 'producto' : 'productos'} · $unidadesText ${unidades == 1 ? 'unidad' : 'unidades'}',
                               style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 11.5,
+                                color: context.colors.textSecondary,
                               ),
                             ),
-                            TextSpan(
-                              text: _fmtBase(_total),
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
                     IconButton(
@@ -680,44 +699,70 @@ class _PaymentModalState extends State<PaymentModal> {
                       const Divider(height: 32),
                       _buildVueltoSection(),
                     ],
-                    const Divider(height: 32),
+                    const SizedBox(height: 24),
                     _buildSummary(),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed:
-                            _canConfirm && !_isProcessing ? _processPayment : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: _isProcessing
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Text(
-                                'Confirmar Venta',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                      ),
-                    ),
                   ],
                 ),
               ),
+              _buildCheckoutFooter(),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Barra de cobro fija (fondo invertido), en el mismo lenguaje visual que la
+  /// pantalla de venta: el total y la acción nunca se separan.
+  Widget _buildCheckoutFooter() {
+    final colors = context.colors;
+    return Container(
+      color: colors.inverse,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: MultiCurrencyAmount(
+                amount: _total,
+                variant: MultiCurrencyVariant.checkout,
+                onInverseSurface: true,
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              height: AppTapTarget.comfortable,
+              child: ElevatedButton(
+                onPressed: _canConfirm && !_isProcessing ? _processPayment : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colors.accent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+                child: _isProcessing
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text(
+                        'Confirmar Venta',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -753,7 +798,7 @@ class _PaymentModalState extends State<PaymentModal> {
               label: Text(moneda),
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              backgroundColor: isBase ? AppColors.primary : null,
+              backgroundColor: isBase ? context.colors.accent : null,
               labelStyle: TextStyle(
                 color: isBase ? Colors.white : null,
                 fontWeight: FontWeight.w600,
@@ -773,15 +818,15 @@ class _PaymentModalState extends State<PaymentModal> {
                   iconAlignment: IconAlignment.end,
                   style: OutlinedButton.styleFrom(
                     backgroundColor: (transferExpanded || pago.transfer > 0)
-                        ? AppColors.primary.withValues(alpha: 0.14)
+                        ? context.colors.accentWash
                         : null,
                     foregroundColor: (transferExpanded || pago.transfer > 0)
-                        ? AppColors.primary
+                        ? context.colors.accent
                         : null,
                     side: BorderSide(
                       color: (transferExpanded || pago.transfer > 0)
-                          ? AppColors.primary
-                          : AppColors.textHint.withValues(alpha: 0.55),
+                          ? context.colors.accent
+                          : context.colors.border,
                     ),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -822,12 +867,10 @@ class _PaymentModalState extends State<PaymentModal> {
                         vertical: 14,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       filled: breakdownActive,
-                      fillColor: breakdownActive
-                          ? AppColors.textHint.withValues(alpha: 0.08)
-                          : null,
+                      fillColor: breakdownActive ? context.colors.sunken : null,
                     ),
                     onTap: () {
                       _cashControllers[moneda]?.selection = TextSelection(
@@ -863,7 +906,7 @@ class _PaymentModalState extends State<PaymentModal> {
                         vertical: 14,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                     ),
                     onEditingComplete: () => _formatTransferField(moneda),
@@ -920,8 +963,8 @@ class _PaymentModalState extends State<PaymentModal> {
             Container(
               padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.textHint.withValues(alpha: 0.4)),
-                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: context.colors.border),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: BillBreakdownInput(
                 denominations: denoms,
@@ -942,7 +985,7 @@ class _PaymentModalState extends State<PaymentModal> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary),
+                Icon(Icons.info_outline, size: 16, color: context.colors.textSecondary),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -950,7 +993,7 @@ class _PaymentModalState extends State<PaymentModal> {
                     'registrará sin destino.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textSecondary,
+                      color: context.colors.textSecondary,
                     ),
                   ),
                 ),
@@ -966,7 +1009,7 @@ class _PaymentModalState extends State<PaymentModal> {
               decoration: InputDecoration(
                 labelText: 'Destino de transferencia',
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
               ),
               items: _transferDestinations
@@ -987,7 +1030,9 @@ class _PaymentModalState extends State<PaymentModal> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               '≈ ${_fmtBase(eqBase)}',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              style: tabularNums(
+                TextStyle(color: context.colors.textSecondary, fontSize: 12),
+              ),
             ),
           ),
         const SizedBox(height: 4),
@@ -1006,12 +1051,14 @@ class _PaymentModalState extends State<PaymentModal> {
               'Cambio a dar',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                color: context.colors.textSecondary,
               ),
             ),
             Text(
               '${_vueltoTotalBase.toStringAsFixed(2)} $_monedaBase equiv.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              style: tabularNums(
+                TextStyle(fontSize: 12, color: context.colors.textSecondary),
+              ),
             ),
           ],
         ),
@@ -1037,7 +1084,7 @@ class _PaymentModalState extends State<PaymentModal> {
                     decoration: InputDecoration(
                       isDense: true,
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                     ),
                     onEditingComplete: () => _formatVueltoField(moneda),
@@ -1071,54 +1118,37 @@ class _PaymentModalState extends State<PaymentModal> {
     );
   }
 
+  /// Panel de "falta"/"cambio", en el mismo lenguaje que `cobro.html`: rojo
+  /// tenue mientras no se cubre el total, verde tenue una vez que sí. El total
+  /// en sí ya vive en la barra de cobro fija (`_buildCheckoutFooter`).
   Widget _buildSummary() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Total:', style: TextStyle(fontSize: 18)),
-            Text(
-              _fmtBase(_total),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_falta)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Falta:', style: TextStyle(fontSize: 18, color: AppColors.error)),
-              Text(
-                _fmtBase(_total - _totalPagadoBase),
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.error,
-                ),
-              ),
-            ],
-          )
-        else
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Cambio:',
-                style: TextStyle(fontSize: 18, color: AppColors.success),
-              ),
-              Text(
-                _fmtBase(_vueltoTotalBase),
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.success,
-                ),
-              ),
-            ],
+    final colors = context.colors;
+    final falta = _falta;
+    final color = falta ? colors.negative : colors.positive;
+    final wash = falta ? colors.negativeWash : colors.positiveWash;
+    final label = falta ? 'Falta:' : 'Cambio:';
+    final amount = falta ? (_total - _totalPagadoBase) : _vueltoTotalBase;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: wash,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: color)),
+          Text(
+            _fmtBase(amount),
+            style: tabularNums(TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            )),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1208,7 +1238,7 @@ class _PaymentModalState extends State<PaymentModal> {
                 ? 'Venta guardada. Sincronización con el servidor en segundo plano.'
                 : 'Venta guardada - se sincronizará al conectarse',
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: context.colors.positive,
         );
       }
 
@@ -1218,7 +1248,7 @@ class _PaymentModalState extends State<PaymentModal> {
         AppSnackBar.show(
           context,
           content: Text('Error: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: context.colors.negative,
         );
       }
     }

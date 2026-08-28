@@ -1,15 +1,17 @@
 import 'dart:async';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../services/release_service.dart' show ReleaseService, compareVersions;
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/productos_provider.dart';
@@ -24,14 +26,11 @@ import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import '../../widgets/stock_local_badge.dart';
 import '../login_screen.dart';
-import 'cart_screen.dart';
-import 'ventas_list_screen.dart';
-import 'productos_vendidos_screen.dart';
-import 'punto_de_partida_screen.dart';
 import 'barcode_scanner_screen.dart';
 import '../version_screen.dart';
-import 'widgets/categorias_grid.dart';
-import 'widgets/connection_indicator.dart';
+import 'widgets/pos_actions_sheet.dart';
+import 'widgets/pos_checkout_bar.dart';
+import 'widgets/quantity_sheet.dart';
 
 class POSHomeScreen extends StatefulWidget {
   const POSHomeScreen({super.key});
@@ -45,7 +44,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   String? _initError;
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
-  String _searchQuery = '';
   bool? _lastOnline;
 
   /// Clave en SharedPreferences para recordar la versión que el usuario decidió omitir.
@@ -169,8 +167,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: AppColors.info.withOpacity(0.12),
-        leading: Icon(Icons.system_update, color: AppColors.info),
+        backgroundColor: context.colors.infoWash,
+        leading: Icon(Icons.system_update, color: context.colors.info),
         content: Text('Hay una nueva versión disponible: v$newVersion'),
         actions: [
           TextButton(
@@ -307,7 +305,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         AppSnackBar.show(
           context,
           content: const Text('Sin conexión — no se puede sincronizar'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: context.colors.caution,
         );
       }
       return;
@@ -330,14 +328,31 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     super.dispose();
   }
 
+  String _statusSubtitle(SyncProvider sync, VentasProvider ventas) {
+    final base = sync.isOnline ? 'Conectado' : 'Sin conexión';
+    if (ventas.pendingCount > 0) {
+      return '$base · ${ventas.pendingCount} sin subir';
+    }
+    return base;
+  }
+
+  String _initials(String nombre) {
+    final parts =
+        nombre.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final productosProvider = context.watch<ProductosProvider>();
-    final cartProvider = context.watch<CartProvider>();
     final periodoProvider = context.watch<PeriodoProvider>();
     final syncProvider = context.watch<SyncProvider>();
     final ventasProvider = context.watch<VentasProvider>();
+    final cartProvider = context.watch<CartProvider>();
+    final colors = context.colors;
 
     if (_lastOnline != syncProvider.isOnline) {
       _lastOnline = syncProvider.isOnline;
@@ -353,171 +368,48 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
     return HardwareScannerListener(
       enabled: _isInitialized && periodoProvider.hasActivePeriodo,
       child: Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Punto de Venta', style: TextStyle(fontSize: 18)),
-            Text(
-              auth.tiendaNombre,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
-            ),
-          ],
-        ),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          // Indicador de conexión
-          const ConnectionIndicator(),
-
-          // Ventas pendientes
-          if (ventasProvider.pendingCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Chip(
-                label: Text(
-                  '${ventasProvider.pendingCount} pendientes',
-                  style: const TextStyle(fontSize: 11, color: Colors.white),
-                ),
-                backgroundColor: AppColors.warning,
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-
-          // Carrito
-          Stack(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CartScreen()),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      auth.tiendaNombre,
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _statusSubtitle(syncProvider, ventasProvider),
+                      style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                    ),
+                  ],
                 ),
               ),
-              if (cartProvider.totalItemCountAcrossCarts > 0)
-                Positioned(
-                  right: 4,
-                  top: 4,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: AppColors.error,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text(
-                      '${cartProvider.totalItemCountAcrossCarts}',
-                      style: const TextStyle(fontSize: 10, color: Colors.white),
-                    ),
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: colors.accent,
+                child: Text(
+                  _initials(auth.usuario?.nombre ?? ''),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-            ],
-          ),
-
-          // Menu
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'ventas',
-                child: ListTile(
-                  leading: Icon(Icons.receipt_long),
-                  title: Text('Ventas y sincronizaciones'),
-                  dense: true,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'productos_vendidos',
-                child: ListTile(
-                  leading: Icon(Icons.shopping_bag),
-                  title: Text('Productos Vendidos'),
-                  dense: true,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'punto_de_partida',
-                child: ListTile(
-                  leading: Icon(Icons.flag),
-                  title: Text('Punto de partida'),
-                  dense: true,
-                ),
-              ),
-              // Oculto hasta decidir si mostrarlo
-              // if (auth.locales.length > 1)
-              //   const PopupMenuItem(
-              //     value: 'cambiar_tienda',
-              //     child: ListTile(
-              //       leading: Icon(Icons.store),
-              //       title: Text('Cambiar tienda'),
-              //       dense: true,
-              //     ),
-              //   ),
-              const PopupMenuItem(
-                value: 'sync',
-                child: ListTile(
-                  leading: Icon(Icons.sync),
-                  title: Text('Sincronizar'),
-                  dense: true,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'version',
-                child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('Versión'),
-                  dense: true,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'logout',
-                child: ListTile(
-                  leading: Icon(Icons.logout, color: Colors.red),
-                  title: Text('Cerrar sesión'),
-                  dense: true,
-                ),
               ),
             ],
-            onSelected: (value) async {
-              switch (value) {
-                case 'ventas':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const VentasListScreen()),
-                  );
-                  break;
-                case 'productos_vendidos':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ProductosVendidosScreen()),
-                  );
-                  break;
-                case 'punto_de_partida':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const PuntoDePartidaScreen()),
-                  );
-                  break;
-                // case 'cambiar_tienda':
-                //   _showCambiarTiendaDialog();
-                //   break;
-                case 'sync':
-                  await _performSync();
-                  break;
-                case 'version':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const VersionScreen()),
-                  );
-                  break;
-                case 'logout':
-                  _confirmLogout();
-                  break;
-              }
-            },
           ),
-        ],
+        ),
+        body: _buildBody(productosProvider, periodoProvider, syncProvider),
+        bottomNavigationBar: _isInitialized &&
+                periodoProvider.hasActivePeriodo &&
+                cartProvider.activeItemCount > 0
+            ? const PosCheckoutBar()
+            : null,
       ),
-      body: _buildBody(productosProvider, periodoProvider, syncProvider),
-    ),
     );
   }
 
@@ -535,7 +427,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, size: 48, color: AppColors.error),
+            Icon(Icons.error_outline, size: 48, color: context.colors.negative),
             const SizedBox(height: 16),
             Text('Error: $_initError'),
             const SizedBox(height: 16),
@@ -553,7 +445,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       return _buildNoPeriodoView(periodoProvider);
     }
 
-    // Contenido | buscador por nombre + escáner de cámara (parte inferior)
     return Column(
       children: [
         // Sync status bar
@@ -562,51 +453,22 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: syncProvider.isOnline
-                ? AppColors.success.withOpacity(0.1)
-                : AppColors.warning.withOpacity(0.1),
+                ? context.colors.positiveWash
+                : context.colors.cautionWash,
             child: Text(
               syncProvider.lastMessage,
               style: TextStyle(
                 fontSize: 12,
                 color: syncProvider.isOnline
-                    ? AppColors.success
-                    : AppColors.warning,
+                    ? context.colors.positive
+                    : context.colors.caution,
               ),
             ),
           ),
 
-        // Resultados búsqueda o categorías (pull-to-refresh para sincronizar)
-        Expanded(
-          child: RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: _performSync,
-            child: _searchQuery.trim().isEmpty
-                ? (productosProvider.isLoading
-                    ? ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        children: const [
-                          SizedBox(
-                            height: 200,
-                            child: Center(child: CircularProgressIndicator()),
-                          ),
-                        ],
-                      )
-                    : CategoriasGrid(
-                        categorias: productosProvider.categorias,
-                        productosProvider: productosProvider,
-                      ))
-                : _BuildSearchResults(
-                    query: _searchQuery.trim(),
-                    productosProvider: productosProvider,
-                    onProductTap: _showAddToCartDialog,
-                    onQuickAdd: _quickAddToCart,
-                  ),
-          ),
-        ),
-
-        // Buscador por nombre + escáner de cámara
+        // Buscador + "⋯" + escáner (Dirección B: el catálogo se busca, no se navega)
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: Row(
             children: [
               Expanded(
@@ -614,42 +476,92 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                   controller: _searchController,
                   focusNode: _searchFocusNode,
                   decoration: InputDecoration(
-                    hintText: 'Buscar por nombre...',
+                    hintText: 'Buscar entre ${productosProvider.allProductos.length} productos',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
+                    suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.clear),
                             onPressed: () {
                               _searchController.clear();
-                              setState(() => _searchQuery = '');
+                              productosProvider.searchProductos('');
                             },
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: context.colors.raised,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
                     ),
                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  onChanged: (value) => setState(() => _searchQuery = value),
+                  onChanged: productosProvider.searchProductos,
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+              SizedBox(
+                width: AppTapTarget.comfortable,
+                height: AppTapTarget.comfortable,
+                child: IconButton.filledTonal(
+                  onPressed: () => PosActionsSheet.show(
+                    context,
+                    onSync: _performSync,
+                    onLogout: _confirmLogout,
+                  ),
+                  icon: const Icon(Icons.more_horiz),
+                  tooltip: 'Acciones del POS',
+                  style: IconButton.styleFrom(
+                    backgroundColor: context.colors.sunken,
+                    foregroundColor: context.colors.textPrimary,
+                  ),
                 ),
-                icon: const Icon(Icons.qr_code_scanner),
-                tooltip: 'Escanear con cámara',
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: AppTapTarget.comfortable,
+                height: AppTapTarget.comfortable,
+                child: IconButton.filled(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                  ),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  tooltip: 'Escanear con cámara',
+                  style: IconButton.styleFrom(
+                    backgroundColor: context.colors.accent,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ),
             ],
+          ),
+        ),
+
+        _CategoriaChips(productosProvider: productosProvider),
+
+        Expanded(
+          child: RefreshIndicator(
+            color: context.colors.accent,
+            onRefresh: _performSync,
+            child: productosProvider.isLoading
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      SizedBox(
+                        height: 200,
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    ],
+                  )
+                : _CatalogoResultados(
+                    productosProvider: productosProvider,
+                    onProductTap: _showQuantitySheet,
+                    onQuickAdd: _quickAddToCart,
+                  ),
           ),
         ),
       ],
@@ -663,7 +575,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.timer_off, size: 64, color: AppColors.textHint),
+            Icon(Icons.timer_off, size: 64, color: context.colors.textDisabled),
             const SizedBox(height: 16),
             const Text(
               'No hay período de caja abierto',
@@ -672,7 +584,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
             const SizedBox(height: 8),
             Text(
               'Debes abrir un período para comenzar a vender',
-              style: TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(color: context.colors.textSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -686,7 +598,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
               icon: const Icon(Icons.play_arrow),
               label: const Text('Abrir Período'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
+                backgroundColor: context.colors.positive,
                 foregroundColor: Colors.white,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
@@ -697,41 +609,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       ),
     );
   }
-
-  // Oculto hasta decidir si mostrar "Cambiar tienda" en el menú
-  // void _showCambiarTiendaDialog() {
-  //   final auth = context.read<AuthProvider>();
-  //
-  //   showDialog(
-  //     context: context,
-  //     builder: (ctx) => AlertDialog(
-  //       title: const Text('Cambiar tienda'),
-  //       content: Column(
-  //         mainAxisSize: MainAxisSize.min,
-  //         children: auth.locales.map((tienda) {
-  //           final isActive = tienda.id == auth.tiendaId;
-  //           return ListTile(
-  //             leading: Icon(
-  //               Icons.store,
-  //               color: isActive ? AppColors.primary : null,
-  //             ),
-  //             title: Text(tienda.nombre),
-  //             trailing: isActive ? const Icon(Icons.check) : null,
-  //             onTap: isActive
-  //                 ? null
-  //                 : () async {
-  //                     Navigator.pop(ctx);
-  //                     final ok = await auth.cambiarTienda(tienda.id);
-  //                     if (ok && mounted) {
-  //                       await _loadData();
-  //                     }
-  //                   },
-  //           );
-  //         }).toList(),
-  //       ),
-  //     ),
-  //   );
-  // }
 
   void _confirmLogout() {
     final ventas = context.read<VentasProvider>();
@@ -784,14 +661,14 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                 );
               }
             },
-            child: const Text('Cerrar sesión', style: TextStyle(color: Colors.red)),
+            child: Text('Cerrar sesión', style: TextStyle(color: context.colors.negative)),
           ),
         ],
       ),
     );
   }
 
-  /// Agregar 1 unidad al carrito desde el icono de acceso rápido (buscador).
+  /// Agregar 1 unidad al carrito desde el botón "+" del catálogo.
   Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
     final productosProvider = context.read<ProductosProvider>();
     final isOnline = context.read<SyncProvider>().isOnline;
@@ -812,7 +689,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         AppSnackBar.show(
           context,
           content: const Text('Sin stock'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: context.colors.caution,
         );
       }
       return;
@@ -829,7 +706,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       AppSnackBar.show(
         context,
         content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
-        backgroundColor: AppColors.success,
+        backgroundColor: context.colors.positive,
         duration: const Duration(seconds: 1),
       );
       if (offlineMode &&
@@ -841,189 +718,133 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
         AppSnackBar.show(
           context,
           content: const Text('Sin stock local — se validará al sincronizar'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: context.colors.caution,
           duration: const Duration(seconds: 2),
         );
       }
     }
   }
 
-  void _showAddToCartDialog(BuildContext context, ProductoModel producto) {
-    final productosProvider = context.read<ProductosProvider>();
+  void _showQuantitySheet(BuildContext context, ProductoModel producto) {
     final isOnline = context.read<SyncProvider>().isOnline;
-    final offlineMode = !isOnline;
-    final cart = context.read<CartProvider>().activeCart;
-    final cantidadEnCarrito = cart?.items
-            .where((i) => i.productoTiendaId == producto.id)
-            .fold<double>(0, (s, i) => s + i.cantidad) ??
-        0;
-    final maxDisp = ProductoPosRules.getMaxQuantity(
-      producto,
-      productosProvider.allProductos,
-      cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+    QuantitySheet.show(context, producto: producto, isOnline: isOnline);
+  }
+}
+
+/// Chips de categoría (34px, pill): filtran la lista de resultados en el
+/// propio `ProductosProvider`, en vez de navegar a otra pantalla.
+class _CategoriaChips extends StatefulWidget {
+  final ProductosProvider productosProvider;
+
+  const _CategoriaChips({required this.productosProvider});
+
+  @override
+  State<_CategoriaChips> createState() => _CategoriaChipsState();
+}
+
+class _CategoriaChipsState extends State<_CategoriaChips> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // El trackpad/rueda del mouse en escritorio manda el gesto en el eje
+  // vertical aunque la lista sea horizontal; sin esto, la barra de
+  // categorías no responde al scroll (solo al arrastre táctil).
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_scrollController.hasClients) return;
+    final delta = event.scrollDelta.dx.abs() > event.scrollDelta.dy.abs()
+        ? event.scrollDelta.dx
+        : event.scrollDelta.dy;
+    final position = _scrollController.position;
+    final target = (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
     );
-    if (!offlineMode && maxDisp <= 0) return;
-    final initialQty = producto.permiteDecimal ? 0.1 : 1.0;
-    final controller = TextEditingController(
-      text: initialQty.toStringAsFixed(producto.permiteDecimal ? 1 : 0),
-    );
+    _scrollController.jumpTo(target);
+  }
 
-    String stockLabel() => ProductoPosRules.textoStockEnDialogo(
-          producto,
-          productosProvider.allProductos,
-          cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: offlineMode,
-        );
+  ProductosProvider get productosProvider => widget.productosProvider;
 
-    HardwareScannerGate.instance.block('product_dialog');
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) {
-          double? parseQty() {
-            final v = double.tryParse(controller.text.replaceAll(',', '.'));
-            if (v == null) return null;
-            return producto.permiteDecimal
-                ? double.tryParse(v.toStringAsFixed(2))
-                : v.roundToDouble().toDouble();
-          }
+  @override
+  Widget build(BuildContext context) {
+    final categoriasConProductos = productosProvider.categorias
+        .where((c) => productosProvider.allProductos.any((p) => p.categoriaId == c.id))
+        .toList();
 
-          void adjustQty(double delta) {
-            final current = parseQty() ?? initialQty;
-            var next = current + delta;
-            if (producto.permiteDecimal) {
-              next = (next * 100).round() / 100;
-              if (next < 0.1) next = 0.1;
-            } else {
-              next = next.roundToDouble();
-              if (next < 1) next = 1;
-            }
-            if (maxDisp.isFinite && next > maxDisp) next = maxDisp;
-            controller.text =
-                next.toStringAsFixed(producto.permiteDecimal ? 2 : 0);
-            setState(() {});
-          }
+    if (categoriasConProductos.isEmpty) return const SizedBox.shrink();
 
-          return AlertDialog(
-            title: Text(ProductoPosRules.nombreParaMostrar(producto)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                MultiCurrencyAmount(
-                  amount: context.read<MonedasProvider>().precioEnBase(
-                        producto.precio,
-                        producto.monedaPrecioCode,
-                      ),
-                  variant: MultiCurrencyVariant.total,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  stockLabel(),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  keyboardType: producto.permiteDecimal
-                      ? const TextInputType.numberWithOptions(decimal: true)
-                      : TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Cantidad',
-                    border: OutlineInputBorder(),
-                  ),
-                  autofocus: true,
-                  onChanged: (_) => setState(() {}),
-                ),
-                if (producto.permiteDecimal) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      ...([0.01, 0.1, 0.5, 1, 10, 50, 100]
-                          .map((d) => ActionChip(
-                                label: Text('+$d'),
-                                onPressed: () => adjustQty(d.toDouble()),
-                              ))),
-                      ...([-0.01, -0.1, -0.5, -1, -10, -50, -100]
-                          .map((d) => ActionChip(
-                                label: Text('$d'),
-                                onPressed: () => adjustQty(d.toDouble()),
-                              ))),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar'),
+    final colors = context.colors;
+    final seleccionada = productosProvider.selectedCategoriaId;
+
+    Widget chip(String label, {required bool selected, required VoidCallback onTap}) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: selected,
+          onSelected: (_) => onTap(),
+          showCheckmark: false,
+          labelStyle: TextStyle(
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: selected ? Colors.white : colors.textSecondary,
+          ),
+          backgroundColor: colors.sunken,
+          selectedColor: colors.accent,
+          shape: const StadiumBorder(),
+          side: BorderSide.none,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 34 + 16,
+      child: Listener(
+        onPointerSignal: _handlePointerSignal,
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              ...ScrollConfiguration.of(context).dragDevices,
+              PointerDeviceKind.mouse,
+            },
+          ),
+          child: ListView(
+            controller: _scrollController,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            children: [
+              chip(
+                'Todas',
+                selected: seleccionada == null,
+                onTap: () => productosProvider.filterByCategoria(null),
               ),
-              ElevatedButton(
-                onPressed: () async {
-                  var cantidad = parseQty();
-                  if (cantidad == null || cantidad <= 0) return;
-                  if (producto.permiteDecimal) {
-                    cantidad = double.parse(cantidad.toStringAsFixed(2));
-                  }
-                  if (maxDisp.isFinite && cantidad > maxDisp) return;
-
-                  Navigator.pop(ctx);
-                  final ok = await context.read<CartProvider>().addToCart(
-                        producto,
-                        cantidad: cantidad,
-                        allProductos: productosProvider.allProductos,
-                        isOnline: isOnline,
-                      );
-                  if (!context.mounted) return;
-                  if (ok) {
-                    AppSnackBar.show(
-                      context,
-                      content: Text(
-                          '${ProductoPosRules.nombreParaMostrar(producto)} x$cantidad agregado'),
-                      backgroundColor: AppColors.success,
-                      duration: const Duration(seconds: 1),
-                    );
-                  } else {
-                    AppSnackBar.show(
-                      context,
-                      content: const Text(
-                          'Cantidad supera el máximo disponible'),
-                      backgroundColor: AppColors.error,
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  foregroundColor: Colors.white,
+              for (final CategoriaModel categoria in categoriasConProductos)
+                chip(
+                  categoria.nombre.trim(),
+                  selected: seleccionada == categoria.id,
+                  onTap: () => productosProvider.filterByCategoria(categoria.id),
                 ),
-                child: const Text('Agregar'),
-              ),
             ],
-          );
-        },
+          ),
+        ),
       ),
-    ).whenComplete(
-      () => HardwareScannerGate.instance.unblock('product_dialog'),
     );
   }
 }
 
-/// Lista de resultados de búsqueda por nombre (tiempo real)
-class _BuildSearchResults extends StatelessWidget {
-  final String query;
+/// Catálogo unificado: filas de 72px con nombre + stock a la izquierda,
+/// precio + conversiones + "+" a la derecha (Dirección B "Pulgar").
+class _CatalogoResultados extends StatelessWidget {
   final ProductosProvider productosProvider;
   final void Function(BuildContext context, ProductoModel product) onProductTap;
   final void Function(BuildContext context, ProductoModel product) onQuickAdd;
 
-  const _BuildSearchResults({
-    required this.query,
+  const _CatalogoResultados({
     required this.productosProvider,
     required this.onProductTap,
     required this.onQuickAdd,
@@ -1031,7 +852,7 @@ class _BuildSearchResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final results = productosProvider.searchByName(query, limit: 15);
+    final results = productosProvider.productos;
     final monedas = context.watch<MonedasProvider>();
     final isOnline = context.watch<SyncProvider>().isOnline;
     final offlineMode = !isOnline;
@@ -1047,11 +868,11 @@ class _BuildSearchResults extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.search_off, size: 48, color: AppColors.textHint),
+                    Icon(Icons.search_off, size: 48, color: context.colors.textDisabled),
                     const SizedBox(height: 12),
                     Text(
-                      'Sin coincidencias para "$query"',
-                      style: TextStyle(color: AppColors.textSecondary),
+                      'Sin productos para mostrar',
+                      style: TextStyle(color: context.colors.textSecondary),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -1068,7 +889,7 @@ class _BuildSearchResults extends StatelessWidget {
 
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       itemCount: results.length,
       itemBuilder: (context, index) {
         final p = results[index];
@@ -1076,31 +897,19 @@ class _BuildSearchResults extends StatelessWidget {
                 .where((i) => i.productoTiendaId == p.id)
                 .fold<double>(0, (s, i) => s + i.cantidad) ??
             0;
-        final disponible = ProductoPosRules.disponibleParaMostrar(
-          p,
-          allProductos,
-          cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: offlineMode,
-        );
         final puedeAgregar = ProductoPosRules.puedeAgregar(
           p,
           allProductos,
           cantidadEnCarrito: cantidadEnCarrito,
           offlineMode: offlineMode,
         );
+        final enCarrito = cantidadEnCarrito > 0;
         final sinStockLocal = offlineMode &&
             !ProductoPosRules.tieneStockLocalEfectivo(
               p,
               allProductos,
               cantidadEnCarrito: cantidadEnCarrito,
             );
-        final hasStock = isOnline
-            ? disponible > 0
-            : ProductoPosRules.tieneStockLocalEfectivo(
-                p,
-                allProductos,
-                cantidadEnCarrito: cantidadEnCarrito,
-              );
         final stockText = ProductoPosRules.textoStockEnCard(
           p,
           allProductos,
@@ -1108,56 +917,69 @@ class _BuildSearchResults extends StatelessWidget {
           offlineMode: offlineMode,
         );
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          color: SinStockLocalStyles.cardColor(sinStockLocal: sinStockLocal),
-          shape: SinStockLocalStyles.cardShape(sinStockLocal: sinStockLocal),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            title: Text(
-              ProductoPosRules.nombreParaMostrar(p),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: (!isOnline || hasStock) ? null : AppColors.textSecondary,
-              ),
+        return InkWell(
+          onTap: puedeAgregar ? () => onProductTap(context, p) : null,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: AppTapTarget.rowLarge),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: enCarrito ? context.colors.accentWash : null,
+              border: Border(bottom: BorderSide(color: context.colors.border)),
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Row(
               children: [
-                if (sinStockLocal) ...[
-                  const SizedBox(height: 6),
-                  const StockLocalBadge(compact: true),
-                ],
-                const SizedBox(height: 4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        ProductoPosRules.nombreParaMostrar(p),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                      if (sinStockLocal)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 2),
+                          child: StockLocalBadge(compact: true),
+                        ),
+                      if (stockText.isNotEmpty)
+                        Text(
+                          stockText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
                 MultiCurrencyAmount(
                   amount: monedas.precioEnBase(p.precio, p.monedaPrecioCode),
                   variant: MultiCurrencyVariant.compact,
+                  textAlign: TextAlign.end,
                 ),
-                if (stockText.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      stockText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: AppTapTarget.min,
+                  height: AppTapTarget.min,
+                  child: IconButton(
+                    icon: const Icon(Icons.add),
+                    style: IconButton.styleFrom(
+                      backgroundColor: context.colors.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                     ),
+                    onPressed: puedeAgregar ? () => onQuickAdd(context, p) : null,
+                    tooltip: 'Agregar 1 al carrito',
                   ),
+                ),
               ],
             ),
-            trailing: puedeAgregar
-                ? IconButton(
-                    icon: const Icon(Icons.add_shopping_cart, color: AppColors.success),
-                    onPressed: () => onQuickAdd(context, p),
-                    tooltip: 'Agregar 1 al carrito',
-                  )
-                : null,
-            onTap: puedeAgregar ? () => onProductTap(context, p) : null,
           ),
         );
       },
