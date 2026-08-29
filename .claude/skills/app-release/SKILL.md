@@ -15,6 +15,27 @@ Tu trabajo es lo que requiere criterio: **redactar el changelog**, **pedir confi
 
 Los IDs de Drive y las rutas de los APK están en `scripts/release_config.json`.
 
+## ⚠️ Antes de nada: commitea el trabajo
+
+`release.py commit` **no commitea la release**: solo sube el bump de versión, porque tiene la lista
+fija `tracked = ["lib/core/constants/app_constants.dart", "pubspec.yaml"]`. Todo lo demás que esté
+sin commitear se compila igual dentro del APK, pero **no queda en git**.
+
+Así se publicó la 1.1.15: su commit dice "nuevo icono y splash con la marca morada, panel de carrito
+en tablets" y contiene únicamente los dos archivos de versión. El APK que quedó en Drive se
+construyó desde código que no estaba en el repo.
+
+Por eso, **antes del paso 0**:
+
+```bash
+git status --short
+```
+
+Si hay algo sin commitear, **para y commitéalo primero** (pregunta al usuario si no está claro qué
+entra). Recién con el working tree limpio arranca el release. Beneficio secundario: `plan` (paso 1)
+deriva el changelog de los commits desde el último bump, así que si el trabajo no está commiteado el
+changelog sale vacío o incompleto.
+
 ## 0 — Comprobar el acceso a Drive
 
 ```bash
@@ -76,6 +97,9 @@ python3 scripts/release.py publish --changelog build/changelog.json
 python3 scripts/release.py report
 ```
 
+- `commit` sube **solo el bump de versión** (`app_constants.dart` y `pubspec.yaml`), no el trabajo de
+  la release — ese ya debe estar commiteado desde antes (ver el aviso del principio). El mensaje
+  resume la release para dar contexto, pero no describe lo que ese commit contiene.
 - El mensaje de commit es **texto descriptivo en español**, no conventional commits.
   Estilo: `Sube la version a 1.1.14: se arregla la sincronizacion offline y se mejora el escaner`.
 - `build` es el **único paso que aborta el release** si falla — surface el error y para.
