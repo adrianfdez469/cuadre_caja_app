@@ -4,20 +4,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/barcode_scan_processor.dart';
-import '../services/hardware_scanner_gate.dart';
 
 const _hardwareScanIdleMs = 100;
 
 /// Escucha teclas HID globales (pistola BT/USB) mientras el POS está activo.
+///
+/// El handler de `HardwareKeyboard` es global de proceso, así que sigue vivo
+/// aunque le empujen rutas encima a la pantalla que monta este widget. Para
+/// que un escaneo no modifique el carrito de forma invisible desde otra
+/// pantalla, el listener solo actúa mientras **su propia ruta está al frente**
+/// (ver [_esRutaActual]). Una pantalla que quiera soportar la pistola se
+/// apunta montando este widget; el resto queda protegido por defecto.
 class HardwareScannerListener extends StatefulWidget {
   const HardwareScannerListener({
     super.key,
     required this.enabled,
     required this.child,
+    this.onScanOverride,
   });
 
   final bool enabled;
   final Widget child;
+
+  /// Solo para tests: reemplaza el procesamiento del código escaneado, que en
+  /// producción necesita los providers y la DI completos.
+  final void Function(BuildContext context, String code)? onScanOverride;
 
   @override
   State<HardwareScannerListener> createState() => _HardwareScannerListenerState();
@@ -27,11 +38,26 @@ class _HardwareScannerListenerState extends State<HardwareScannerListener> {
   final StringBuffer _buffer = StringBuffer();
   Timer? _idleTimer;
 
+  /// Ruta que contiene a este listener. Se toma en [didChangeDependencies]
+  /// porque `ModalRoute.of` registra una dependencia y no puede llamarse desde
+  /// el handler de teclas.
+  ModalRoute<dynamic>? _route;
+
   @override
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  /// `false` en cuanto hay cualquier ruta encima: otra pantalla, un
+  /// `showModalBottomSheet`, un `showDialog` o un menú emergente.
+  bool get _esRutaActual => _route?.isCurrent ?? true;
 
   @override
   void dispose() {
@@ -64,8 +90,13 @@ class _HardwareScannerListenerState extends State<HardwareScannerListener> {
     final code = _buffer.toString().trim();
     _clearBuffer();
     if (code.isEmpty || !mounted || !widget.enabled) return;
-    if (!HardwareScannerGate.instance.isEnabled) return;
+    if (!_esRutaActual) return;
 
+    final override = widget.onScanOverride;
+    if (override != null) {
+      override(context, code);
+      return;
+    }
     unawaited(BarcodeScanProcessor.processHardwareScan(context, code));
   }
 
@@ -85,7 +116,7 @@ class _HardwareScannerListenerState extends State<HardwareScannerListener> {
   }
 
   bool _handleKeyEvent(KeyEvent event) {
-    if (!widget.enabled || !HardwareScannerGate.instance.isEnabled) {
+    if (!widget.enabled || !_esRutaActual) {
       _clearBuffer();
       return false;
     }

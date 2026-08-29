@@ -4,8 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/sync_provider.dart';
-import '../../../providers/theme_mode_provider.dart';
-import '../../version_screen.dart';
+import '../../../widgets/action_row.dart';
 import 'accounts_sheet.dart';
 import '../productos_vendidos_screen.dart';
 import '../punto_de_partida_screen.dart';
@@ -20,29 +19,25 @@ class PosActionsSheet {
   static Future<void> show(
     BuildContext context, {
     required VoidCallback onSync,
-    required VoidCallback onLogout,
   }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) =>
-          _PosActionsSheetContent(onSync: onSync, onLogout: onLogout),
+      builder: (_) => _PosActionsSheetContent(onSync: onSync),
     );
   }
 }
 
 class _PosActionsSheetContent extends StatelessWidget {
   final VoidCallback onSync;
-  final VoidCallback onLogout;
 
-  const _PosActionsSheetContent({required this.onSync, required this.onLogout});
+  const _PosActionsSheetContent({required this.onSync});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final syncProvider = context.watch<SyncProvider>();
     final cartProvider = context.watch<CartProvider>();
-    final themeModeProvider = context.watch<ThemeModeProvider>();
 
     return SafeArea(
       child: ConstrainedBox(
@@ -67,7 +62,7 @@ class _PosActionsSheetContent extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _ActionRow(
+                    ActionRow(
                       icon: Icons.sync,
                       title: 'Sincronizar',
                       subtitle: syncProvider.lastMessage.isNotEmpty
@@ -80,7 +75,7 @@ class _PosActionsSheetContent extends StatelessWidget {
                         onSync();
                       },
                     ),
-                    _ActionRow(
+                    ActionRow(
                       icon: Icons.people_outline,
                       title: 'Cuentas abiertas',
                       subtitle:
@@ -96,7 +91,7 @@ class _PosActionsSheetContent extends StatelessWidget {
                         AccountsSheet.show(context);
                       },
                     ),
-                    _ActionRow(
+                    ActionRow(
                       icon: Icons.receipt_long,
                       title: 'Ventas y sincronizaciones',
                       onTap: () {
@@ -109,7 +104,7 @@ class _PosActionsSheetContent extends StatelessWidget {
                         );
                       },
                     ),
-                    _ActionRow(
+                    ActionRow(
                       icon: Icons.shopping_bag,
                       title: 'Productos Vendidos',
                       onTap: () {
@@ -122,7 +117,7 @@ class _PosActionsSheetContent extends StatelessWidget {
                         );
                       },
                     ),
-                    _ActionRow(
+                    ActionRow(
                       icon: Icons.flag,
                       title: 'Punto de partida',
                       onTap: () {
@@ -135,126 +130,11 @@ class _PosActionsSheetContent extends StatelessWidget {
                         );
                       },
                     ),
-                    _ActionRow(
-                      icon: themeModeProvider.isDarkMode
-                          ? Icons.dark_mode
-                          : Icons.light_mode_outlined,
-                      title: 'Modo oscuro',
-                      subtitle: themeModeProvider.isDarkMode ? 'Activado' : 'Desactivado',
-                      trailing: Switch(
-                        value: themeModeProvider.isDarkMode,
-                        activeTrackColor: colors.accent,
-                        onChanged: (v) => themeModeProvider.setDarkMode(v),
-                      ),
-                      onTap: () =>
-                          themeModeProvider.setDarkMode(!themeModeProvider.isDarkMode),
-                    ),
-                    _ActionRow(
-                      icon: Icons.info_outline,
-                      title: 'Versión',
-                      onTap: () {
-                        Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const VersionScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    _ActionRow(
-                      icon: Icons.logout,
-                      title: 'Cerrar sesión',
-                      iconColor: colors.negative,
-                      onTap: () {
-                        Navigator.pop(context);
-                        onLogout();
-                      },
-                    ),
                     const SizedBox(height: 8),
                   ],
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final Color? iconColor;
-  final VoidCallback onTap;
-
-  const _ActionRow({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.iconColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 64),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: colors.border)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: colors.sunken,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Icon(
-                icon,
-                size: 20,
-                color: iconColor ?? colors.textPrimary,
-              ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (trailing != null) trailing!,
           ],
         ),
       ),

@@ -34,6 +34,17 @@ class Formatters {
     return number.toStringAsFixed(decimals);
   }
 
+  /// Unidades del carrito con su sustantivo: "1 artículo", "12 artículos",
+  /// "1.5 artículos" (hay productos que se venden por peso o fracción).
+  ///
+  /// Cuenta unidades reales, no líneas: 3 × un mismo producto son "3 artículos".
+  static String formatUnidades(double unidades) {
+    final cantidad = unidades == unidades.roundToDouble()
+        ? unidades.toInt().toString()
+        : unidades.toStringAsFixed(1);
+    return '$cantidad ${unidades == 1 ? 'artículo' : 'artículos'}';
+  }
+
   /// Monto con símbolo de moneda o código (ej. US$10.00 o 10.00 EUR).
   static String formatMonedaAmount(
     double amount, {

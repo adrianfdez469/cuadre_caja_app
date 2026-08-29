@@ -63,10 +63,20 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.point_of_sale,
-              size: 80,
-              color: colors.accent,
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: colors.accent,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              child: Center(
+                child: Image.asset(
+                  'assets/branding/logo_mark.png',
+                  width: 32,
+                  height: 32,
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             Text(
@@ -78,7 +88,14 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ),
             const SizedBox(height: 32),
-            CircularProgressIndicator(color: colors.accent),
+            SizedBox(
+              width: 140,
+              child: LinearProgressIndicator(
+                color: colors.accent,
+                backgroundColor: colors.sunken,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
           ],
         ),
       ),

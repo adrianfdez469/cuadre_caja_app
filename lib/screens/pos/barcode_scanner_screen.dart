@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../services/hardware_scanner_gate.dart';
 import '../../services/scan_audio_service.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/constants/storage_keys.dart';
@@ -122,7 +121,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   @override
   void initState() {
     super.initState();
-    HardwareScannerGate.instance.block('camera');
     _loadAutoScanPreference();
 
     _pulseController = AnimationController(
@@ -320,7 +318,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
 
   @override
   void dispose() {
-    HardwareScannerGate.instance.unblock('camera');
     _detectionTimer?.cancel();
     _autoScanCooldown?.cancel();
     _highlightTimer?.cancel();

@@ -22,14 +22,16 @@ import '../../providers/sync_provider.dart';
 import '../../providers/monedas_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
-import '../../services/hardware_scanner_gate.dart';
+import '../../core/utils/app_route_observer.dart';
 import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import '../../widgets/stock_local_badge.dart';
 import '../login_screen.dart';
 import 'barcode_scanner_screen.dart';
+import 'cart_items_screen.dart' show CartPanel;
 import '../version_screen.dart';
 import 'widgets/pos_actions_sheet.dart';
+import 'widgets/user_menu_sheet.dart';
 import 'widgets/pos_checkout_bar.dart';
 import 'widgets/quantity_sheet.dart';
 
@@ -40,7 +42,7 @@ class POSHomeScreen extends StatefulWidget {
   State<POSHomeScreen> createState() => _POSHomeScreenState();
 }
 
-class _POSHomeScreenState extends State<POSHomeScreen> {
+class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   bool _isInitialized = false;
   String? _initError;
   final _searchController = TextEditingController();
@@ -88,7 +90,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _searchFocusNode.addListener(_onSearchFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
   }
 
@@ -96,14 +97,16 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scaffoldMessenger = ScaffoldMessenger.of(context);
+    final route = ModalRoute.of(context);
+    if (route != null) appRouteObserver.subscribe(this, route);
   }
 
-  void _onSearchFocusChanged() {
-    if (_searchFocusNode.hasFocus) {
-      HardwareScannerGate.instance.block('search');
-    } else {
-      HardwareScannerGate.instance.unblock('search');
-    }
+  /// Al abrirse algo encima (el carrito, un modal, otra pantalla) se suelta el
+  /// foco del buscador. Si no, al cerrarlo Flutter restaura el foco de esta
+  /// ruta y el teclado se vuelve a levantar solo.
+  @override
+  void didPushNext() {
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   Future<void> _initialize() async {
@@ -341,12 +344,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _scaffoldMessenger?.clearMaterialBanners();
     context.read<SyncProvider>().stopMonitoring();
-    _searchFocusNode.removeListener(_onSearchFocusChanged);
     _searchFocusNode.dispose();
     _searchController.dispose();
-    HardwareScannerGate.instance.unblock('search');
     super.dispose();
   }
 
@@ -387,22 +389,47 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       });
     }
 
+    // Tablet (≥600dp): catálogo + panel de carrito/cobro fijo a la derecha,
+    // en vez de barra de cobro inferior + `CartItemsScreen` a pantalla
+    // completa (`rediseno/pos.html` del Design System 4).
+    final isTablet = MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+    final showCartPanel =
+        isTablet && _isInitialized && periodoProvider.hasActivePeriodo;
+
+    final body = _buildBody(
+      productosProvider,
+      periodoProvider,
+      syncProvider,
+      auth: auth,
+      ventasProvider: ventasProvider,
+      colors: colors,
+    );
+
     return HardwareScannerListener(
       enabled: _isInitialized && periodoProvider.hasActivePeriodo,
       child: Scaffold(
         body: SafeArea(
           top: true,
           bottom: false,
-          child: _buildBody(
-            productosProvider,
-            periodoProvider,
-            syncProvider,
-            auth: auth,
-            ventasProvider: ventasProvider,
-            colors: colors,
-          ),
+          child: showCartPanel
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: body),
+                    Container(
+                      width: 400,
+                      decoration: BoxDecoration(
+                        color: colors.raised,
+                        border: Border(left: BorderSide(color: colors.border)),
+                      ),
+                      child: const CartPanel(),
+                    ),
+                  ],
+                )
+              : body,
         ),
-        bottomNavigationBar: _isInitialized &&
+        bottomNavigationBar: !showCartPanel &&
+                _isInitialized &&
                 periodoProvider.hasActivePeriodo &&
                 cartProvider.activeItemCount > 0
             ? const PosCheckoutBar()
@@ -424,40 +451,86 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
       color: colors.raised,
       height: kToolbarHeight,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  auth.negocioNombre.isNotEmpty
-                      ? '${auth.negocioNombre} · ${auth.tiendaNombre}'
-                      : auth.tiendaNombre,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // El ícono de marca solo entra si el ancho disponible (en tablet,
+          // el de la columna de catálogo, no el de la pantalla completa)
+          // deja espacio de sobra para él sin apretar el nombre ni el avatar.
+          final showLogo = constraints.maxWidth >= 340;
+          return Row(
+            children: [
+              if (showLogo) ...[
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: colors.accent,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: Center(
+                    child: Image.asset(
+                      'assets/branding/logo_mark.png',
+                      width: 16,
+                      height: 16,
+                    ),
+                  ),
                 ),
-                Text(
-                  _statusSubtitle(syncProvider, ventasProvider),
-                  style: TextStyle(fontSize: 11, color: colors.textSecondary),
-                ),
+                const SizedBox(width: 10),
               ],
-            ),
-          ),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: colors.accent,
-            child: Text(
-              _initials(auth.usuario?.nombre ?? ''),
-              style: TextStyle(
-                color: colors.onAccent,
-                fontSize: 12.5,
-                fontWeight: FontWeight.bold,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      auth.negocioNombre.isNotEmpty
+                          ? '${auth.negocioNombre} · ${auth.tiendaNombre}'
+                          : auth.tiendaNombre,
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _statusSubtitle(syncProvider, ventasProvider),
+                      style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
+              Tooltip(
+                message: 'Cuenta',
+                child: Semantics(
+                  button: true,
+                  excludeSemantics: true,
+                  label: 'Cuenta: modo oscuro, versión y cerrar sesión.',
+                  child: InkWell(
+                    onTap: () => UserMenuSheet.show(context, onLogout: _confirmLogout),
+                    customBorder: const CircleBorder(),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: AppTapTarget.min,
+                        minHeight: AppTapTarget.min,
+                      ),
+                      child: Center(
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: colors.accent,
+                          child: Text(
+                            _initials(auth.usuario?.nombre ?? ''),
+                            style: TextStyle(
+                              color: colors.onAccent,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -590,7 +663,6 @@ class _POSHomeScreenState extends State<POSHomeScreen> {
                               onPressed: () => PosActionsSheet.show(
                                 context,
                                 onSync: _performSync,
-                                onLogout: _confirmLogout,
                               ),
                               icon: const Icon(Icons.more_horiz),
                               tooltip: 'Acciones del POS',
@@ -1003,6 +1075,19 @@ class _CatalogoResultados extends StatelessWidget {
           offlineMode: offlineMode,
         );
 
+        final precioBase = monedas.precioEnBase(p.precio, p.monedaPrecioCode);
+        final altLines = MultiCurrencyAmount.alternativeLines(
+          context,
+          amount: precioBase,
+          variant: MultiCurrencyVariant.compact,
+          textAlign: TextAlign.end,
+        );
+        final hasAlts = altLines.isNotEmpty;
+        // Todas las conversiones menos la última van arriba, junto al
+        // precio; la última comparte fila con "Cant" (ver abajo).
+        final topAltLines = hasAlts ? altLines.sublist(0, altLines.length - 1) : const <Widget>[];
+        final lastAltLine = hasAlts ? altLines.last : null;
+
         return InkWell(
           onTap: puedeAgregar ? () => onProductTap(context, p) : null,
           child: Container(
@@ -1012,59 +1097,121 @@ class _CatalogoResultados extends StatelessWidget {
               color: enCarrito ? context.colors.accentWash : null,
               border: Border(bottom: BorderSide(color: context.colors.border)),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        ProductoPosRules.nombreParaMostrar(p),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 2),
-                      if (sinStockLocal)
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 2),
-                          child: StockLocalBadge(compact: true),
+            // `IntrinsicHeight` le da a la fila una altura concreta (la que
+            // pida el contenido) para que `stretch` pueda repartirla entre
+            // el botón, el precio centrado (sin conversiones) y la columna
+            // de texto, en vez de necesitar una altura ya fijada por fuera.
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Nombre y precio en la misma línea, para que el
+                        // nombre llegue hasta el precio en vez de quedar en
+                        // una columna angosta con espacio vacío de por
+                        // medio. Sin conversiones, el precio se muestra
+                        // centrado aparte (ver más abajo) y esta fila lleva
+                        // solo el nombre.
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                ProductoPosRules.nombreParaMostrar(p),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (hasAlts) ...[
+                              const SizedBox(width: 8),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  MultiCurrencyAmount.primaryOnly(
+                                    context,
+                                    amount: precioBase,
+                                    variant: MultiCurrencyVariant.compact,
+                                    textAlign: TextAlign.end,
+                                  ),
+                                  if (topAltLines.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    ...topAltLines,
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
-                      if (stockText.isNotEmpty)
-                        Text(
-                          stockText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
+                        if (sinStockLocal)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 2),
+                            child: StockLocalBadge(compact: true),
+                          ),
+                        // "Cant" y la última conversión comparten esta fila,
+                        // que por el `spaceBetween` de arriba siempre cae en
+                        // el borde inferior — el mismo al que se ancla el
+                        // botón "+".
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: stockText.isNotEmpty
+                                  ? Text(
+                                      stockText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                            if (lastAltLine != null) ...[
+                              const SizedBox(width: 8),
+                              lastAltLine,
+                            ],
+                          ],
                         ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                MultiCurrencyAmount(
-                  amount: monedas.precioEnBase(p.precio, p.monedaPrecioCode),
-                  variant: MultiCurrencyVariant.compact,
-                  textAlign: TextAlign.end,
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: AppTapTarget.min,
-                  height: AppTapTarget.min,
-                  child: IconButton(
-                    icon: const Icon(Icons.add),
-                    style: IconButton.styleFrom(
-                      backgroundColor: context.colors.accent,
-                      foregroundColor: context.colors.onAccent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
+                  if (!hasAlts) ...[
+                    const SizedBox(width: 8),
+                    Center(
+                      child: MultiCurrencyAmount.primaryOnly(
+                        context,
+                        amount: precioBase,
+                        variant: MultiCurrencyVariant.compact,
+                        textAlign: TextAlign.end,
                       ),
                     ),
-                    onPressed: puedeAgregar ? () => onQuickAdd(context, p) : null,
-                    tooltip: 'Agregar 1 al carrito',
+                  ],
+                  const SizedBox(width: 8),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: SizedBox(
+                      width: AppTapTarget.min,
+                      height: AppTapTarget.min,
+                      child: IconButton(
+                        icon: const Icon(Icons.add),
+                        style: IconButton.styleFrom(
+                          backgroundColor: context.colors.accent,
+                          foregroundColor: context.colors.onAccent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
+                        ),
+                        onPressed: puedeAgregar ? () => onQuickAdd(context, p) : null,
+                        tooltip: 'Agregar 1 al carrito',
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

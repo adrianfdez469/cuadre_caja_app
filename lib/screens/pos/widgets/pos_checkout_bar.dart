@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
@@ -29,6 +30,17 @@ class PosCheckoutBar extends StatelessWidget {
     final items = activeCart?.items ?? const <CartItemModel>[];
     final total = monedas.cartTotal(items);
     final habilitado = items.isNotEmpty;
+    // Unidades reales (no líneas distintas): 3 × un producto son 3 artículos.
+    final totalUnidades = activeCart?.unidadesCount ?? 0;
+    // Solo el número, para el badge del ícono de carrito.
+    final totalUnidadesNumero = totalUnidades == totalUnidades.roundToDouble()
+        ? totalUnidades.toInt().toString()
+        : totalUnidades.toStringAsFixed(1);
+    final totalUnidadesLabel = Formatters.formatUnidades(totalUnidades);
+    // Borde resaltado y texto/ícono de mayor contraste que el fondo
+    // translúcido anterior, para los 3 controles de esta fila.
+    final borderColor = colors.onInverse.withValues(alpha: 0.4);
+    final contrastColor = colors.onInverse;
 
     return Container(
       color: colors.inverse,
@@ -54,8 +66,8 @@ class PosCheckoutBar extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: colors.onInverseMuted.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(AppRadius.sm),
+                              border: Border.all(color: borderColor),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -63,11 +75,11 @@ class PosCheckoutBar extends StatelessWidget {
                                 Flexible(
                                   child: Text(
                                     'A cobrar · ${activeCart?.nombre ?? '-'}',
-                                    style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
+                                    style: TextStyle(fontSize: 11.5, color: contrastColor),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                Icon(Icons.expand_more, size: 16, color: colors.onInverseMuted),
+                                Icon(Icons.expand_more, size: 16, color: contrastColor),
                               ],
                             ),
                           ),
@@ -76,51 +88,40 @@ class PosCheckoutBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (items.isNotEmpty)
-                  Tooltip(
-                    message: 'Vaciar carrito',
-                    child: Semantics(
-                      button: true,
-                      excludeSemantics: true,
-                      label: 'Vaciar carrito',
-                      child: InkWell(
-                        onTap: () => confirmClearCart(
-                          context,
-                          cartProvider,
-                          cartProvider.activeCartIndex,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minWidth: AppTapTarget.min,
-                            minHeight: AppTapTarget.min,
-                          ),
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: colors.onInverseMuted.withValues(alpha: 0.14),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.remove_shopping_cart_outlined,
-                                size: 16,
-                                color: colors.onInverseMuted,
-                              ),
-                            ),
-                          ),
+                if (items.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Semantics(
+                    button: true,
+                    excludeSemantics: true,
+                    label: 'Vaciar carrito',
+                    child: TextButton.icon(
+                      onPressed: () => confirmClearCart(
+                        context,
+                        cartProvider,
+                        cartProvider.activeCartIndex,
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: contrastColor,
+                        minimumSize: const Size(0, AppTapTarget.min),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        side: BorderSide(color: borderColor),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                       ),
+                      icon: const Icon(Icons.remove_shopping_cart_outlined, size: 16),
+                      label: const Text('Vaciar', style: TextStyle(fontSize: 11.5)),
                     ),
                   ),
-                const SizedBox(width: 12),
+                ],
+                const SizedBox(width: 8),
                 Semantics(
                   button: true,
                   excludeSemantics: true,
-                  label: 'Ver el detalle del carrito, ${items.length} '
-                      '${items.length == 1 ? 'artículo' : 'artículos'}.',
+                  label: 'Ver el detalle del carrito, $totalUnidadesLabel.',
                   child: InkWell(
                     onTap: items.isEmpty ? null : () => showCartItemsScreen(context),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(
                         minWidth: AppTapTarget.min,
@@ -128,19 +129,41 @@ class PosCheckoutBar extends StatelessWidget {
                       ),
                       child: Center(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: colors.onInverseMuted.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: borderColor),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          child: Stack(
+                            clipBehavior: Clip.none,
                             children: [
-                              Text(
-                                '${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}',
-                                style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
-                              ),
-                              Icon(Icons.chevron_right, size: 16, color: colors.onInverseMuted),
+                              Icon(Icons.shopping_cart_outlined, size: 18, color: contrastColor),
+                              if (totalUnidades > 0)
+                                Positioned(
+                                  right: -6,
+                                  top: -6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                    decoration: BoxDecoration(
+                                      color: colors.negative,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: colors.inverse, width: 1.5),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        totalUnidadesNumero,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          height: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -187,7 +210,7 @@ class PosCheckoutBar extends StatelessWidget {
                   if (habilitado) ...[
                     const SizedBox(width: 8),
                     Text(
-                      '${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}',
+                      totalUnidadesLabel,
                       style: TextStyle(fontSize: 14, color: colors.onAccent.withValues(alpha: 0.7)),
                     ),
                   ],

@@ -9,7 +9,6 @@ import '../../../data/models/producto_model.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../providers/productos_provider.dart';
-import '../../../services/hardware_scanner_gate.dart';
 import '../../../widgets/numeric_keypad.dart';
 
 /// Hoja de cantidad compartida por la pantalla de venta y el catálogo: elegir
@@ -38,7 +37,6 @@ class QuantitySheet {
     );
     if (!offlineMode && maxDisp <= 0) return;
 
-    HardwareScannerGate.instance.block('quantity_sheet');
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -49,8 +47,6 @@ class QuantitySheet {
         maxDisp: maxDisp,
         cantidadEnCarrito: cantidadEnCarrito,
       ),
-    ).whenComplete(
-      () => HardwareScannerGate.instance.unblock('quantity_sheet'),
     );
   }
 }
@@ -86,6 +82,11 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
 
   bool get _permiteDecimal => widget.producto.permiteDecimal;
 
+  /// Paso del stepper "-"/"+": la unidad mínima manejable del producto.
+  double get _step => _permiteDecimal ? 0.1 : 1.0;
+
+  String get _stepText => _permiteDecimal ? '0.1' : '1';
+
   String get _cantidadText =>
       _cantidad.toStringAsFixed(_permiteDecimal ? 2 : 0);
 
@@ -102,10 +103,42 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
     setState(() => _cantidad = next);
   }
 
-  /// Atajo rápido: suma sobre la cantidad actual y reinicia el teclado.
+  /// Atajo rápido: suma (o resta) sobre la cantidad actual y reinicia el teclado.
   void _addQuickAmount(double delta) {
     _keypadRaw = null;
     _setCantidad(_cantidad + delta);
+  }
+
+  /// Saltos grandes de los atajos rápidos (el de a 1/0.1 lo cubre el stepper).
+  List<double> get _bigSteps => _permiteDecimal ? [1.0, 10.0, 50.0] : [10.0, 50.0, 100.0];
+
+  Widget _quickAmountChip(AppSemanticColors colors, double d, {required bool subtract}) {
+    final delta = subtract ? -d : d;
+    // El de "+" siempre se puede tocar (ya se satura solo en el máximo
+    // disponible); el de "-" se deshabilita si no queda margen para restarlo.
+    final habilitado = !subtract || (_cantidad - d) >= _step - 0.0001;
+    final label = '${subtract ? '-' : '+'}${d == d.roundToDouble() ? d.toInt() : d}';
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: OutlinedButton(
+          onPressed: habilitado ? () => _addQuickAmount(delta) : null,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(AppTapTarget.min),
+            side: BorderSide(color: colors.border),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.visible,
+          ),
+        ),
+      ),
+    );
   }
 
   void _appendDigit(String digit) {
@@ -185,8 +218,16 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                 ),
               ),
               const SizedBox(width: 12),
+              // Paso a paso ("-"/"+" de a una unidad) junto al número: los
+              // atajos de abajo solo suman, esta es la única forma de restar.
+              _StepButton(
+                icon: Icons.remove,
+                tooltip: 'Quitar $_stepText',
+                onTap: () => _addQuickAmount(-_step),
+              ),
+              const SizedBox(width: 8),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
                     _cantidadText,
@@ -208,32 +249,29 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                   ),
                 ],
               ),
+              const SizedBox(width: 8),
+              _StepButton(
+                icon: Icons.add,
+                tooltip: 'Agregar $_stepText',
+                onTap: () => _addQuickAmount(_step),
+              ),
             ],
           ),
           const SizedBox(height: 16),
+          // El paso de a 1 (o 0.1) ya lo cubre el stepper "-"/"+" de arriba;
+          // acá solo quedan los saltos grandes, de a + y de a -.
           Row(
-            children: (_permiteDecimal
-                    ? [0.1, 1.0, 10.0, 50.0]
-                    : [1.0, 10.0, 50.0, 100.0])
-                .map(
-                  (d) => Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: OutlinedButton(
-                        onPressed: () => _addQuickAmount(d),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(AppTapTarget.min),
-                          side: BorderSide(color: colors.border),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                          ),
-                        ),
-                        child: Text('+${d == d.roundToDouble() ? d.toInt() : d}'),
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
+            children: [
+              for (final d in _bigSteps)
+                _quickAmountChip(colors, d, subtract: false),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final d in _bigSteps)
+                _quickAmountChip(colors, d, subtract: true),
+            ],
           ),
           const SizedBox(height: 12),
           NumericKeypad(
@@ -283,6 +321,42 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
             child: Text('Agregar $_cantidadText'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Botón cuadrado "-"/"+" del stepper de cantidad.
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _StepButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: AppTapTarget.min,
+        height: AppTapTarget.min,
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(
+            padding: EdgeInsets.zero,
+            side: BorderSide(color: colors.border),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+          ),
+          child: Icon(icon, size: 18, color: colors.textPrimary),
+        ),
       ),
     );
   }

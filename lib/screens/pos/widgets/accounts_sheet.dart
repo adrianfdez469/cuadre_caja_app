@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
@@ -185,7 +186,7 @@ class _AccountsSheetContent extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '${cart.itemCount} artículos',
+                                  Formatters.formatUnidades(cart.unidadesCount),
                                   style: TextStyle(fontSize: 11.5, color: colors.textSecondary),
                                 ),
                               ],

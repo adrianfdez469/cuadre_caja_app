@@ -46,7 +46,15 @@ class CartModel {
   }) : items = items ?? [];
 
   double get total => items.fold(0, (sum, item) => sum + item.subtotal);
+
+  /// Número de líneas distintas del carrito (tipos de producto).
   int get itemCount => items.length;
+
+  /// Unidades reales en el carrito: suma las cantidades de cada línea, así que
+  /// 3 × un producto cuenta como 3. Es `double` porque hay productos que se
+  /// venden por peso o fracción.
+  double get unidadesCount => items.fold(0, (sum, item) => sum + item.cantidad);
+
   bool get isEmpty => items.isEmpty;
 
   Map<String, dynamic> toJson() => {

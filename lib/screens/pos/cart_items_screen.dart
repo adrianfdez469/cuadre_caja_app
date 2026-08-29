@@ -8,8 +8,10 @@ import '../../data/models/cart_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/monedas_provider.dart';
+import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/sync_provider.dart';
+import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import 'payment_modal.dart';
 import 'widgets/accounts_sheet.dart';
@@ -45,6 +47,33 @@ class CartItemsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // La pistola sigue activa acá: el carrito está a la vista y la línea
+    // escaneada se agrega arriba de la lista, así que el escaneo se ve. El
+    // listener de la pantalla de venta queda inactivo solo mientras esta ruta
+    // esté al frente, de modo que siempre hay exactamente uno escuchando.
+    return HardwareScannerListener(
+      enabled: context.watch<PeriodoProvider>().hasActivePeriodo,
+      child: Scaffold(
+        body: SafeArea(
+          child: CartPanel(onClose: () => Navigator.pop(context)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Contenido del carrito de la cuenta activa: chips de cuenta, lista de
+/// líneas y el pie de cobro. Lo usa [CartItemsScreen] (pantalla completa, con
+/// botón de cerrar) y el panel lateral fijo de la pantalla de venta en
+/// tablets (sin botón de cerrar, ya que no es una ruta que se pueda cerrar).
+class CartPanel extends StatelessWidget {
+  /// `null` oculta el botón de cerrar (uso como panel fijo, no como ruta).
+  final VoidCallback? onClose;
+
+  const CartPanel({super.key, this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.colors;
     final cartProvider = context.watch<CartProvider>();
     final monedas = context.watch<MonedasProvider>();
@@ -52,77 +81,79 @@ class CartItemsScreen extends StatelessWidget {
     final items = activeCart?.items ?? const <CartItemModel>[];
     final total = monedas.cartTotal(items);
     final habilitado = items.isNotEmpty;
+    // Unidades reales (no líneas distintas): 3 × un producto son 3 artículos.
+    final totalUnidadesLabel =
+        Formatters.formatUnidades(activeCart?.unidadesCount ?? 0);
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 36,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: cartProvider.cartCount + 1,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          if (index == cartProvider.cartCount) {
-                            return _AddAccountButton(
-                              onTap: () =>
-                                  showCreateCartDialog(context, cartProvider),
-                            );
-                          }
-                          final cart = cartProvider.carts[index];
-                          final isActive = index == cartProvider.activeCartIndex;
-                          return _AccountChip(
-                            label: cart.nombre,
-                            selected: isActive,
-                            onTap: () => cartProvider.switchCart(index),
-                          );
-                        },
-                      ),
-                    ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: cartProvider.cartCount + 1,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      if (index == cartProvider.cartCount) {
+                        return _AddAccountButton(
+                          onTap: () =>
+                              showCreateCartDialog(context, cartProvider),
+                        );
+                      }
+                      final cart = cartProvider.carts[index];
+                      final isActive = index == cartProvider.activeCartIndex;
+                      return _AccountChip(
+                        label: cart.nombre,
+                        selected: isActive,
+                        onTap: () => cartProvider.switchCart(index),
+                      );
+                    },
                   ),
-                  if (activeCart != null &&
-                      (activeCart.items.isNotEmpty ||
-                          (activeCart.isEmpty && cartProvider.cartCount > 1)))
-                    PopupMenuButton<String>(
-                      icon: Icon(Icons.more_vert, color: colors.textSecondary),
-                      onSelected: (value) {
-                        final index = cartProvider.activeCartIndex;
-                        switch (value) {
-                          case 'vaciar':
-                            confirmClearCart(context, cartProvider, index);
-                            break;
-                          case 'eliminar':
-                            confirmDeleteCart(context, cartProvider, index);
-                            break;
-                        }
-                      },
-                      itemBuilder: (_) => [
-                        if (activeCart.items.isNotEmpty)
-                          const PopupMenuItem(
-                            value: 'vaciar',
-                            child: Text('Vaciar carrito'),
-                          ),
-                        if (activeCart.isEmpty && cartProvider.cartCount > 1)
-                          PopupMenuItem(
-                            value: 'eliminar',
-                            child: Text('Eliminar carrito', style: TextStyle(color: colors.negative)),
-                          ),
-                      ],
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
+                ),
               ),
-            ),
-            Padding(
+              if (activeCart != null &&
+                  (activeCart.items.isNotEmpty ||
+                      (activeCart.isEmpty && cartProvider.cartCount > 1)))
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert, color: colors.textSecondary),
+                  onSelected: (value) {
+                    final index = cartProvider.activeCartIndex;
+                    switch (value) {
+                      case 'vaciar':
+                        confirmClearCart(context, cartProvider, index);
+                        break;
+                      case 'eliminar':
+                        confirmDeleteCart(context, cartProvider, index);
+                        break;
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    if (activeCart.items.isNotEmpty)
+                      const PopupMenuItem(
+                        value: 'vaciar',
+                        child: Text('Vaciar carrito'),
+                      ),
+                    if (activeCart.isEmpty && cartProvider.cartCount > 1)
+                      PopupMenuItem(
+                        value: 'eliminar',
+                        child: Text('Eliminar carrito', style: TextStyle(color: colors.negative)),
+                      ),
+                  ],
+                ),
+              if (onClose != null)
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: onClose,
+                ),
+            ],
+          ),
+        ),
+        Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -172,7 +203,7 @@ class CartItemsScreen extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}',
+                          totalUnidadesLabel,
                           style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
                         ),
                       ],
@@ -196,7 +227,7 @@ class CartItemsScreen extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        habilitado ? 'Cobrar ${items.length} ${items.length == 1 ? 'artículo' : 'artículos'}' : 'Cobrar',
+                        habilitado ? 'Cobrar $totalUnidadesLabel' : 'Cobrar',
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -205,8 +236,6 @@ class CartItemsScreen extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
     );
   }
 }

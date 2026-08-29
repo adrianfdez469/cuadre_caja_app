@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/di/injection.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/app_route_observer.dart';
 import 'providers/auth_provider.dart';
 import 'providers/productos_provider.dart';
 import 'providers/cart_provider.dart';
@@ -83,6 +84,7 @@ class MyApp extends StatelessWidget {
           theme: appLightTheme,
           darkTheme: appDarkTheme,
           themeMode: themeModeProvider.themeMode,
+          navigatorObservers: [appRouteObserver],
           home: const SplashScreen(),
         ),
       ),

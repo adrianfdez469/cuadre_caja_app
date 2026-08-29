@@ -21,7 +21,6 @@ import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/ventas_provider.dart';
-import '../../services/hardware_scanner_gate.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/bill_breakdown_input.dart';
 import '../../widgets/multi_currency_amount.dart';
@@ -73,16 +72,16 @@ class PaymentModal extends StatefulWidget {
   final Future<List<TransferDestinationModel>> Function(String tiendaId)?
       loadTransferDestinationsOverride;
 
-  /// Abre el modal de cobro bloqueando el escáner de hardware mientras está
-  /// visible (si no, la pistola inyecta texto en los campos de importe).
-  /// Devuelve `true` si la venta se completó.
+  /// Abre el modal de cobro. Devuelve `true` si la venta se completó.
+  ///
+  /// No hace falta silenciar la pistola a mano: al ser una ruta modal, el
+  /// listener de la pantalla de abajo se desactiva solo mientras esté visible.
   static Future<bool?> show(BuildContext context) {
-    HardwareScannerGate.instance.block('payment');
     return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const PaymentModal(),
-    ).whenComplete(() => HardwareScannerGate.instance.unblock('payment'));
+    );
   }
 
   @override

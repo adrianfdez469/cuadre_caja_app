@@ -20,6 +20,17 @@ class AppTapTarget {
   static const double rowLarge = 72; // fila de catálogo
 }
 
+/// Puntos de quiebre de layout responsive.
+class AppBreakpoints {
+  const AppBreakpoints._();
+
+  /// A partir de este ancho (dp) se considera tablet: la pantalla de venta
+  /// pasa de una columna a catálogo + panel de carrito fijo (400dp). Se usa
+  /// el umbral "expanded" de Material (no el "medium" de 600) porque el panel
+  /// no se angosta: con un ancho menor el catálogo queda demasiado recortado.
+  static const double tablet = 840;
+}
+
 /// Aplica `tabular-nums` a un [TextStyle], para cifras de importes y cantidades.
 TextStyle tabularNums(TextStyle style) {
   return style.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
@@ -122,11 +133,11 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     textDisabled: Color(0xFF9B9AA3),
   );
 
-  /// Modo oscuro: fondo casi negro tomado del Tablero C
-  /// (`pos/pos-mobile-4-variantes.html`), pero con el morado de marca de la
-  /// Dirección B como acento (no el ámbar de Tablero C) — mismo look en
-  /// claro y oscuro, solo cambia el fondo. `inverse`/`onInverse` (la barra de
-  /// cobro) son un panel oscuro con texto claro, como en claro.
+  /// Modo oscuro: superficies alineadas a `foundations/paleta.html` del
+  /// Design System 4, con el morado de marca de la Dirección B como acento
+  /// (no el ámbar del Tablero C original) — mismo look en claro y oscuro,
+  /// solo cambia el fondo. `inverse`/`onInverse` (la barra de cobro) son un
+  /// panel oscuro con texto claro, como en claro.
   static const dark = AppSemanticColors(
     accent: Color(0xFFA493E8),
     accentWash: Color(0xFF241E38),
@@ -141,15 +152,15 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     infoWash: Color(0xFF16242C),
     neutral: Color(0xFFA2A1AB),
     neutralWash: Color(0xFF232329),
-    page: Color(0xFF121316),
-    raised: Color(0xFF1D1F23),
-    sunken: Color(0xFF17191C),
-    border: Color(0xFF2E3136),
+    page: Color(0xFF141517),
+    raised: Color(0xFF1C1E20),
+    sunken: Color(0xFF111214),
+    border: Color(0xFF2A2C2F),
     borderStrong: Color(0xFF3A3D43),
     inverse: Color(0xFF17191C),
     onInverse: Color(0xFFF0EFEC),
     onInverseMuted: Color(0xFF8D9096),
-    textPrimary: Color(0xFFF0EFEC),
+    textPrimary: Color(0xFFE9E8E5),
     textSecondary: Color(0xFF8D9096),
     textDisabled: Color(0xFF7E8188),
   );
