@@ -79,6 +79,7 @@ class SecureStorageService {
     StorageKeys.authToken,
     StorageKeys.userData,
     StorageKeys.credentials,
+    StorageKeys.rememberedCredentials,
   ];
 
   Future<void> _deleteAll() async {
@@ -129,6 +130,23 @@ class SecureStorageService {
     if (data != null) return jsonDecode(data) as Map<String, dynamic>;
     return null;
   }
+
+  // --- Remembered credentials (para precargar el login, opt-in del usuario) ---
+
+  Future<void> saveRememberedCredentials(String usuario, String password) async =>
+      await _write(
+        StorageKeys.rememberedCredentials,
+        jsonEncode({'usuario': usuario, 'password': password}),
+      );
+
+  Future<Map<String, dynamic>?> getRememberedCredentials() async {
+    final data = await _read(StorageKeys.rememberedCredentials);
+    if (data != null) return jsonDecode(data) as Map<String, dynamic>;
+    return null;
+  }
+
+  Future<void> deleteRememberedCredentials() async =>
+      await _delete(StorageKeys.rememberedCredentials);
 
   // --- Clear ---
 

@@ -58,6 +58,17 @@ class AuthProvider extends ChangeNotifier {
     return false;
   }
 
+  /// Usuario/contraseña recordados para precargar el formulario de login
+  /// (null si el usuario no marcó "Recordarme" o cerró sesión explícitamente).
+  Future<Map<String, dynamic>?> getRememberedCredentials() async {
+    try {
+      return await _storageService.getRememberedCredentials();
+    } catch (e) {
+      logDebug('⚠️ Error leyendo credenciales recordadas: $e');
+      return null;
+    }
+  }
+
   /// Recarga el usuario desde el storage (útil tras refresh de token en segundo plano).
   Future<void> reloadUserFromStorage() async {
     try {
@@ -71,8 +82,16 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Login con usuario y contraseña
-  Future<bool> login(String usuario, String password) async {
+  /// Login con usuario y contraseña.
+  /// [rememberMe] controla solo el autocompletado del formulario de login en
+  /// el próximo ingreso; las credenciales para el re-login automático en
+  /// segundo plano (ver [refreshToken]) se guardan siempre, sin relación con
+  /// esta opción.
+  Future<bool> login(
+    String usuario,
+    String password, {
+    bool rememberMe = false,
+  }) async {
     _status = AuthStatus.loading;
     _errorMessage = null;
     notifyListeners();
@@ -83,6 +102,12 @@ class AuthProvider extends ChangeNotifier {
       await _storageService.saveToken(result.token);
       await _storageService.saveUser(result.user.toJson());
       await _storageService.saveCredentials(usuario, password);
+
+      if (rememberMe) {
+        await _storageService.saveRememberedCredentials(usuario, password);
+      } else {
+        await _storageService.deleteRememberedCredentials();
+      }
 
       _usuario = result.user;
       _status = AuthStatus.authenticated;

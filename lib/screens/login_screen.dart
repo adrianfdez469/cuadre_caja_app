@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_tokens.dart';
 import '../providers/auth_provider.dart';
@@ -16,6 +17,24 @@ class _LoginScreenState extends State<LoginScreen> {
   final _usuarioController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedCredentials();
+  }
+
+  Future<void> _loadRememberedCredentials() async {
+    final remembered = await context.read<AuthProvider>().getRememberedCredentials();
+    if (remembered == null || !mounted) return;
+
+    setState(() {
+      _usuarioController.text = remembered['usuario'] as String? ?? '';
+      _passwordController.text = remembered['password'] as String? ?? '';
+      _rememberMe = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -31,7 +50,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await auth.login(
       _usuarioController.text.trim(),
       _passwordController.text,
+      rememberMe: _rememberMe,
     );
+
+    TextInput.finishAutofillContext();
 
     if (success && mounted) {
       Navigator.of(context).pushReplacement(
@@ -55,10 +77,20 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.point_of_sale,
-                    size: 80,
-                    color: colors.accent,
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: colors.accent,
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
+                    child: Center(
+                      child: Image.asset(
+                        'assets/branding/logo_mark.png',
+                        width: 32,
+                        height: 32,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -79,43 +111,73 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 48),
 
-                  TextFormField(
-                    controller: _usuarioController,
-                    decoration: InputDecoration(
-                      labelText: 'Usuario',
-                      prefixIcon: const Icon(Icons.person),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
+                  AutofillGroup(
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _usuarioController,
+                          decoration: InputDecoration(
+                            labelText: 'Usuario',
+                            prefixIcon: const Icon(Icons.person),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                          ),
+                          validator: (v) => v == null || v.isEmpty
+                              ? 'Ingresa tu usuario'
+                              : null,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.username],
+                        ),
+                        const SizedBox(height: 16),
+
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: 'Contraseña',
+                            prefixIcon: const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility),
+                              onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword),
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                          ),
+                          validator: (v) => v == null || v.isEmpty
+                              ? 'Ingresa tu contraseña'
+                              : null,
+                          autofillHints: const [AutofillHints.password],
+                          onFieldSubmitted: (_) => _login(),
+                        ),
+                      ],
                     ),
-                    validator: (v) =>
-                        v == null || v.isEmpty ? 'Ingresa tu usuario' : null,
-                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 4),
+
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _rememberMe,
+                        activeColor: colors.accent,
+                        onChanged: (v) =>
+                            setState(() => _rememberMe = v ?? false),
+                      ),
+                      GestureDetector(
+                        onTap: () =>
+                            setState(() => _rememberMe = !_rememberMe),
+                        child: Text(
+                          'Recordarme',
+                          style: TextStyle(color: colors.textSecondary),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
-
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      labelText: 'Contraseña',
-                      prefixIcon: const Icon(Icons.lock),
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword
-                            ? Icons.visibility_off
-                            : Icons.visibility),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                    ),
-                    validator: (v) =>
-                        v == null || v.isEmpty ? 'Ingresa tu contraseña' : null,
-                    onFieldSubmitted: (_) => _login(),
-                  ),
-                  const SizedBox(height: 24),
 
                   if (auth.errorMessage != null)
                     Container(
