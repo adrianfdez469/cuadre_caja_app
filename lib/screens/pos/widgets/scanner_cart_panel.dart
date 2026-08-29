@@ -101,7 +101,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
               delegate: _PanelHeaderDelegate(
                 height: kScannerPanelHeaderHeight,
                 child: _buildHeader(
-                  nombreCarrito: activeCart?.nombre ?? 'Carrito',
+                  nombreCarrito: activeCart?.nombre ?? 'Cuenta',
                   items: items,
                 ),
               ),

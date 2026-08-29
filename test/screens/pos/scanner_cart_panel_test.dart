@@ -49,7 +49,7 @@ void main() {
     );
     final cartProvider = CartProvider(FakeCartLocalDataSource())
       ..debugSetActiveCart(
-        CartModel(id: 'c-1', nombre: 'Carrito 1', items: items),
+        CartModel(id: 'c-1', nombre: 'Cuenta #1', items: items),
       );
     final productosProvider = ProductosProvider(sync);
     await productosProvider.loadProductos('t1');
@@ -137,7 +137,7 @@ void main() {
   testWidgets('el encabezado nombra el carrito activo', (tester) async {
     await pumpPanel(tester, items: [item('a', 'Cerveza')]);
 
-    expect(find.text('Carrito 1'), findsOneWidget);
+    expect(find.text('Cuenta #1'), findsOneWidget);
     expect(find.text('1 ítem'), findsOneWidget);
     expect(find.text('Cobrar'), findsOneWidget);
   });

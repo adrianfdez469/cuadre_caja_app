@@ -7,16 +7,22 @@ import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
 
-/// Diálogo "Nueva cuenta", compartido por `AccountsSheet` y `CartItemsScreen`
-/// (los chips de cuenta de ambas vistas crean cuentas de la misma forma).
-void showCreateCartDialog(BuildContext context, CartProvider cartProvider) {
+/// Diálogo "Cambiar nombre", compartido por `AccountsSheet` y `CartItemsScreen`.
+/// Las cuentas se crean sin preguntar el nombre (consecutivo automático); este
+/// diálogo solo sirve para renombrar una que ya existe.
+void showRenameCartDialog(
+  BuildContext context,
+  CartProvider cartProvider,
+  int index,
+) {
+  if (index < 0 || index >= cartProvider.cartCount) return;
   final controller =
-      TextEditingController(text: 'Carrito ${cartProvider.cartCount + 1}');
+      TextEditingController(text: cartProvider.carts[index].nombre);
 
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Nueva cuenta'),
+      title: const Text('Cambiar nombre'),
       content: TextField(
         controller: controller,
         decoration: const InputDecoration(
@@ -24,6 +30,11 @@ void showCreateCartDialog(BuildContext context, CartProvider cartProvider) {
           border: OutlineInputBorder(),
         ),
         autofocus: true,
+        textCapitalization: TextCapitalization.sentences,
+        onSubmitted: (_) {
+          Navigator.pop(ctx);
+          _aplicarNombre(cartProvider, index, controller.text);
+        },
       ),
       actions: [
         TextButton(
@@ -33,18 +44,36 @@ void showCreateCartDialog(BuildContext context, CartProvider cartProvider) {
         ElevatedButton(
           onPressed: () {
             Navigator.pop(ctx);
-            cartProvider.createCart(controller.text);
+            _aplicarNombre(cartProvider, index, controller.text);
           },
-          child: const Text('Crear'),
+          child: const Text('Guardar'),
         ),
       ],
     ),
   );
 }
 
+/// Un nombre en blanco dejaría la cuenta sin etiqueta en los chips: se ignora.
+void _aplicarNombre(CartProvider cartProvider, int index, String texto) {
+  final nombre = texto.trim();
+  if (nombre.isEmpty) return;
+  cartProvider.renameCart(index, nombre);
+}
+
 /// Confirma y vacía el carrito en [index] (compartido por `AccountsSheet` y
 /// `CartItemsScreen`).
-void confirmClearCart(BuildContext context, CartProvider cartProvider, int index) {
+///
+/// Al vaciar se salta a la primera cuenta que aún tenga productos. [alVaciar]
+/// solo se llama si no quedó ninguna: ahí ya no hay nada que mirar, así que
+/// los sitios abiertos *encima* de la pantalla de venta (el detalle de la
+/// cuenta, la hoja de cuentas) lo usan para cerrarse y volver al catálogo.
+/// Desde la propia pantalla de venta se omite, porque no hay nada que cerrar.
+void confirmClearCart(
+  BuildContext context,
+  CartProvider cartProvider,
+  int index, {
+  VoidCallback? alVaciar,
+}) {
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -56,10 +85,14 @@ void confirmClearCart(BuildContext context, CartProvider cartProvider, int index
           child: const Text('Cancelar'),
         ),
         TextButton(
-          onPressed: () {
+          onPressed: () async {
             Navigator.pop(ctx);
             cartProvider.switchCart(index);
-            cartProvider.clearActiveCart();
+            await cartProvider.clearActiveCart();
+            cartProvider.selectFirstNonEmptyCart();
+            // Si el salto encontró una cuenta con venta en curso, la vista
+            // sigue teniendo algo que mostrar y no se cierra.
+            if (cartProvider.activeCart?.isEmpty ?? true) alVaciar?.call();
           },
           child: Text('Vaciar', style: TextStyle(color: context.colors.negative)),
         ),
@@ -68,15 +101,24 @@ void confirmClearCart(BuildContext context, CartProvider cartProvider, int index
   );
 }
 
-/// Confirma y elimina la cuenta en [index] (compartido por `AccountsSheet` y
-/// `CartItemsScreen`).
-void confirmDeleteCart(BuildContext context, CartProvider cartProvider, int index) {
-  final nombre = cartProvider.carts[index].nombre;
+/// Confirma y cierra la cuenta en [index] (compartido por `AccountsSheet` y
+/// `CartItemsScreen`). Se puede cerrar aunque tenga productos, por eso el
+/// diálogo dice cuántos se pierden.
+void confirmCloseCart(BuildContext context, CartProvider cartProvider, int index) {
+  if (index < 0 || index >= cartProvider.cartCount) return;
+  final cart = cartProvider.carts[index];
+  final unidades = cart.unidadesCount;
+
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Eliminar cuenta'),
-      content: Text('¿Eliminar "$nombre"?'),
+      title: const Text('Cerrar cuenta'),
+      content: Text(
+        unidades > 0
+            ? '¿Cerrar "${cart.nombre}"?\n'
+                'Se perderán sus ${Formatters.formatUnidades(unidades)}.'
+            : '¿Cerrar "${cart.nombre}"?',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),
@@ -87,7 +129,7 @@ void confirmDeleteCart(BuildContext context, CartProvider cartProvider, int inde
             Navigator.pop(ctx);
             cartProvider.deleteCart(index);
           },
-          child: Text('Eliminar', style: TextStyle(color: context.colors.negative)),
+          child: Text('Cerrar', style: TextStyle(color: context.colors.negative)),
         ),
       ],
     ),
@@ -202,24 +244,46 @@ class _AccountsSheetContent extends StatelessWidget {
                             icon: Icon(Icons.more_horiz, color: colors.textSecondary),
                             onSelected: (value) {
                               switch (value) {
-                                case 'vaciar':
-                                  confirmClearCart(context, cartProvider, index);
+                                case 'renombrar':
+                                  showRenameCartDialog(context, cartProvider, index);
                                   break;
-                                case 'eliminar':
-                                  confirmDeleteCart(context, cartProvider, index);
+                                case 'vaciar':
+                                  final navigator = Navigator.of(context);
+                                  confirmClearCart(
+                                    context,
+                                    cartProvider,
+                                    index,
+                                    // Cierra esta hoja: con la cuenta vacía se
+                                    // vuelve al catálogo.
+                                    alVaciar: () {
+                                      if (navigator.canPop()) navigator.pop();
+                                    },
+                                  );
+                                  break;
+                                case 'cerrar':
+                                  confirmCloseCart(context, cartProvider, index);
                                   break;
                               }
                             },
+                            // Misma regla que el menú de la vista ampliada: la
+                            // cuenta principal (índice 0) no se renombra ni se
+                            // cierra.
                             itemBuilder: (_) => [
+                              if (index != 0)
+                                const PopupMenuItem(
+                                  value: 'renombrar',
+                                  child: Text('Cambiar nombre'),
+                                ),
                               if (cart.items.isNotEmpty)
                                 const PopupMenuItem(
                                   value: 'vaciar',
                                   child: Text('Vaciar carrito'),
                                 ),
-                              if (cart.isEmpty && cartProvider.cartCount > 1)
+                              if (index != 0)
                                 PopupMenuItem(
-                                  value: 'eliminar',
-                                  child: Text('Eliminar', style: TextStyle(color: colors.negative)),
+                                  value: 'cerrar',
+                                  child: Text('Cerrar cuenta',
+                                      style: TextStyle(color: colors.negative)),
                                 ),
                             ],
                           ),
@@ -234,7 +298,12 @@ class _AccountsSheetContent extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ElevatedButton.icon(
-                onPressed: () => showCreateCartDialog(context, cartProvider),
+                // Crea con nombre consecutivo y cierra la hoja: el cajero queda
+                // en la pantalla de venta con la cuenta nueva ya activa.
+                onPressed: () async {
+                  await cartProvider.createNextCart();
+                  if (context.mounted) Navigator.pop(context);
+                },
                 icon: const Icon(Icons.add),
                 label: const Text('Nueva cuenta'),
                 style: ElevatedButton.styleFrom(

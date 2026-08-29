@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 7;
 
   Database? _database;
 
@@ -203,6 +203,17 @@ class DatabaseHelper {
             updatedAt INTEGER NOT NULL
           )
         ''');
+      } catch (_) {}
+    }
+    if (oldVersion < 7) {
+      // Los carritos pasaron a llamarse cuentas: 'Carrito 1' -> 'Cuenta #1'.
+      // 'Carrito ' son 8 caracteres, asi que substr(nombre, 9) deja el numero.
+      // El LIKE respeta los nombres que el usuario haya puesto a mano.
+      try {
+        await db.execute(
+          "UPDATE carritos SET nombre = 'Cuenta #' || substr(nombre, 9) "
+          "WHERE nombre LIKE 'Carrito %'",
+        );
       } catch (_) {}
     }
   }

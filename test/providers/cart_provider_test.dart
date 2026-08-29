@@ -31,7 +31,7 @@ void main() {
   (CartProvider, FakeCartLocalDataSource) build({List<CartItemModel>? items}) {
     final local = FakeCartLocalDataSource();
     final provider = CartProvider(local)
-      ..debugSetActiveCart(CartModel(id: 'c-1', nombre: 'Carrito 1', items: items));
+      ..debugSetActiveCart(CartModel(id: 'c-1', nombre: 'Cuenta #1', items: items));
     return (provider, local);
   }
 
@@ -190,6 +190,136 @@ void main() {
       await provider.updateItemCantidadById('a', 0);
 
       expect(idsDe(provider), ['b']);
+    });
+  });
+
+  /// Provider ya inicializado, con la cuenta principal creada por `init()`.
+  Future<CartProvider> conCuentas(int cuantas) async {
+    final provider = CartProvider(FakeCartLocalDataSource());
+    await provider.init('t-1');
+    for (var i = 1; i < cuantas; i++) {
+      await provider.createNextCart();
+    }
+    return provider;
+  }
+
+  List<String> nombresDe(CartProvider p) =>
+      p.carts.map((c) => c.nombre).toList();
+
+  group('nombres de cuenta', () {
+    test('init crea la cuenta principal como "Cuenta #1"', () async {
+      final provider = await conCuentas(1);
+
+      expect(nombresDe(provider), ['Cuenta #1']);
+    });
+
+    test('el consecutivo sigue al mayor existente', () async {
+      final provider = await conCuentas(3);
+
+      expect(nombresDe(provider), ['Cuenta #1', 'Cuenta #2', 'Cuenta #3']);
+      expect(provider.nextCartName(), 'Cuenta #4');
+    });
+
+    test('cerrar una cuenta del medio no reutiliza su número', () async {
+      final provider = await conCuentas(3);
+
+      await provider.deleteCart(1); // cierra "Cuenta #2"
+
+      expect(nombresDe(provider), ['Cuenta #1', 'Cuenta #3']);
+      // Con el viejo `cartCount + 1` esto daba "Cuenta #3" otra vez.
+      expect(provider.nextCartName(), 'Cuenta #4');
+
+      await provider.createNextCart();
+      expect(nombresDe(provider), ['Cuenta #1', 'Cuenta #3', 'Cuenta #4']);
+    });
+
+    test('los nombres personalizados no participan del consecutivo', () async {
+      final provider = await conCuentas(2);
+      await provider.renameCart(1, 'Mesa 4');
+
+      expect(provider.nextCartName(), 'Cuenta #2');
+    });
+
+    test('la cuenta recién creada queda activa', () async {
+      final provider = await conCuentas(2);
+
+      expect(provider.activeCartIndex, 1);
+      expect(provider.activeCart!.nombre, 'Cuenta #2');
+      expect(provider.activeCart!.isEmpty, isTrue);
+    });
+  });
+
+  group('cerrar cuenta', () {
+    test('cierra una cuenta aunque tenga productos', () async {
+      final provider = await conCuentas(2);
+      await provider.addToCart(producto('a'));
+      expect(provider.activeCart!.isEmpty, isFalse);
+
+      await provider.deleteCart(1);
+
+      expect(nombresDe(provider), ['Cuenta #1']);
+    });
+
+    test('nunca cierra la cuenta principal', () async {
+      final provider = await conCuentas(2);
+
+      await provider.deleteCart(0);
+
+      expect(nombresDe(provider), ['Cuenta #1', 'Cuenta #2']);
+    });
+
+    test('no cierra la última cuenta que queda', () async {
+      final provider = await conCuentas(1);
+
+      await provider.deleteCart(0);
+
+      expect(provider.cartCount, 1);
+    });
+  });
+
+  group('selectFirstNonEmptyCart', () {
+    test('salta a la primera cuenta con productos', () async {
+      final provider = await conCuentas(3);
+      provider.switchCart(1);
+      await provider.addToCart(producto('a'));
+      provider.switchCart(2); // activa una vacía
+
+      provider.selectFirstNonEmptyCart();
+
+      expect(provider.activeCart!.nombre, 'Cuenta #2');
+    });
+
+    test('si ninguna tiene productos se queda en la principal', () async {
+      final provider = await conCuentas(3);
+      provider.switchCart(2);
+
+      provider.selectFirstNonEmptyCart();
+
+      expect(provider.activeCart!.nombre, 'Cuenta #1');
+    });
+  });
+
+  group('onPurchaseCompleted', () {
+    test('conserva la cuenta principal aunque la hayan renombrado', () async {
+      final provider = await conCuentas(2);
+      await provider.renameCart(0, 'Mostrador');
+      provider.switchCart(0);
+      await provider.addToCart(producto('a'));
+
+      await provider.onPurchaseCompleted();
+
+      // Antes se comparaba por el nombre 'Carrito 1', así que renombrar la
+      // cuenta principal bastaba para que la venta la borrara.
+      expect(nombresDe(provider), ['Mostrador', 'Cuenta #2']);
+    });
+
+    test('cierra la cuenta vendida cuando no es la principal', () async {
+      final provider = await conCuentas(2);
+      await provider.addToCart(producto('a'));
+
+      await provider.onPurchaseCompleted();
+
+      expect(nombresDe(provider), ['Cuenta #1']);
     });
   });
 }

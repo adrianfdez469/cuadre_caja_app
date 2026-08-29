@@ -18,7 +18,7 @@ void main() {
       );
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito',
+        nombre: 'Cuenta #1',
         items: [
           CartItemModel(
             productoTiendaId: 'p1',
@@ -71,7 +71,7 @@ void main() {
       // el monto exacto de la conversión (2.50), sin redondear.
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito',
+        nombre: 'Cuenta #1',
         items: [
           CartItemModel(
             productoTiendaId: 'p1',
@@ -101,7 +101,7 @@ void main() {
       );
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito',
+        nombre: 'Cuenta #1',
         items: [
           CartItemModel(
             productoTiendaId: 'p1',
@@ -170,7 +170,7 @@ void main() {
       );
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito',
+        nombre: 'Cuenta #1',
         items: [
           CartItemModel(
             productoTiendaId: 'p1',

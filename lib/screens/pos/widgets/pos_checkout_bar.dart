@@ -9,6 +9,7 @@ import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
 import '../cart_items_screen.dart';
 import 'accounts_sheet.dart';
+import 'cobrar_button.dart';
 import '../payment_modal.dart';
 
 /// Barra de cobro fija de la pantalla de venta (Dirección B "Pulgar"): el
@@ -187,35 +188,9 @@ class PosCheckoutBar extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            ElevatedButton(
+            CobrarButton(
+              unidades: totalUnidades,
               onPressed: habilitado ? () => _cobrar(context) : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.accent,
-                foregroundColor: colors.onAccent,
-                disabledBackgroundColor: colors.onInverseMuted.withValues(alpha: 0.3),
-                minimumSize: const Size.fromHeight(AppTapTarget.comfortable),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  const Text(
-                    'Cobrar',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                  ),
-                  if (habilitado) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      totalUnidadesLabel,
-                      style: TextStyle(fontSize: 14, color: colors.onAccent.withValues(alpha: 0.7)),
-                    ),
-                  ],
-                ],
-              ),
             ),
           ],
         ),

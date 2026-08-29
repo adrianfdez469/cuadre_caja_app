@@ -19,18 +19,25 @@ class FakeSecureStorageService extends Fake implements SecureStorageService {}
 class FakeApiClient extends Fake implements ApiClient {}
 
 /// Persistencia de carritos falsa: registra las llamadas a updateCart para poder
-/// verificar que el orden de los items se guarda.
+/// verificar que el orden de los items se guarda, y mantiene los carritos en
+/// memoria para poder ejercitar `init()`, `createCart` y `deleteCart`.
 class FakeCartLocalDataSource extends Fake implements CartLocalDataSource {
   final List<CartModel> updateCalls = [];
+  final List<CartModel> stored = [];
+
+  @override
+  Future<List<CartModel>> getCarts(String tiendaId) async => List.of(stored);
 
   @override
   Future<void> updateCart(CartModel cart) async => updateCalls.add(cart);
 
   @override
-  Future<void> saveCart(String tiendaId, CartModel cart) async {}
+  Future<void> saveCart(String tiendaId, CartModel cart) async =>
+      stored.add(cart);
 
   @override
-  Future<void> deleteCart(String cartId) async {}
+  Future<void> deleteCart(String cartId) async =>
+      stored.removeWhere((c) => c.id == cartId);
 }
 
 /// Cache local de productos falsa: registra las llamadas a updateCodigos para

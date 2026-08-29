@@ -15,6 +15,7 @@ import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import 'payment_modal.dart';
 import 'widgets/accounts_sheet.dart';
+import 'widgets/cobrar_button.dart';
 
 /// Abre [CartItemsScreen] con una transición de derecha a izquierda (como un
 /// panel que entra desde el borde), en vez del `Navigator.push` con la
@@ -82,13 +83,16 @@ class CartPanel extends StatelessWidget {
     final total = monedas.cartTotal(items);
     final habilitado = items.isNotEmpty;
     // Unidades reales (no líneas distintas): 3 × un producto son 3 artículos.
-    final totalUnidadesLabel =
-        Formatters.formatUnidades(activeCart?.unidadesCount ?? 0);
+    final totalUnidades = activeCart?.unidadesCount ?? 0;
+    final totalUnidadesLabel = Formatters.formatUnidades(totalUnidades);
 
     return Column(
       children: [
-        Padding(
+        Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: colors.border)),
+          ),
           child: Row(
             children: [
               Expanded(
@@ -101,50 +105,34 @@ class CartPanel extends StatelessWidget {
                     itemBuilder: (context, index) {
                       if (index == cartProvider.cartCount) {
                         return _AddAccountButton(
-                          onTap: () =>
-                              showCreateCartDialog(context, cartProvider),
+                          // Crea con nombre consecutivo, la deja activa y
+                          // cierra la vista: se vuelve al catálogo listo para
+                          // agregarle productos.
+                          onTap: () async {
+                            await cartProvider.createNextCart();
+                            onClose?.call();
+                          },
                         );
                       }
                       final cart = cartProvider.carts[index];
-                      final isActive = index == cartProvider.activeCartIndex;
+                      // La cuenta activa despliega su menú; las demás solo
+                      // cambian de cuenta.
+                      if (index == cartProvider.activeCartIndex) {
+                        return _AccountMenu(
+                          cartProvider: cartProvider,
+                          index: index,
+                          onCerrarVista: onClose,
+                        );
+                      }
                       return _AccountChip(
                         label: cart.nombre,
-                        selected: isActive,
+                        selected: false,
                         onTap: () => cartProvider.switchCart(index),
                       );
                     },
                   ),
                 ),
               ),
-              if (activeCart != null &&
-                  (activeCart.items.isNotEmpty ||
-                      (activeCart.isEmpty && cartProvider.cartCount > 1)))
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: colors.textSecondary),
-                  onSelected: (value) {
-                    final index = cartProvider.activeCartIndex;
-                    switch (value) {
-                      case 'vaciar':
-                        confirmClearCart(context, cartProvider, index);
-                        break;
-                      case 'eliminar':
-                        confirmDeleteCart(context, cartProvider, index);
-                        break;
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    if (activeCart.items.isNotEmpty)
-                      const PopupMenuItem(
-                        value: 'vaciar',
-                        child: Text('Vaciar carrito'),
-                      ),
-                    if (activeCart.isEmpty && cartProvider.cartCount > 1)
-                      PopupMenuItem(
-                        value: 'eliminar',
-                        child: Text('Eliminar carrito', style: TextStyle(color: colors.negative)),
-                      ),
-                  ],
-                ),
               if (onClose != null)
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -153,12 +141,15 @@ class CartPanel extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 12),
         Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'EN LA VENTA · ${items.length} ${items.length == 1 ? 'ARTÍCULO' : 'ARTÍCULOS'}',
+                  // Unidades, igual que el pie y el botón de cobro: antes esta
+                  // línea contaba tipos de producto y decía otro número.
+                  'EN LA VENTA · ${totalUnidadesLabel.toUpperCase()}',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
@@ -176,11 +167,15 @@ class CartPanel extends StatelessWidget {
                         style: TextStyle(color: colors.textSecondary),
                       ),
                     )
-                  : ListView.builder(
+                  : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                       itemCount: items.length,
-                      itemBuilder: (context, index) =>
-                          _CartLine(item: items[index]),
+                      separatorBuilder: (_, __) =>
+                          Divider(height: 1, thickness: 1, color: colors.border),
+                      itemBuilder: (context, index) => _CartLine(
+                        item: items[index],
+                        onCerrarVista: onClose,
+                      ),
                     ),
             ),
             Container(
@@ -215,21 +210,10 @@ class CartPanel extends StatelessWidget {
                       onInverseSurface: true,
                     ),
                     const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: habilitado ? () => PaymentModal.show(context) : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: colors.accent,
-                        foregroundColor: colors.onAccent,
-                        disabledBackgroundColor: colors.onInverseMuted.withValues(alpha: 0.3),
-                        minimumSize: const Size.fromHeight(AppTapTarget.comfortable),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                        ),
-                      ),
-                      child: Text(
-                        habilitado ? 'Cobrar $totalUnidadesLabel' : 'Cobrar',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
+                    CobrarButton(
+                      unidades: totalUnidades,
+                      onPressed:
+                          habilitado ? () => PaymentModal.show(context) : null,
                     ),
                   ],
                 ),
@@ -243,32 +227,169 @@ class CartPanel extends StatelessWidget {
 class _AccountChip extends StatelessWidget {
   final String label;
   final bool selected;
-  final VoidCallback onTap;
 
-  const _AccountChip({required this.label, required this.selected, required this.onTap});
+  /// `null` cuando el chip vive dentro de [_AccountMenu]: ahí el gesto lo
+  /// maneja el `PopupMenuButton` que lo envuelve.
+  final VoidCallback? onTap;
+
+  /// Solo en el chip activo: anuncia que ahí se despliega el menú.
+  final bool showChevron;
+
+  const _AccountChip({
+    required this.label,
+    required this.selected,
+    this.onTap,
+    this.showChevron = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final foreground = selected ? colors.onAccent : colors.textSecondary;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: Container(
         height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: EdgeInsets.only(left: 16, right: showChevron ? 10 : 16),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: selected ? colors.accent : colors.sunken,
           borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w600,
-            color: selected ? colors.onAccent : colors.textSecondary,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ),
+            if (showChevron) ...[
+              const SizedBox(width: 2),
+              Icon(Icons.expand_more, size: 16, color: foreground),
+            ],
+          ],
         ),
+      ),
+    );
+  }
+}
+
+/// Chip de la cuenta activa con su menú de acciones. Reemplaza al botón de 3
+/// puntos que antes vivía suelto en la cabecera.
+///
+/// La cuenta principal (índice 0) no se renombra ni se cierra: es la que
+/// sobrevive a cada venta. Sus ítems se muestran igual pero deshabilitados,
+/// para que el menú no cambie de forma entre cuentas.
+class _AccountMenu extends StatelessWidget {
+  final CartProvider cartProvider;
+  final int index;
+
+  /// Cierra la vista ampliada al vaciar la cuenta: sin productos no queda nada
+  /// que mirar acá. `null` en el panel lateral de tablet, que no es una ruta.
+  final VoidCallback? onCerrarVista;
+
+  const _AccountMenu({
+    required this.cartProvider,
+    required this.index,
+    this.onCerrarVista,
+  });
+
+  PopupMenuItem<String> _item(
+    BuildContext context, {
+    required String value,
+    required IconData icon,
+    required String label,
+    required bool enabled,
+  }) {
+    final colors = context.colors;
+    // Material atenúa el texto del ítem deshabilitado, pero no el ícono.
+    final color = enabled ? colors.textSecondary : colors.textDisabled;
+    return PopupMenuItem<String>(
+      value: value,
+      enabled: enabled,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 14),
+          Text(
+            label,
+            style: TextStyle(
+              color: enabled ? colors.textPrimary : colors.textDisabled,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final cart = cartProvider.carts[index];
+    final esPrincipal = index == 0;
+
+    return PopupMenuButton<String>(
+      tooltip: '',
+      position: PopupMenuPosition.under,
+      color: colors.raised,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      onSelected: (value) {
+        switch (value) {
+          case 'renombrar':
+            showRenameCartDialog(context, cartProvider, index);
+            break;
+          case 'vaciar':
+            confirmClearCart(
+              context,
+              cartProvider,
+              index,
+              alVaciar: onCerrarVista,
+            );
+            break;
+          case 'cerrar':
+            confirmCloseCart(context, cartProvider, index);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        _item(
+          context,
+          value: 'renombrar',
+          icon: Icons.edit_outlined,
+          label: 'Cambiar nombre',
+          enabled: !esPrincipal,
+        ),
+        _item(
+          context,
+          value: 'vaciar',
+          icon: Icons.delete_outline,
+          label: 'Vaciar carrito',
+          enabled: cart.items.isNotEmpty,
+        ),
+        _item(
+          context,
+          value: 'cerrar',
+          icon: Icons.close,
+          label: 'Cerrar cuenta',
+          enabled: !esPrincipal,
+        ),
+      ],
+      child: _AccountChip(
+        label: cart.nombre,
+        selected: true,
+        showChevron: true,
       ),
     );
   }
@@ -304,7 +425,11 @@ class _AddAccountButton extends StatelessWidget {
 class _CartLine extends StatelessWidget {
   final CartItemModel item;
 
-  const _CartLine({required this.item});
+  /// Cierra la vista ampliada cuando esta línea era la última: sin productos
+  /// no queda nada que mirar acá. `null` en el panel lateral de tablet.
+  final VoidCallback? onCerrarVista;
+
+  const _CartLine({required this.item, this.onCerrarVista});
 
   @override
   Widget build(BuildContext context) {
@@ -338,9 +463,16 @@ class _CartLine extends StatelessWidget {
         ? (item.cantidad - 0.1).clamp(0.1, double.infinity)
         : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
 
-    void onDecrement() {
+    void onDecrement() async {
       if (item.cantidad <= (producto?.permiteDecimal == true ? 0.1 : 1)) {
-        cartProvider.removeItemById(item.productoTiendaId);
+        await cartProvider.removeItemById(item.productoTiendaId);
+        // Bajar la última unidad deja la cuenta vacía: mismo destino que
+        // "Vaciar carrito" — saltar a otra cuenta con venta en curso, o volver
+        // al catálogo si no queda ninguna.
+        if (cartProvider.activeCart?.isEmpty ?? false) {
+          cartProvider.selectFirstNonEmptyCart();
+          if (cartProvider.activeCart?.isEmpty ?? true) onCerrarVista?.call();
+        }
       } else {
         cartProvider.updateItemCantidadById(
           item.productoTiendaId,

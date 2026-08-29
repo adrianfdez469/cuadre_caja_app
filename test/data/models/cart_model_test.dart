@@ -15,7 +15,7 @@ void main() {
     test('cuenta unidades reales, no líneas distintas', () {
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito 1',
+        nombre: 'Cuenta #1',
         items: [_item('arroz', 3), _item('azucar', 2)],
       );
 
@@ -26,7 +26,7 @@ void main() {
     test('varias unidades de un solo producto cuentan todas', () {
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito 1',
+        nombre: 'Cuenta #1',
         items: [_item('agua', 12)],
       );
 
@@ -37,7 +37,7 @@ void main() {
     test('suma cantidades fraccionarias (productos por peso)', () {
       final cart = CartModel(
         id: 'c1',
-        nombre: 'Carrito 1',
+        nombre: 'Cuenta #1',
         items: [_item('queso', 0.5), _item('jamon', 1.25)],
       );
 
@@ -45,7 +45,7 @@ void main() {
     });
 
     test('carrito vacío', () {
-      expect(CartModel(id: 'c1', nombre: 'Carrito 1').unidadesCount, 0);
+      expect(CartModel(id: 'c1', nombre: 'Cuenta #1').unidadesCount, 0);
     });
   });
 

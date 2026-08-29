@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../core/constants/app_constants.dart';
 import '../core/utils/producto_pos_rules.dart';
 import '../data/models/cart_model.dart';
 import '../data/models/producto_model.dart';
@@ -8,6 +9,9 @@ import '../data/datasources/local/cart_local_datasource.dart';
 class CartProvider extends ChangeNotifier {
   final CartLocalDataSource _cartLocal;
   final _uuid = const Uuid();
+
+  /// Reconoce los nombres autogenerados para derivar el siguiente consecutivo.
+  static final _nombreCuenta = RegExp(r'^Cuenta #(\d+)$');
 
   List<CartModel> _carts = [];
   int _activeCartIndex = 0;
@@ -33,7 +37,7 @@ class CartProvider extends ChangeNotifier {
     _carts = await _cartLocal.getCarts(tiendaId);
 
     if (_carts.isEmpty) {
-      await createCart('Carrito 1');
+      await createCart(AppConstants.defaultCartName);
     }
 
     _activeCartIndex = 0;
@@ -51,12 +55,50 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Siguiente nombre libre: el mayor "Cuenta #N" existente + 1. Se calcula
+  /// sobre los nombres y no sobre [cartCount], porque al cerrar una cuenta del
+  /// medio el tamaño de la lista deja de coincidir con el último número usado.
+  /// Las cuentas renombradas a mano ("Mesa 4") no participan del consecutivo.
+  String nextCartName() {
+    var max = 0;
+    for (final cart in _carts) {
+      final n = int.tryParse(_nombreCuenta.firstMatch(cart.nombre)?.group(1) ?? '');
+      if (n != null && n > max) max = n;
+    }
+    return 'Cuenta #${max + 1}';
+  }
+
+  /// Crea la siguiente cuenta y la deja activa (sin preguntar el nombre).
+  Future<void> createNextCart() => createCart(nextCartName());
+
   /// Cambia al carrito en el índice dado
   void switchCart(int index) {
     if (index >= 0 && index < _carts.length) {
       _activeCartIndex = index;
       notifyListeners();
     }
+  }
+
+  /// Salta a la primera cuenta que tenga productos; si ninguna tiene, a la
+  /// principal. Se usa al vaciar una cuenta y al cerrar una venta, para no
+  /// dejar al cajero parado en una cuenta vacía habiendo otra con venta en
+  /// curso.
+  ///
+  /// **No** se llama desde [clearActiveCart]: `payment_modal` vacía y después
+  /// llama a [onPurchaseCompleted], que necesita que el índice activo siga
+  /// apuntando a la cuenta que se acaba de vender.
+  void selectFirstNonEmptyCart() {
+    if (_carts.isEmpty) return;
+
+    var newIndex = 0;
+    for (var i = 0; i < _carts.length; i++) {
+      if (!_carts[i].isEmpty) {
+        newIndex = i;
+        break;
+      }
+    }
+    _activeCartIndex = newIndex.clamp(0, _carts.length - 1);
+    notifyListeners();
   }
 
   /// Agrega producto al carrito activo.
@@ -218,11 +260,12 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Elimina un carrito. Solo se puede eliminar si está vacío y queda al menos uno.
+  /// Cierra una cuenta, tenga o no productos (la UI confirma antes).
+  /// La cuenta principal (índice 0) no se cierra nunca: es la que sobrevive a
+  /// cada venta y la que queda cuando no hay ninguna otra.
   Future<void> deleteCart(int index) async {
     if (_carts.length <= 1) return;
-    if (index < 0 || index >= _carts.length) return;
-    if (!_carts[index].isEmpty) return; // Solo eliminar carritos vacíos
+    if (index <= 0 || index >= _carts.length) return;
 
     final cart = _carts[index];
     _carts.removeAt(index);
@@ -236,8 +279,8 @@ class CartProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Llamar después de completar una venta: elimina el carrito vendido si no es
-  /// "Carrito 1" y selecciona el primero de los restantes con ítems.
+  /// Llamar después de completar una venta: cierra la cuenta vendida si no es
+  /// la principal y selecciona la primera de las restantes con ítems.
   Future<void> onPurchaseCompleted() async {
     if (_carts.isEmpty) return;
 
@@ -245,22 +288,14 @@ class CartProvider extends ChangeNotifier {
     if (soldIndex < 0 || soldIndex >= _carts.length) return;
 
     final soldCart = _carts[soldIndex];
-    // Si no es el carrito principal y hay más de uno, eliminar el que se acaba de vaciar
-    if (soldCart.nombre != 'Carrito 1' && _carts.length > 1) {
+    // Se compara por índice, no por nombre: la cuenta principal es la 0 y el
+    // usuario puede renombrarla.
+    if (soldIndex != 0 && _carts.length > 1) {
       _carts.removeAt(soldIndex);
       await _cartLocal.deleteCart(soldCart.id);
     }
 
-    // Seleccionar el primer carrito que tenga ítems; si ninguno, el primero
-    int newIndex = 0;
-    for (int i = 0; i < _carts.length; i++) {
-      if (!_carts[i].isEmpty) {
-        newIndex = i;
-        break;
-      }
-    }
-    _activeCartIndex = newIndex.clamp(0, _carts.length - 1);
-    notifyListeners();
+    selectFirstNonEmptyCart();
   }
 
   /// Renombra un carrito

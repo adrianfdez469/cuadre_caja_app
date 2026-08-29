@@ -126,7 +126,7 @@ Future<void> pumpPaymentModal(
   );
   final cart = CartModel(
     id: 'c1',
-    nombre: 'Carrito',
+    nombre: 'Cuenta #1',
     items: [
       CartItemModel(
         productoTiendaId: 'p1',
