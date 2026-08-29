@@ -1,9 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2E8BEE"/><stop offset="1" stop-color="#1257A8"/></linearGradient></defs><g transform="translate(512,512) scale(1.4706) translate(-512,-512)">
-    <g transform="translate(-26,-12)">
-      <path d="M 310 324 a 36 36 0 0 1 36 -36 h 258 a 36 36 0 0 1 36 36 V 688 L 585 730 L 530 688 L 475 730 L 420 688 L 365 730 L 310 688 Z" fill="#FFFFFF"/>
-      <rect x="356" y="372" width="238" height="30" rx="15" fill="#BAD6F2"/><rect x="356" y="442" width="168" height="30" rx="15" fill="#BAD6F2"/><rect x="356" y="512" width="114" height="30" rx="15" fill="#BAD6F2"/>
-      <circle cx="648" cy="640" r="119" fill="#FFFFFF"/>
-      <circle cx="648" cy="640" r="104" fill="#10B981"/>
-      <path d="M 598 640 L 634 676 L 702 604" fill="none" stroke="#FFFFFF" stroke-width="30"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </g></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B4CA8"/><stop offset="1" stop-color="#5B4CA8"/></linearGradient></defs><g transform="translate(512,512) scale(1.4706) translate(-512,-512)"><g transform="translate(152.0000,152.0000) scale(30.0000)"><path d="M15.5 4.5H7A2.5 2.5 0 0 0 4.5 7v8.5" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/><path d="M8.5 19.5H17A2.5 2.5 0 0 0 19.5 17V8.5" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/></g></g></svg>

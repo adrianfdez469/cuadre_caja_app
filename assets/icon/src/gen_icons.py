@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fuente del icono de la app (concepto "recibo verificado").
+"""Fuente del icono de la app (símbolo de marca del Design System 4:
+"las dos mitades que cierran un cuadro", `foundations/logo.html` variante A).
 
 Genera los SVG y los rasteriza a los PNG de 1024x1024 que consume
 flutter_launcher_icons. Tras ejecutarlo hay que regenerar los mipmaps:
@@ -16,61 +17,42 @@ SRC = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.dirname(SRC)
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-GREEN = "#10B981"
-LIGHT = "#BAD6F2"
-GRAD_FROM = "#2E8BEE"
-GRAD_TO = "#1257A8"
+GRAD_FROM = "#5B4CA8"
+GRAD_TO = "#5B4CA8"
 
 # Radio de esquina del icono legacy (22.37% ~ squircle de Android/iOS)
 CORNER = 229
 
-# Recibo: esquinas superiores redondeadas y borde inferior dentado.
-RECIBO = ("M 310 324 a 36 36 0 0 1 36 -36 h 258 a 36 36 0 0 1 36 36 V 688 "
-          "L 585 730 L 530 688 L 475 730 L 420 688 L 365 730 L 310 688 Z")
-BARRAS = [(356, 372, 238), (356, 442, 168), (356, 512, 114)]
-SELLO = (648, 640)          # centro del sello verde
-SELLO_R, ANILLO_R = 104, 119
-CHECK = "M 598 640 L 634 676 L 702 604"
-# Desplazamiento que centra el conjunto recibo+sello en el lienzo.
-OFFSET = "translate(-26,-12)"
+# Símbolo: dos trazos en L que giran 180° entre sí, tomados tal cual de
+# `assets/logo.svg` (viewBox 24x24, centrado en 12,12). Se escala y se
+# recentra en el lienzo de 1024x1024 dejando margen (el arte original ocupa
+# ~62% del viewBox, demasiado para el icono adaptativo una vez agrandado en
+# `agrandar()` para compensar el <inset> de flutter_launcher_icons).
+TRAZO_A = "M15.5 4.5H7A2.5 2.5 0 0 0 4.5 7v8.5"
+TRAZO_B = "M8.5 19.5H17A2.5 2.5 0 0 0 19.5 17V8.5"
+ESCALA_SIMBOLO = 30
+CENTRO_SIMBOLO = 512 - 12 * ESCALA_SIMBOLO
 
 
-def _barras(fill):
-    return "".join(
-        f'<rect x="{x}" y="{y}" width="{w}" height="30" rx="15" fill="{fill}"/>'
-        for x, y, w in BARRAS
+def _simbolo(color):
+    return (
+        f'<g transform="translate({CENTRO_SIMBOLO:.4f},{CENTRO_SIMBOLO:.4f}) '
+        f'scale({ESCALA_SIMBOLO:.4f})">'
+        f'<path d="{TRAZO_A}" fill="none" stroke="{color}" stroke-width="2.5" '
+        f'stroke-linecap="round"/>'
+        f'<path d="{TRAZO_B}" fill="none" stroke="{color}" stroke-width="2.5" '
+        f'stroke-linecap="round"/>'
+        f'</g>'
     )
 
 
 def arte_color():
-    cx, cy = SELLO
-    return f"""
-    <g transform="{OFFSET}">
-      <path d="{RECIBO}" fill="#FFFFFF"/>
-      {_barras(LIGHT)}
-      <circle cx="{cx}" cy="{cy}" r="{ANILLO_R}" fill="#FFFFFF"/>
-      <circle cx="{cx}" cy="{cy}" r="{SELLO_R}" fill="{GREEN}"/>
-      <path d="{CHECK}" fill="none" stroke="#FFFFFF" stroke-width="30"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </g>"""
+    return _simbolo("#FFFFFF")
 
 
 def arte_monocromo():
-    """Silueta blanca: el sistema la tiñe. Barras y check van calados."""
-    cx, cy = SELLO
-    return f"""
-    <mask id="mono" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#FFF"/>
-      {_barras("#000")}
-      <circle cx="{cx}" cy="{cy}" r="{ANILLO_R}" fill="#000"/>
-      <circle cx="{cx}" cy="{cy}" r="{SELLO_R}" fill="#FFF"/>
-      <path d="{CHECK}" fill="none" stroke="#000" stroke-width="30"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </mask>
-    <g transform="{OFFSET}" mask="url(#mono)">
-      <path d="{RECIBO}" fill="#FFFFFF"/>
-      <circle cx="{cx}" cy="{cy}" r="{SELLO_R}" fill="#FFFFFF"/>
-    </g>"""
+    """Silueta blanca: el sistema la tiñe."""
+    return _simbolo("#FFFFFF")
 
 
 def svg(contenido):
