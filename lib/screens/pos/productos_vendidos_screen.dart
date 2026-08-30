@@ -554,18 +554,16 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
         const SizedBox(height: 6),
         Row(
           children: [
-            ChoiceChip(
-              label: const Text('Agrupada'),
+            _VistaChip(
+              label: 'Agrupada',
               selected: _vista == VistaProductosVendidos.agrupada,
-              onSelected: (_) => setState(() => _vista = VistaProductosVendidos.agrupada),
-              selectedColor: context.colors.accentWash,
+              onTap: () => setState(() => _vista = VistaProductosVendidos.agrupada),
             ),
             const SizedBox(width: 8),
-            ChoiceChip(
-              label: const Text('Histórica'),
+            _VistaChip(
+              label: 'Histórica',
               selected: _vista == VistaProductosVendidos.historica,
-              onSelected: (_) => setState(() => _vista = VistaProductosVendidos.historica),
-              selectedColor: context.colors.accentWash,
+              onTap: () => setState(() => _vista = VistaProductosVendidos.historica),
             ),
           ],
         ),
@@ -878,12 +876,54 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return FilterChip(
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: context.colors.accentWash,
-      checkmarkColor: context.colors.accent,
+      // El chip seleccionado va relleno con `accent` y etiqueta `onAccent`: el
+      // `accentWash` es casi blanco en el tema claro y dejaba la etiqueta
+      // (blanca por `secondaryLabelStyle` del tema) ilegible.
+      backgroundColor: colors.sunken,
+      selectedColor: colors.accent,
+      checkmarkColor: colors.onAccent,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+        color: selected ? colors.onAccent : colors.textPrimary,
+      ),
+    );
+  }
+}
+
+/// Selector de vista (Agrupada / Histórica). Mismo criterio de contraste que
+/// [_FilterChip]: seleccionado = relleno `accent` + etiqueta `onAccent`.
+class _VistaChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _VistaChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      showCheckmark: false,
+      backgroundColor: colors.sunken,
+      selectedColor: colors.accent,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+        color: selected ? colors.onAccent : colors.textPrimary,
+      ),
     );
   }
 }

@@ -469,8 +469,17 @@ class _FilterChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: colors.accentWash,
-      checkmarkColor: colors.accent,
+      // Relleno `accent` + etiqueta `onAccent` al seleccionar: sobre
+      // `accentWash` (casi blanco en tema claro) la etiqueta blanca del
+      // `secondaryLabelStyle` del tema quedaba ilegible.
+      backgroundColor: colors.sunken,
+      selectedColor: colors.accent,
+      checkmarkColor: colors.onAccent,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+        color: selected ? colors.onAccent : colors.textPrimary,
+      ),
     );
   }
 }
