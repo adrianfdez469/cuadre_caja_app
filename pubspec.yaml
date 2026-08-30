@@ -68,6 +68,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Solo para tests: permiten sustituir path_provider por un directorio temporal
+  # real sin pasar por el canal nativo (ver test/services/release_service_apk_test.dart).
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

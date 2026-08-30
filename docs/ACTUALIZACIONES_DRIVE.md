@@ -143,11 +143,29 @@ Para obtener el ID: sube el APK a la carpeta, ábrelo en Drive y en la URL verá
 
 ## Flujo en la app
 
-- Menú (⋮) → **Versión**.
-- Se muestra la versión actual y hay un botón **Comprobar actualizaciones**.
+- Menú (⋮) → **Versión**. La comprobación es automática al abrir la pantalla (no hay botón de comprobar).
 - Si la versión en Drive es mayor, se muestra la lista de mejoras (changelog) y **Actualizar aplicación**.
 - Si hay ventas pendientes, se muestra un aviso antes de continuar con la actualización.
 - Al actualizar, se descarga el APK adecuado a la arquitectura del dispositivo, se valida y se abre el instalador de Android.
+
+### Reutilización del APK descargado
+
+El APK se guarda con un nombre fijo por versión y arquitectura
+(`update_<versión>_<variante>.apk`) en `<applicationSupport>/updates`, no en la caché.
+Consecuencias:
+
+- Si Android pide el permiso **instalar apps desconocidas**, el usuario lo concede en Ajustes
+  y vuelve a la pantalla, **la instalación continúa sola con el APK ya descargado**: no se
+  vuelve a bajar.
+- Si cierra la app sin instalar, al volver a la pantalla de Versión el botón dice
+  **Instalar ahora** en vez de descargar.
+- Al descargar se limpian los APK de versiones anteriores, así que solo queda uno en disco.
+- La descarga va a un `.part` que solo se renombra al terminar y validarse: una descarga
+  cortada nunca se reutiliza.
+
+Limitación: `releases.json` solo lleva el *versionName*, no el `+build`. Si republicas un APK
+distinto con el mismo versionName, quien ya lo descargó se quedaría con el binario viejo; sube
+también el versionName al republicar.
 
 ## Si falla la instalación ("No se instaló la app")
 

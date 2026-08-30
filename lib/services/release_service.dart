@@ -104,18 +104,27 @@ class ReleaseService {
     }
   }
 
-  /// Devuelve el fileId del APK adecuado para este dispositivo.
-  /// [androidAbi] debe ser uno de: arm64-v8a, armeabi-v7a, x86_64. Si no coincide, usa "universal".
-  String? getApkFileIdForDevice(ReleaseInfo release, {String? androidAbi}) {
+  /// Devuelve la clave de la variante de APK que corresponde a este dispositivo
+  /// ("arm64-v8a", "universal", ...). Está separada de [getApkFileIdForDevice]
+  /// porque el archivo local se nombra por la variante realmente servida, que no
+  /// tiene por qué coincidir con la ABI del dispositivo (ej. un teléfono arm64
+  /// al que solo se le ofrece el APK "universal").
+  /// [androidAbi] debe ser uno de: arm64-v8a, armeabi-v7a, x86_64.
+  String? getApkVariantKeyForDevice(ReleaseInfo release, {String? androidAbi}) {
     if (release.apks.isEmpty) return null;
     if (androidAbi != null && release.apks.containsKey(androidAbi)) {
-      return release.apks[androidAbi];
+      return androidAbi;
     }
-    return release.apks['universal'] ??
-        release.apks['arm64-v8a'] ??
-        release.apks['armeabi-v7a'] ??
-        release.apks['x86_64'] ??
-        release.apks.values.firstOrNull;
+    for (final key in const ['universal', 'arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+      if (release.apks.containsKey(key)) return key;
+    }
+    return release.apks.keys.firstOrNull;
+  }
+
+  /// Devuelve el fileId del APK adecuado para este dispositivo.
+  String? getApkFileIdForDevice(ReleaseInfo release, {String? androidAbi}) {
+    final key = getApkVariantKeyForDevice(release, androidAbi: androidAbi);
+    return key == null ? null : release.apks[key];
   }
 
   /// Verifica que un archivo descargado parece un APK válido (cabecera ZIP + tamaño mínimo).
@@ -132,27 +141,143 @@ class ReleaseService {
     }
   }
 
-  /// Descarga el APK al directorio temporal y devuelve el File.
-  /// Usa la URL para archivos grandes para evitar la página de advertencia de Drive (~2 KB).
-  Future<File?> downloadApk(String fileId, {void Function(int, int)? onProgress}) async {
+  /// Subcarpeta de `getApplicationSupportDirectory()` donde vive el APK
+  /// descargado. Se usa almacenamiento de datos y no el temporal porque el
+  /// sistema puede vaciar la caché en cualquier momento y perderíamos una
+  /// descarga de decenas de MB. En Android `applicationSupport` es
+  /// `context.getFilesDir()`, ya cubierto por el `<files-path>` de
+  /// `res/xml/file_paths.xml`, así que el FileProvider puede servirlo al
+  /// instalador sin tocar nada nativo.
+  static const _apkSubdir = 'updates';
+
+  /// Prefijo de los APK descargados. Sirve también para reconocer los archivos
+  /// que hay que barrer, incluidos los `update_<millis>.apk` que las versiones
+  /// anteriores dejaban en el directorio temporal.
+  static const _apkPrefix = 'update_';
+
+  /// `<applicationSupport>/updates`, creado si no existe.
+  Future<Directory> apkStorageDir() async {
+    final base = await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}/$_apkSubdir');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    return dir;
+  }
+
+  /// Nombre determinista del APK de una versión y variante concretas. Al no
+  /// depender de la hora de descarga, una descarga anterior se puede localizar
+  /// y reutilizar (p. ej. tras mandar al usuario a conceder el permiso de
+  /// instalar apps desconocidas).
+  static String apkFileNameFor({
+    required String version,
+    required String variantKey,
+  }) {
+    final v = _sanitizeForFileName(version);
+    final k = _sanitizeForFileName(variantKey);
+    return '$_apkPrefix${v}_$k.apk';
+  }
+
+  static String _sanitizeForFileName(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+
+  /// Devuelve el APK ya descargado para [version]/[variantKey] si sigue en disco
+  /// y parece válido. Si el archivo existe pero está truncado o corrupto lo borra
+  /// y devuelve null, para que la pantalla ofrezca descargarlo de nuevo.
+  Future<File?> findDownloadedApk({
+    required String version,
+    required String variantKey,
+  }) async {
     try {
-      final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/update_${DateTime.now().millisecondsSinceEpoch}.apk';
-      await _dio.download(
-        driveDownloadUrlLarge(fileId),
-        path,
-        onReceiveProgress: onProgress,
+      final dir = await apkStorageDir();
+      final f = File(
+        '${dir.path}/${apkFileNameFor(version: version, variantKey: variantKey)}',
       );
-      final f = File(path);
       if (!f.existsSync()) return null;
       if (!looksLikeApk(f)) {
         f.deleteSync();
-        logDebug('ReleaseService.downloadApk: invalid APK file (bad header or too small)');
+        logDebug('ReleaseService.findDownloadedApk: archivo inválido, borrado');
         return null;
       }
       return f;
     } catch (e) {
+      logDebug('ReleaseService.findDownloadedApk error: $e');
+      return null;
+    }
+  }
+
+  /// Borra los APK descargados que ya no sirven: todo `update_*` de
+  /// `<applicationSupport>/updates` salvo [keepFileName], las descargas a medias
+  /// (`.part`) y los `update_<millis>.apk` que quedaron en el directorio temporal
+  /// con el esquema anterior. Devuelve cuántos archivos borró; nunca lanza.
+  Future<int> cleanupApks({String? keepFileName}) async {
+    var deleted = 0;
+    Future<void> sweep(Directory dir, {String? keep}) async {
+      if (!dir.existsSync()) return;
+      for (final entity in dir.listSync()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        if (!name.startsWith(_apkPrefix)) continue;
+        if (!name.endsWith('.apk') && !name.endsWith('.part')) continue;
+        if (keep != null && name == keep) continue;
+        try {
+          entity.deleteSync();
+          deleted++;
+        } catch (e) {
+          logDebug('ReleaseService.cleanupApks: no se pudo borrar $name: $e');
+        }
+      }
+    }
+
+    try {
+      await sweep(await apkStorageDir(), keep: keepFileName);
+    } catch (e) {
+      logDebug('ReleaseService.cleanupApks (updates) error: $e');
+    }
+    try {
+      await sweep(await getTemporaryDirectory());
+    } catch (e) {
+      logDebug('ReleaseService.cleanupApks (temp) error: $e');
+    }
+    return deleted;
+  }
+
+  /// Descarga el APK de [version]/[variantKey] y devuelve el File.
+  /// Usa la URL para archivos grandes para evitar la página de advertencia de Drive (~2 KB).
+  ///
+  /// La descarga va a un `.part` que solo se renombra al nombre definitivo tras
+  /// validarlo: así una descarga interrumpida nunca se confunde con un APK
+  /// reutilizable.
+  Future<File?> downloadApk(
+    String fileId, {
+    required String version,
+    required String variantKey,
+    void Function(int, int)? onProgress,
+  }) async {
+    File? part;
+    try {
+      final dir = await apkStorageDir();
+      final name = apkFileNameFor(version: version, variantKey: variantKey);
+      final target = File('${dir.path}/$name');
+      part = File('${target.path}.part');
+      if (part.existsSync()) part.deleteSync();
+
+      await _dio.download(
+        driveDownloadUrlLarge(fileId),
+        part.path,
+        onReceiveProgress: onProgress,
+      );
+
+      if (!part.existsSync() || !looksLikeApk(part)) {
+        if (part.existsSync()) part.deleteSync();
+        logDebug('ReleaseService.downloadApk: invalid APK file (bad header or too small)');
+        return null;
+      }
+      if (target.existsSync()) target.deleteSync();
+      return await part.rename(target.path);
+    } catch (e) {
       logDebug('ReleaseService.downloadApk error: $e');
+      try {
+        if (part != null && part.existsSync()) part.deleteSync();
+      } catch (_) {}
       return null;
     }
   }

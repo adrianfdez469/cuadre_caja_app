@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 const _channel = MethodChannel('com.example.cuadre_caja_app/native');
@@ -56,9 +57,18 @@ class ApkUpdateValidation {
 class ApkInstallHelper {
   ApkInstallHelper._();
 
+  /// Fuerza el uso del MethodChannel fuera de Android. Solo para tests: en
+  /// `flutter test` el host es macOS/Linux, así que sin esto los guards de
+  /// plataforma cortan antes de llegar al canal mockeado.
+  @visibleForTesting
+  static bool debugForceAndroidChannel = false;
+
+  /// Si esta plataforma habla con el canal nativo de Android.
+  static bool get isAndroid => Platform.isAndroid || debugForceAndroidChannel;
+
   /// Comprueba que el APK sea válido y que su versionCode sea mayor que el instalado.
   static Future<ApkUpdateValidation?> validateForUpdate(String apkPath) async {
-    if (!Platform.isAndroid) return null;
+    if (!isAndroid) return null;
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
         'validateApkForUpdate',
@@ -73,7 +83,7 @@ class ApkInstallHelper {
 
   /// Abre el instalador de Android con permisos correctos (FileProvider).
   static Future<bool> installApk(String apkPath) async {
-    if (!Platform.isAndroid) return false;
+    if (!isAndroid) return false;
     try {
       final ok = await _channel.invokeMethod<bool>(
         'installApk',
@@ -87,7 +97,7 @@ class ApkInstallHelper {
 
   /// Indica si el usuario debe habilitar instalación desde orígenes desconocidos.
   static Future<bool> canInstallFromUnknownSources() async {
-    if (!Platform.isAndroid) return true;
+    if (!isAndroid) return true;
     try {
       final ok = await _channel.invokeMethod<bool>('canInstallFromUnknownSources');
       return ok ?? true;
@@ -98,7 +108,7 @@ class ApkInstallHelper {
 
   /// Abre la pantalla de Android para permitir instalar desde esta app.
   static Future<void> openUnknownSourcesSettings() async {
-    if (!Platform.isAndroid) return;
+    if (!isAndroid) return;
     try {
       await _channel.invokeMethod<void>('openUnknownSourcesSettings');
     } catch (_) {}
