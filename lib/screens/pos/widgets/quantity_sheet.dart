@@ -90,17 +90,29 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
   String get _cantidadText =>
       _cantidad.toStringAsFixed(_permiteDecimal ? 2 : 0);
 
+  /// Lo que se muestra en grande: mientras se teclea manda el texto crudo, para
+  /// que un "1." en curso se vea tal cual y no como "1.00".
+  String get _displayText => _keypadRaw ?? _cantidadText;
+
+  /// Cero es un estado válido: el borrado deja la cantidad en cero y el botón
+  /// de confirmar se apaga solo (`puedeConfirmar` exige > 0).
   void _setCantidad(double value) {
     var next = value;
     if (_permiteDecimal) {
       next = (next * 100).round() / 100;
-      if (next < 0.1) next = 0.1;
     } else {
       next = next.roundToDouble();
-      if (next < 1) next = 1;
     }
+    if (next < 0) next = 0;
     if (widget.maxDisp.isFinite && next > widget.maxDisp) next = widget.maxDisp;
     setState(() => _cantidad = next);
+  }
+
+  /// `double.tryParse` no acepta un punto suelto al final ("1."), que es un
+  /// estado normal mientras se teclea.
+  double _parseRaw(String raw) {
+    final limpio = raw.endsWith('.') ? raw.substring(0, raw.length - 1) : raw;
+    return double.tryParse(limpio) ?? 0;
   }
 
   /// Atajo rápido: suma (o resta) sobre la cantidad actual y reinicia el teclado.
@@ -109,14 +121,17 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
     _setCantidad(_cantidad + delta);
   }
 
-  /// Saltos grandes de los atajos rápidos (el de a 1/0.1 lo cubre el stepper).
-  List<double> get _bigSteps => _permiteDecimal ? [1.0, 10.0, 50.0] : [10.0, 50.0, 100.0];
+  /// Saltos de los atajos rápidos. En productos por fracción se ofrece la
+  /// escala fina completa, porque ahí el stepper de a 0.1 se queda corto.
+  List<double> get _bigSteps =>
+      _permiteDecimal ? [0.1, 0.5, 1.0, 10.0] : [10.0, 50.0, 100.0];
 
   Widget _quickAmountChip(AppSemanticColors colors, double d, {required bool subtract}) {
     final delta = subtract ? -d : d;
     // El de "+" siempre se puede tocar (ya se satura solo en el máximo
     // disponible); el de "-" se deshabilita si no queda margen para restarlo.
-    final habilitado = !subtract || (_cantidad - d) >= _step - 0.0001;
+    // Restar puede llegar hasta cero, que ahora es un estado válido.
+    final habilitado = !subtract || (_cantidad - d) >= -0.0001;
     final label = '${subtract ? '-' : '+'}${d == d.roundToDouble() ? d.toInt() : d}';
     return Expanded(
       child: Padding(
@@ -141,25 +156,41 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
     );
   }
 
+  /// El número se teclea literal: "1", "." y "5" dan 1.5. Con `_keypadRaw` en
+  /// `null` —al abrir la hoja o tras un atajo— la primera tecla reemplaza la
+  /// cantidad precargada en vez de anexarse a ella.
   void _appendDigit(String digit) {
-    final raw = (_keypadRaw ?? '') + digit;
-    final next = double.tryParse(raw);
-    if (next == null) return;
-    _keypadRaw = raw;
-    _setCantidad(_permiteDecimal ? next / 100 : next);
+    var raw = _keypadRaw ?? '';
+    if (digit == '.') {
+      if (!_permiteDecimal || raw.contains('.')) return;
+      raw = raw.isEmpty ? '0.' : '$raw.';
+    } else {
+      final punto = raw.indexOf('.');
+      // Dos decimales como mucho: es la precisión con la que se guarda.
+      if (punto >= 0 && raw.length - punto > 2) return;
+      raw = raw + digit;
+    }
+
+    final next = _parseRaw(raw);
+    setState(() => _keypadRaw = raw);
+    _setCantidad(next);
+    // Si el stock disponible recortó la cantidad, el texto crudo dejaría de
+    // reflejarla y hay que volver al valor real.
+    if ((_cantidad - next).abs() > 0.0001) {
+      setState(() => _keypadRaw = null);
+    }
   }
 
   void _backspace() {
     final raw = _keypadRaw ?? '';
     if (raw.length <= 1) {
-      _keypadRaw = null;
-      _setCantidad(_permiteDecimal ? 0.1 : 1);
+      setState(() => _keypadRaw = null);
+      _setCantidad(0);
       return;
     }
     final trimmed = raw.substring(0, raw.length - 1);
-    _keypadRaw = trimmed;
-    final next = double.tryParse(trimmed) ?? 0;
-    _setCantidad(_permiteDecimal ? next / 100 : next);
+    setState(() => _keypadRaw = trimmed);
+    _setCantidad(_parseRaw(trimmed));
   }
 
   @override
@@ -230,7 +261,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
-                    _cantidadText,
+                    _displayText,
                     style: tabularNums(TextStyle(
                       fontSize: 38,
                       fontWeight: FontWeight.bold,
@@ -275,7 +306,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
           ),
           const SizedBox(height: 12),
           NumericKeypad(
-            cornerLabel: _permiteDecimal ? null : '00',
+            cornerLabel: _permiteDecimal ? '.' : '00',
             onDigit: _appendDigit,
             onBackspace: _backspace,
           ),

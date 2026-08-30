@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../core/utils/slide_route.dart';
 import '../../data/models/cart_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/cart_provider.dart';
@@ -13,30 +14,20 @@ import '../../providers/productos_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
-import 'payment_modal.dart';
+import 'cobrar_screen.dart';
 import 'widgets/accounts_sheet.dart';
 import 'widgets/cobrar_button.dart';
 
 /// Abre [CartItemsScreen] con una transición de derecha a izquierda (como un
 /// panel que entra desde el borde), en vez del `Navigator.push` con la
 /// animación por defecto de la plataforma.
-Future<void> showCartItemsScreen(BuildContext context) {
+///
+/// [onCobrar] reemplaza la acción del botón de cobro. Lo usa la pantalla de
+/// cobro, que abre este detalle por encima de sí misma: ahí "Cobrar" solo
+/// cierra, porque ya se está cobrando.
+Future<void> showCartItemsScreen(BuildContext context, {VoidCallback? onCobrar}) {
   return Navigator.of(context).push(
-    PageRouteBuilder(
-      transitionDuration: const Duration(milliseconds: 260),
-      reverseTransitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (context, animation, secondaryAnimation) =>
-          const CartItemsScreen(),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(1, 0),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-          child: child,
-        );
-      },
-    ),
+    slideFromRightRoute<void>(CartItemsScreen(onCobrar: onCobrar)),
   );
 }
 
@@ -44,7 +35,10 @@ Future<void> showCartItemsScreen(BuildContext context) {
 /// con los chips de cuenta arriba (cambiar/crear) y el mismo pie de cobro que
 /// la pantalla de venta. Se abre desde "N artículos" en la barra de cobro.
 class CartItemsScreen extends StatelessWidget {
-  const CartItemsScreen({super.key});
+  /// Ver [showCartItemsScreen].
+  final VoidCallback? onCobrar;
+
+  const CartItemsScreen({super.key, this.onCobrar});
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +50,10 @@ class CartItemsScreen extends StatelessWidget {
       enabled: context.watch<PeriodoProvider>().hasActivePeriodo,
       child: Scaffold(
         body: SafeArea(
-          child: CartPanel(onClose: () => Navigator.pop(context)),
+          child: CartPanel(
+            onClose: () => Navigator.pop(context),
+            onCobrar: onCobrar,
+          ),
         ),
       ),
     );
@@ -71,7 +68,10 @@ class CartPanel extends StatelessWidget {
   /// `null` oculta el botón de cerrar (uso como panel fijo, no como ruta).
   final VoidCallback? onClose;
 
-  const CartPanel({super.key, this.onClose});
+  /// `null` abre la pantalla de cobro; ver [showCartItemsScreen].
+  final VoidCallback? onCobrar;
+
+  const CartPanel({super.key, this.onClose, this.onCobrar});
 
   @override
   Widget build(BuildContext context) {
@@ -212,8 +212,9 @@ class CartPanel extends StatelessWidget {
                     const SizedBox(height: 12),
                     CobrarButton(
                       unidades: totalUnidades,
-                      onPressed:
-                          habilitado ? () => PaymentModal.show(context) : null,
+                      onPressed: habilitado
+                          ? (onCobrar ?? () => showCobrarScreen(context))
+                          : null,
                     ),
                   ],
                 ),

@@ -4,7 +4,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../widgets/multi_currency_amount.dart';
-import '../payment_modal.dart';
+import '../cobrar_screen.dart';
 
 /// Barra de total + botón de cobro del panel del escáner (bottom sheet sobre
 /// la cámara). La pantalla de venta usa su propia `PosCheckoutBar`, fija y
@@ -22,7 +22,7 @@ class CartCheckoutBar extends StatelessWidget {
   final VoidCallback? onSaleCompleted;
 
   Future<void> _cobrar(BuildContext context) async {
-    final ok = await PaymentModal.show(context);
+    final ok = await showCobrarScreen(context);
     if (ok == true && context.mounted) onSaleCompleted?.call();
   }
 

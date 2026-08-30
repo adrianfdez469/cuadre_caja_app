@@ -25,7 +25,10 @@ class Formatters {
   
   // Formatear solo hora
   static String formatTime(DateTime date) {
-    final formatter = DateFormat('HH:mm', 'es');
+    // Sin locale: el patrón es puramente numérico y se ve igual en cualquiera,
+    // mientras que fijar 'es' obliga a `initializeDateFormatting` y revienta en
+    // cualquier contexto que no sea el arranque de la app (tests incluidos).
+    final formatter = DateFormat('HH:mm');
     return formatter.format(date);
   }
   

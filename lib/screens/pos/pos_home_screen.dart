@@ -86,6 +86,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   /// para poder limpiar banners en dispose() sin llamar a
   /// ScaffoldMessenger.of(context) sobre un element ya defunct (lanza assertion).
   ScaffoldMessengerState? _scaffoldMessenger;
+  SyncProvider? _syncProvider;
 
   @override
   void initState() {
@@ -97,6 +98,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _scaffoldMessenger = ScaffoldMessenger.of(context);
+    // Se guarda para `dispose`: ahí el elemento ya está desactivado y cualquier
+    // `context.read` revienta con "deactivated widget's ancestor".
+    _syncProvider = context.read<SyncProvider>();
     final route = ModalRoute.of(context);
     if (route != null) appRouteObserver.subscribe(this, route);
   }
@@ -346,7 +350,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   void dispose() {
     appRouteObserver.unsubscribe(this);
     _scaffoldMessenger?.clearMaterialBanners();
-    context.read<SyncProvider>().stopMonitoring();
+    _syncProvider?.stopMonitoring();
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -428,10 +432,15 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                 )
               : body,
         ),
+        // La barra aparece con el carrito vacío en cuanto hay más de una
+        // cuenta: es la única vía para llegar a la cuenta activa, y sin ella
+        // una cuenta recién creada no se podía cerrar sin agregarle antes un
+        // producto. Con una sola cuenta vacía no hay nada que hacer ahí, así
+        // que se sigue ocultando y la pantalla queda limpia.
         bottomNavigationBar: !showCartPanel &&
                 _isInitialized &&
                 periodoProvider.hasActivePeriodo &&
-                cartProvider.activeItemCount > 0
+                (cartProvider.activeItemCount > 0 || cartProvider.cartCount > 1)
             ? const PosCheckoutBar()
             : null,
       ),

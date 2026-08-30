@@ -9,9 +9,9 @@ class NumericKeypad extends StatelessWidget {
   final void Function(String digit) onDigit;
   final VoidCallback onBackspace;
 
-  /// Etiqueta de la tecla inferior izquierda (p. ej. `'00'` o `'000'`, para
-  /// montos grandes). `null` la deja vacía/deshabilitada — caso de
-  /// cantidades con decimales, donde esa tecla no aporta.
+  /// Etiqueta de la tecla inferior izquierda. Emite sus propios caracteres:
+  /// `'00'`/`'000'` para montos grandes, `'.'` para cantidades con decimales.
+  /// `null` la deja vacía y deshabilitada.
   final String? cornerLabel;
 
   const NumericKeypad({
@@ -68,8 +68,8 @@ class NumericKeypad extends StatelessWidget {
             onTap: cornerLabel == null
                 ? null
                 : () {
-                    for (final _ in cornerLabel!.split('')) {
-                      onDigit('0');
+                    for (final c in cornerLabel!.split('')) {
+                      onDigit(c);
                     }
                   },
           ),

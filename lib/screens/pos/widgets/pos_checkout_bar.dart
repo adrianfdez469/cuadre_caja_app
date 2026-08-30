@@ -10,7 +10,7 @@ import '../../../widgets/multi_currency_amount.dart';
 import '../cart_items_screen.dart';
 import 'accounts_sheet.dart';
 import 'cobrar_button.dart';
-import '../payment_modal.dart';
+import '../cobrar_screen.dart';
 
 /// Barra de cobro fija de la pantalla de venta (Dirección B "Pulgar"): el
 /// total nunca se abre, nunca se tapa. "N artículos" abre `CartItemsScreen`,
@@ -19,7 +19,7 @@ class PosCheckoutBar extends StatelessWidget {
   const PosCheckoutBar({super.key});
 
   Future<void> _cobrar(BuildContext context) async {
-    await PaymentModal.show(context);
+    await showCobrarScreen(context);
   }
 
   @override
@@ -121,7 +121,9 @@ class PosCheckoutBar extends StatelessWidget {
                   excludeSemantics: true,
                   label: 'Ver el detalle del carrito, $totalUnidadesLabel.',
                   child: InkWell(
-                    onTap: items.isEmpty ? null : () => showCartItemsScreen(context),
+                    // Se abre también vacío: ahí viven el menú de la cuenta y
+                    // el botón de cerrarla.
+                    onTap: () => showCartItemsScreen(context),
                     borderRadius: BorderRadius.circular(AppRadius.sm),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(

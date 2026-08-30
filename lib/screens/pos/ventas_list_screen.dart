@@ -254,6 +254,11 @@ class _VentasListScreenState extends State<VentasListScreen> {
     VentasProvider ventasProvider,
   ) async {
     final negative = context.colors.negative;
+    final positive = context.colors.positive;
+    // Se capturan antes del diálogo: al volver, el elemento puede estar
+    // desactivado y `mounted` no basta para que `context.read` sea seguro.
+    final productosProvider = context.read<ProductosProvider>();
+    final messenger = ScaffoldMessenger.of(context);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -279,15 +284,13 @@ class _VentasListScreenState extends State<VentasListScreen> {
       await ventasProvider.loadVentasUnificado(tiendaId, periodoId);
     }
     if (mounted) {
-      await context.read<ProductosProvider>().loadProductos(tiendaId);
+      await productosProvider.loadProductos(tiendaId);
     }
-    if (mounted) {
-      AppSnackBar.show(
-        context,
-        content: const Text('Venta eliminada'),
-        backgroundColor: context.colors.positive,
-      );
-    }
+    AppSnackBar.showOn(
+      messenger,
+      content: const Text('Venta eliminada'),
+      backgroundColor: positive,
+    );
   }
 }
 

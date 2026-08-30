@@ -29,7 +29,27 @@ class AppSnackBar {
     Duration duration = const Duration(seconds: 4),
     SnackBarBehavior behavior = SnackBarBehavior.floating,
   }) {
-    final messenger = ScaffoldMessenger.of(context);
+    showOn(
+      ScaffoldMessenger.of(context),
+      content: content,
+      backgroundColor: backgroundColor,
+      duration: duration,
+      behavior: behavior,
+      closeIconColor: _closeIconColor(context, backgroundColor),
+    );
+  }
+
+  /// Igual que [show] pero con un messenger ya resuelto, para avisar después de
+  /// un `await`: ahí el elemento puede estar desactivado y `ScaffoldMessenger.of`
+  /// revienta aunque `mounted` siga en `true`.
+  static void showOn(
+    ScaffoldMessengerState messenger, {
+    required Widget content,
+    Color? backgroundColor,
+    Duration duration = const Duration(seconds: 4),
+    SnackBarBehavior behavior = SnackBarBehavior.floating,
+    Color? closeIconColor,
+  }) {
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
@@ -38,7 +58,7 @@ class AppSnackBar {
         duration: duration,
         behavior: behavior,
         showCloseIcon: true,
-        closeIconColor: _closeIconColor(context, backgroundColor),
+        closeIconColor: closeIconColor,
         dismissDirection: DismissDirection.horizontal,
       ),
     );

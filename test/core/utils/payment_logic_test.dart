@@ -2,6 +2,7 @@ import 'package:cuadre_caja_app/core/constants/bill_denominations.dart';
 import 'package:cuadre_caja_app/core/utils/currency.dart';
 import 'package:cuadre_caja_app/core/utils/payment_logic.dart';
 import 'package:cuadre_caja_app/data/models/pago_multimoneda_model.dart';
+import 'package:cuadre_caja_app/data/models/transfer_destination_model.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -467,6 +468,425 @@ void main() {
 
       expect(vuelto.single.moneda, 'CUP');
       expect(vuelto.single.monto, 400);
+    });
+  });
+
+  group('PaymentLogic.montosRapidos', () {
+    // Denominaciones de USD tal como las siembra el backend.
+    const usdDenoms = [1.0, 5.0, 10.0, 20.0, 50.0, 100.0];
+
+    test('ofrece el siguiente billete sobre el exacto', () {
+      // Total 821,48 -> exacto 822. 820+5, 820+10, 820+20.
+      expect(
+        PaymentLogic.montosRapidos(exacto: 822, denominaciones: usdDenoms),
+        [825, 830, 840],
+      );
+    });
+
+    test('nunca repite el propio exacto', () {
+      // La denominación de 1 daría 822, que ya es el botón "Exacto".
+      final montos =
+          PaymentLogic.montosRapidos(exacto: 822, denominaciones: usdDenoms);
+
+      expect(montos, isNot(contains(822)));
+      expect(montos.every((m) => m > 822), isTrue);
+    });
+
+    test('con un exacto ya redondo salta al siguiente múltiplo', () {
+      // 800 es múltiplo de 1, 5, 10, 20, 50 y 100: todos darían 800.
+      final montos =
+          PaymentLogic.montosRapidos(exacto: 800, denominaciones: usdDenoms);
+
+      expect(montos, isEmpty);
+    });
+
+    test('deduplica los múltiplos que coinciden', () {
+      // 10 y 20 sobre 815 dan ambos 820; solo se ofrece una vez.
+      expect(
+        PaymentLogic.montosRapidos(
+          exacto: 815,
+          denominaciones: [10, 20, 50],
+        ),
+        [820, 850],
+      );
+    });
+
+    test('ordena las denominaciones aunque lleguen desordenadas', () {
+      // MonedaInfoModel las ordena por el campo `orden`, no por valor.
+      expect(
+        PaymentLogic.montosRapidos(
+          exacto: 822,
+          denominaciones: [100, 5, 50, 10, 20, 1],
+        ),
+        [825, 830, 840],
+      );
+    });
+
+    test('respeta el límite de cantidad', () {
+      expect(
+        PaymentLogic.montosRapidos(
+          exacto: 822,
+          denominaciones: usdDenoms,
+          cantidad: 2,
+        ),
+        [825, 830],
+      );
+    });
+
+    test('sin denominaciones no ofrece nada', () {
+      expect(
+        PaymentLogic.montosRapidos(exacto: 822, denominaciones: const []),
+        isEmpty,
+      );
+    });
+
+    test('con exacto en cero no ofrece nada', () {
+      expect(
+        PaymentLogic.montosRapidos(exacto: 0, denominaciones: usdDenoms),
+        isEmpty,
+      );
+    });
+  });
+
+  group('PaymentLogic.defaultDestId', () {
+    TransferDestinationModel dest(String id, {bool isDefault = false}) =>
+        TransferDestinationModel(id: id, nombre: id, isDefault: isDefault);
+
+    test('sin destinos devuelve cadena vacía', () {
+      expect(PaymentLogic.defaultDestId(const []), '');
+    });
+
+    test('con uno solo devuelve ese, aunque no esté marcado', () {
+      expect(PaymentLogic.defaultDestId([dest('d1')]), 'd1');
+    });
+
+    test('con varios devuelve el marcado por defecto', () {
+      expect(
+        PaymentLogic.defaultDestId([dest('d1'), dest('d2', isDefault: true)]),
+        'd2',
+      );
+    });
+
+    test('con varios y ninguno marcado devuelve el primero', () {
+      expect(PaymentLogic.defaultDestId([dest('d1'), dest('d2')]), 'd1');
+    });
+  });
+
+  group('vuelto sin fracciones ni de más', () {
+    const usdDenoms = [1.0, 5.0, 10.0, 20.0, 50.0, 100.0];
+    const eurDenoms = [1.0, 5.0, 10.0, 20.0, 50.0, 100.0];
+
+    test('nunca entrega más vuelto del debido', () {
+      // Con la regla vieja el resto en moneda base se redondeaba hacia ARRIBA:
+      // 200,5 CUP se convertían en 201 y la venta entregaba de más.
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: 999.5,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'USD',
+            monto: 5,
+            equivalenteBase: 2000,
+          ),
+        ],
+        monedaCobro: 'USD',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms, 'USD': usdDenoms},
+      );
+
+      final cup = vuelto.firstWhere((v) => v.moneda == 'CUP');
+      expect(cup.monto, 200);
+
+      final entregadoBase = vuelto.fold<double>(
+        0,
+        (s, v) => s + CurrencyUtils.convertToBase(v.monto, v.moneda, tasas, 'CUP'),
+      );
+      expect(entregadoBase, lessThanOrEqualTo(1000.5));
+    });
+
+    test('ninguna línea del vuelto lleva decimales', () {
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: 999.5,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'USD',
+            monto: 5,
+            equivalenteBase: 2000,
+          ),
+        ],
+        monedaCobro: 'USD',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms, 'USD': usdDenoms},
+      );
+
+      for (final linea in vuelto) {
+        expect(linea.monto, linea.monto.roundToDouble(),
+            reason: '${linea.monto} ${linea.moneda} tiene fracción');
+      }
+    });
+
+    test('el resto se entrega en la moneda más fina, no en la base', () {
+      // El caso del diseño: base USD, el cliente paga en EUR y el vuelto sale
+      // en CUP, que es la única moneda con la que se puede afinar tan poco.
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        // 1 EUR = 440 CUP y 1 USD = 400 CUP, así que 0,01 EUR son 4,4 CUP.
+        totalBase: 137.97 * 440 / 400,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'EUR',
+            monto: 137.98,
+            equivalenteBase: 137.98 * 440 / 400,
+          ),
+        ],
+        monedaCobro: 'EUR',
+        monedaBase: 'USD',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms, 'USD': usdDenoms, 'EUR': eurDenoms},
+        monedasVuelto: const ['EUR', 'USD', 'CUP'],
+      );
+
+      expect(vuelto.map((v) => v.moneda), ['CUP']);
+      expect(vuelto.single.monto, 4);
+    });
+
+    test('trunca a la denominación mínima: 145,99 CUP se pagan como 145', () {
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: 1000,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'CUP',
+            monto: 1145.99,
+            equivalenteBase: 1145.99,
+          ),
+        ],
+        monedaCobro: 'CUP',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms},
+      );
+
+      expect(vuelto.single.monto, 145);
+    });
+
+    test('solo reparte entre las monedas que la tienda puede entregar', () {
+      // CUP sería la más fina, pero si no está habilitada el resto se queda sin
+      // entregar en vez de inventar una moneda que la caja no tiene.
+      final vuelto = PaymentLogic.calcularVueltoAuto(
+        totalBase: 999.5,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'USD',
+            monto: 5,
+            equivalenteBase: 2000,
+          ),
+        ],
+        monedaCobro: 'USD',
+        monedaBase: 'CUP',
+        tasas: tasas,
+        denominaciones: {'CUP': cupDenoms, 'USD': usdDenoms},
+        monedasVuelto: const ['USD'],
+      );
+
+      expect(vuelto.map((v) => v.moneda), ['USD']);
+      expect(vuelto.single.monto, 2);
+    });
+  });
+
+  group('CurrencyUtils.monedaMasFina', () {
+    test('elige la moneda cuya denominación mínima vale menos', () {
+      expect(
+        CurrencyUtils.monedaMasFina(
+          monedas: const ['USD', 'EUR', 'CUP'],
+          denominaciones: {
+            'CUP': cupDenoms,
+            'USD': const [1.0, 100.0],
+            'EUR': const [1.0, 100.0],
+          },
+          tasas: tasas,
+          monedaBase: 'USD',
+        ),
+        'CUP',
+      );
+    });
+
+    test('con una sola moneda devuelve esa', () {
+      expect(
+        CurrencyUtils.monedaMasFina(
+          monedas: const ['USD'],
+          denominaciones: {'USD': const [1.0]},
+          tasas: tasas,
+          monedaBase: 'USD',
+        ),
+        'USD',
+      );
+    });
+
+    test('sin denominaciones compara por el valor de la unidad', () {
+      // Sin datos del servidor la denominación mínima es 1, así que gana la
+      // moneda que menos vale: CUP.
+      expect(
+        CurrencyUtils.monedaMasFina(
+          monedas: const ['USD', 'CUP'],
+          denominaciones: const {},
+          tasas: tasas,
+          monedaBase: 'USD',
+        ),
+        'CUP',
+      );
+    });
+  });
+
+  group('PaymentLogic.desglosarEnBilletes', () {
+    const usdDenoms = [1.0, 5.0, 10.0, 20.0, 50.0, 100.0];
+
+    test('desglosa de mayor a menor', () {
+      expect(
+        PaymentLogic.desglosarEnBilletes(224, usdDenoms),
+        {100.0: 2, 20.0: 1, 1.0: 4},
+      );
+    });
+
+    test('no incluye denominaciones que no se usan', () {
+      expect(PaymentLogic.desglosarEnBilletes(100, usdDenoms), {100.0: 1});
+    });
+
+    test('devuelve null si el monto tiene fracción', () {
+      expect(PaymentLogic.desglosarEnBilletes(224.5, usdDenoms), isNull);
+    });
+
+    test('devuelve null si las denominaciones no cubren el monto', () {
+      expect(PaymentLogic.desglosarEnBilletes(7, const [5, 10]), isNull);
+    });
+
+    test('monto cero da un desglose vacío', () {
+      expect(PaymentLogic.desglosarEnBilletes(0, usdDenoms), isEmpty);
+    });
+
+    test('acepta denominaciones desordenadas', () {
+      expect(
+        PaymentLogic.desglosarEnBilletes(224, const [1, 100, 20, 5, 50, 10]),
+        {100.0: 2, 20.0: 1, 1.0: 4},
+      );
+    });
+  });
+
+  group('CurrencyUtils.variantesDeVuelto', () {
+    // El escenario de los mockups: 1 USD = 675 CUP, base USD.
+    const tasasMockup = {'USD': 675.0, 'CUP': 1.0};
+    const denomsMockup = {
+      'USD': [1.0, 5.0, 10.0, 20.0, 50.0, 100.0],
+      'CUP': cupDenoms,
+    };
+    const elegibles = ['USD', 'CUP'];
+
+    List<Map<String, double>> variantes(double debido) =>
+        CurrencyUtils.variantesDeVuelto(
+          vueltoTotalBase: debido,
+          monedaCobro: 'USD',
+          monedaBase: 'USD',
+          tasas: tasasMockup,
+          denominaciones: denomsMockup,
+          monedasVuelto: elegibles,
+        );
+
+    test('con 3,52 USD a dar ofrece dos repartos', () {
+      // Pagar 25 USD sobre 21,48: 3 USD + 351 CUP, o todo en CUP.
+      expect(variantes(3.52), [
+        {'USD': 3.0, 'CUP': 351.0},
+        {'CUP': 2376.0},
+      ]);
+    });
+
+    test('con 8,52 USD a dar ofrece tres repartos', () {
+      // Pagar 30 USD sobre 21,48, el caso de la imagen.
+      expect(variantes(8.52), [
+        {'USD': 8.0, 'CUP': 351.0},
+        {'USD': 5.0, 'CUP': 2376.0},
+        {'CUP': 5751.0},
+      ]);
+    });
+
+    test('la primera variante es la que devuelve calcularVuelto', () {
+      final auto = CurrencyUtils.calcularVuelto(
+        totalBase: 21.48,
+        pagos: [
+          PagoLinea(
+            tipo: 'cash',
+            moneda: 'USD',
+            monto: 30,
+            equivalenteBase: 30,
+          ),
+        ],
+        monedaCobro: 'USD',
+        monedaBase: 'USD',
+        tasas: tasasMockup,
+        denominaciones: denomsMockup,
+        monedasVuelto: elegibles,
+      );
+
+      expect(
+        {for (final l in auto) l.moneda: l.monto},
+        variantes(8.52).first,
+      );
+    });
+
+    test('pagar en la moneda más fina da una sola variante', () {
+      expect(
+        CurrencyUtils.variantesDeVuelto(
+          vueltoTotalBase: 8.52,
+          monedaCobro: 'CUP',
+          monedaBase: 'USD',
+          tasas: tasasMockup,
+          denominaciones: denomsMockup,
+          monedasVuelto: elegibles,
+        ),
+        [
+          {'CUP': 5751.0},
+        ],
+      );
+    });
+
+    test('ninguna variante entrega de más ni con fracciones', () {
+      for (final reparto in variantes(8.52)) {
+        var entregado = 0.0;
+        for (final e in reparto.entries) {
+          expect(e.value, e.value.roundToDouble(),
+              reason: '${e.value} ${e.key} tiene fracción');
+          entregado += CurrencyUtils.convertToBase(
+            e.value,
+            e.key,
+            tasasMockup,
+            'USD',
+          );
+        }
+        expect(entregado, lessThanOrEqualTo(8.52 + 1e-9));
+      }
+    });
+
+    test('respeta el tope y descarta duplicados', () {
+      final limitadas = CurrencyUtils.variantesDeVuelto(
+        vueltoTotalBase: 8.52,
+        monedaCobro: 'USD',
+        monedaBase: 'USD',
+        tasas: tasasMockup,
+        denominaciones: denomsMockup,
+        monedasVuelto: elegibles,
+        max: 2,
+      );
+
+      expect(limitadas, hasLength(2));
+      // Las denominaciones de 10 en adelante darían todas el mismo reparto.
+      expect(variantes(8.52), hasLength(3));
+    });
+
+    test('sin vuelto pendiente no hay variantes', () {
+      expect(variantes(0), isEmpty);
     });
   });
 }
