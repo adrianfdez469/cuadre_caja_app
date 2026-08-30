@@ -22,8 +22,8 @@ class CartCheckoutBar extends StatelessWidget {
   final VoidCallback? onSaleCompleted;
 
   Future<void> _cobrar(BuildContext context) async {
-    final ok = await showCobrarScreen(context);
-    if (ok == true && context.mounted) onSaleCompleted?.call();
+    final res = await showCobrarScreen(context);
+    if (res == CobrarResult.vendida && context.mounted) onSaleCompleted?.call();
   }
 
   @override

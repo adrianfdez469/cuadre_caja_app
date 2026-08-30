@@ -297,6 +297,41 @@ void main() {
       );
     });
 
+    test('rechaza la venta si la cuenta se quedó sin productos', () {
+      // Vaciar el carrito desde la pantalla de cobro deja el total en 0 con el
+      // pago ya sembrado: sin hasItems eso habilitaba una venta de 0 sin
+      // productos.
+      final pagos = {'CUP': const PagoMonedaState(cash: 1000)};
+      final pagado = PaymentLogic.totalPagadoBase(pagos, 'CUP', tasas);
+      expect(
+        PaymentLogic.canConfirm(
+          total: 0,
+          falta: false,
+          totalPagadoBase: pagado,
+          pagosLinea: lineas(pagos, 'CUP'),
+          hasPagos: true,
+          hasItems: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('sin productos no se puede vender ni con el pago cubierto', () {
+      final pagos = {'CUP': const PagoMonedaState(cash: 1000)};
+      final pagado = PaymentLogic.totalPagadoBase(pagos, 'CUP', tasas);
+      expect(
+        PaymentLogic.canConfirm(
+          total: 1000,
+          falta: false,
+          totalPagadoBase: pagado,
+          pagosLinea: lineas(pagos, 'CUP'),
+          hasPagos: true,
+          hasItems: false,
+        ),
+        isFalse,
+      );
+    });
+
     test('acepta pago mixto con destino de transferencia', () {
       final pagos = {
         'CUP': const PagoMonedaState(

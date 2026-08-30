@@ -29,10 +29,25 @@ import 'widgets/moneda_pago_sheet.dart';
 import 'widgets/monto_input_sheet.dart';
 
 /// Abre el cobro. Devuelve `true` si la venta se completó.
-Future<bool?> showCobrarScreen(BuildContext context) {
-  return Navigator.of(context).push<bool>(
-    slideFromRightRoute<bool>(const CobrarScreen()),
+/// Cómo terminó la pantalla de cobro.
+enum CobrarResult {
+  /// La venta se registró.
+  vendida,
+
+  /// Se volvió atrás sin vender.
+  cancelada,
+
+  /// La cuenta se quedó sin productos mientras se cobraba (se vació desde el
+  /// carrito). Quien abrió el cobro y también muestre ese carrito debe
+  /// cerrarse, para no dejar al usuario mirando una cuenta vacía.
+  carritoVacio,
+}
+
+Future<CobrarResult> showCobrarScreen(BuildContext context) async {
+  final res = await Navigator.of(context).push<CobrarResult>(
+    slideFromRightRoute<CobrarResult>(const CobrarScreen()),
   );
+  return res ?? CobrarResult.cancelada;
 }
 
 /// Snapshot de la venta ya confirmada, tomado antes de vaciar el carrito, para
@@ -233,7 +248,12 @@ class _CobrarScreenState extends State<CobrarScreen> {
         pagosLinea: _pagosLinea,
         hasPagos: _pagos.isNotEmpty,
         hasTransferDestinations: _transferDestinations.isNotEmpty,
+        hasItems: !_cuentaVacia,
       );
+
+  /// La cuenta que se está cobrando se quedó sin productos.
+  bool get _cuentaVacia =>
+      context.read<CartProvider>().activeCart?.isEmpty ?? true;
 
   String _fmtBase(double v) =>
       '${Formatters.formatNumber(v)} $_monedaBase';
@@ -510,8 +530,39 @@ class _CobrarScreenState extends State<CobrarScreen> {
   Future<void> _abrirCarrito() async {
     // Se abre el detalle completo; su botón de cobro solo cierra, porque ya
     // estamos cobrando.
+    final totalAntes = _total;
     await showCartItemsScreen(context, onCobrar: () => Navigator.pop(context));
-    if (mounted) setState(_syncVueltoAuto);
+    if (!mounted) return;
+
+    // Vaciar la cuenta desde el carrito deja esta pantalla cobrando una venta
+    // que ya no existe.
+    if (_cuentaVacia) {
+      Navigator.pop(context, CobrarResult.carritoVacio);
+      return;
+    }
+
+    final totalAhora = _total;
+    if (totalAhora != totalAntes) {
+      // Cambió lo que hay que cobrar: lo que puso el cliente ya no corresponde
+      // a esta venta, así que se vuelve a sembrar igual que al abrir.
+      setState(() => _sembrarPagoInicial(totalAhora));
+    } else {
+      setState(_syncVueltoAuto);
+    }
+  }
+
+  /// Deja un único pago en la moneda base por el total, como al entrar.
+  void _sembrarPagoInicial(double total) {
+    _pagos.clear();
+    _billetes.clear();
+    _showTransfer.clear();
+    _vueltoManual = false;
+    _initMoneda(
+      _monedaBase,
+      monto: PaymentLogic.ceilCash(total),
+      transferDestId: PaymentLogic.defaultDestId(_transferDestinations),
+    );
+    _syncVueltoAuto();
   }
 
   // ── Venta ──────────────────────────────────────────────────────────────
@@ -528,6 +579,11 @@ class _CobrarScreenState extends State<CobrarScreen> {
 
       if (cart.activeCart == null || periodo.periodoId == null) {
         throw Exception('No hay cuenta o período activo');
+      }
+      // Red de seguridad: el botón ya está deshabilitado sin productos, pero un
+      // tap en carrera con el vaciado no debe registrar una venta vacía.
+      if (cart.activeCart!.isEmpty) {
+        throw Exception('La cuenta no tiene productos');
       }
       final pagos = _pagosLinea;
       if (pagos.isEmpty) throw Exception('Debe ingresar al menos un pago');
@@ -1268,7 +1324,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
                 color: colors.sunken,
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 child: InkWell(
-                  onTap: () => Navigator.pop(context, true),
+                  onTap: () => Navigator.pop(context, CobrarResult.vendida),
                   borderRadius: BorderRadius.circular(AppRadius.md),
                   child: SizedBox(
                     width: AppTapTarget.min,
@@ -1381,7 +1437,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(context, CobrarResult.vendida),
             style: ElevatedButton.styleFrom(
               backgroundColor: colors.accent,
               foregroundColor: colors.onAccent,

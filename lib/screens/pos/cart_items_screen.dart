@@ -73,6 +73,15 @@ class CartPanel extends StatelessWidget {
 
   const CartPanel({super.key, this.onClose, this.onCobrar});
 
+  /// Cobra y, si la cuenta se quedó sin productos mientras tanto (se vació
+  /// desde el carrito que se abre encima del cobro), cierra también esta vista:
+  /// quedarse en el detalle de una cuenta vacía no le sirve a nadie.
+  Future<void> _cobrarYCerrarSiVacia(BuildContext context) async {
+    final res = await showCobrarScreen(context);
+    if (!context.mounted) return;
+    if (res == CobrarResult.carritoVacio) onClose?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -213,7 +222,7 @@ class CartPanel extends StatelessWidget {
                     CobrarButton(
                       unidades: totalUnidades,
                       onPressed: habilitado
-                          ? (onCobrar ?? () => showCobrarScreen(context))
+                          ? (onCobrar ?? () => _cobrarYCerrarSiVacia(context))
                           : null,
                     ),
                   ],

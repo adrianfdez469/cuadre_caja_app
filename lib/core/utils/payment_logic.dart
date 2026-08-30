@@ -171,6 +171,11 @@ class PaymentLogic {
   /// cache local está vacío), exigirlo dejaba el botón deshabilitado sin que la
   /// UI ofreciera forma de seleccionarlo — un callejón sin salida. La venta se
   /// permite con `transferDestinationId` nulo, que el backend acepta.
+  ///
+  /// [hasItems] es la guarda contra vender la nada: vaciar el carrito desde la
+  /// pantalla de cobro dejaba el total en 0 y, como el pago sembrado seguía
+  /// ahí, `total <= 0` habilitaba el botón y se registraba una venta de 0 sin
+  /// productos.
   static bool canConfirm({
     required double total,
     required bool falta,
@@ -178,7 +183,9 @@ class PaymentLogic {
     required List<PagoLinea> pagosLinea,
     required bool hasPagos,
     bool hasTransferDestinations = true,
+    bool hasItems = true,
   }) {
+    if (!hasItems) return false;
     if (total <= 0) return hasPagos;
     if (falta || totalPagadoBase <= 0) return false;
     if (!hasTransferDestinations) return true;
