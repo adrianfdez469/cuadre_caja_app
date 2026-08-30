@@ -6,4 +6,5 @@ class StorageKeys {
   static const String scanAutoMode = 'scan_auto_mode';
   static const String scanAsociarEnabled = 'scan_asociar_enabled';
   static const String darkModeEnabled = 'dark_mode_enabled';
+  static const String ventaSinStockEnabled = 'venta_sin_stock_enabled';
 }

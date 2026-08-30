@@ -3,13 +3,14 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_tokens.dart';
 import '../../../providers/theme_mode_provider.dart';
+import '../../../providers/venta_sin_stock_provider.dart';
 import '../../../widgets/action_row.dart';
 import '../../version_screen.dart';
 
 /// Hoja "Cuenta", abierta desde el avatar del usuario en la barra superior.
-/// Reúne lo que es del usuario/dispositivo (modo oscuro, versión, cerrar
-/// sesión), separado de "Acciones del POS" (⋯), que es sobre la operación
-/// de venta.
+/// Reúne lo que es del usuario/dispositivo (modo oscuro, venta sin existencias,
+/// versión, cerrar sesión), separado de "Acciones del POS" (⋯), que es sobre la
+/// operación de venta.
 class UserMenuSheet {
   UserMenuSheet._();
 
@@ -34,6 +35,7 @@ class _UserMenuSheetContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final themeModeProvider = context.watch<ThemeModeProvider>();
+    final ventaSinStock = context.watch<VentaSinStockProvider>();
 
     return SafeArea(
       child: Column(
@@ -61,6 +63,19 @@ class _UserMenuSheetContent extends StatelessWidget {
               onChanged: (v) => themeModeProvider.setDarkMode(v),
             ),
             onTap: () => themeModeProvider.setDarkMode(!themeModeProvider.isDarkMode),
+          ),
+          ActionRow(
+            icon: Icons.production_quantity_limits,
+            title: 'Vender sin existencias',
+            subtitle: ventaSinStock.enabled
+                ? 'Activado — el servidor puede rechazar la venta'
+                : 'Solo sin conexión',
+            trailing: Switch(
+              value: ventaSinStock.enabled,
+              activeTrackColor: colors.accent,
+              onChanged: (v) => ventaSinStock.setEnabled(v),
+            ),
+            onTap: () => ventaSinStock.setEnabled(!ventaSinStock.enabled),
           ),
           ActionRow(
             icon: Icons.info_outline,

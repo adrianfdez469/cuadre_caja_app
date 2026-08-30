@@ -13,6 +13,7 @@ import 'providers/periodo_provider.dart';
 import 'providers/monedas_provider.dart';
 import 'providers/sync_provider.dart';
 import 'providers/theme_mode_provider.dart';
+import 'providers/venta_sin_stock_provider.dart';
 import 'services/sync_service.dart';
 import 'screens/splash_screen.dart';
 
@@ -76,6 +77,8 @@ class MyApp extends StatelessWidget {
         ),
 
         ChangeNotifierProvider(create: (_) => ThemeModeProvider()),
+
+        ChangeNotifierProvider(create: (_) => VentaSinStockProvider()),
       ],
       child: Consumer<ThemeModeProvider>(
         builder: (context, themeModeProvider, _) => MaterialApp(

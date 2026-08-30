@@ -60,4 +60,45 @@ void main() {
           contains('7501234'));
     });
   });
+
+  group('ProductosProvider.applyStockFilter', () {
+    ProductoModel agotado() => ProductoModel(
+          id: 'pt-2',
+          productoId: 'p-2',
+          nombre: 'Agua',
+          precio: 80,
+          costo: 40,
+          existencia: 0,
+        );
+
+    test('los agotados aparecen al permitir vender sin existencias', () async {
+      final sync = FakeSyncService(productos: [producto(), agotado()]);
+      final provider = ProductosProvider(sync);
+      await provider.loadProductos('tienda-1');
+
+      // Por defecto el catálogo exige stock.
+      expect(provider.productos.map((p) => p.id), ['pt-1']);
+
+      provider.applyStockFilter(true);
+      expect(provider.productos.map((p) => p.id), ['pt-2', 'pt-1']);
+
+      provider.applyStockFilter(false);
+      expect(provider.productos.map((p) => p.id), ['pt-1']);
+    });
+
+    test('repetir el mismo valor no notifica', () async {
+      final sync = FakeSyncService(productos: [producto()]);
+      final provider = ProductosProvider(sync);
+      await provider.loadProductos('tienda-1');
+
+      var notificaciones = 0;
+      provider.addListener(() => notificaciones++);
+
+      provider.applyStockFilter(false);
+      expect(notificaciones, 0);
+
+      provider.applyStockFilter(true);
+      expect(notificaciones, 1);
+    });
+  });
 }

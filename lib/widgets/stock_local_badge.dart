@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
 
-/// Estilos compartidos para productos sin stock local (modo offline).
+/// Estilos compartidos para productos sin stock en la caché local.
 ///
-/// "Sin stock local" es un aviso, no un error: usa el tono `caution` del
-/// design system ("todavía no es problema"), no `negative`.
+/// Es un aviso, no un error: usa el tono `caution` del design system
+/// ("todavía no es problema"), no `negative`.
 class SinStockLocalStyles {
   SinStockLocalStyles._();
 
@@ -31,15 +31,23 @@ class SinStockLocalStyles {
   }
 }
 
-/// Badge para productos sin stock local (solo modo offline).
+/// Badge para productos que se venden sin existencias.
+///
+/// Sin conexión el stock que falta es el de la caché ("Sin stock local", nube
+/// tachada). Con conexión — el ajuste "Vender sin existencias" activo — el
+/// stock que falta es el real del servidor, así que ni el "local" ni la nube
+/// tachada aplican.
 class StockLocalBadge extends StatelessWidget {
   final bool compact;
+  final bool isOnline;
 
-  const StockLocalBadge({super.key, this.compact = false});
+  const StockLocalBadge({super.key, this.compact = false, this.isOnline = false});
 
   @override
   Widget build(BuildContext context) {
-    final label = compact ? 'Sin stock local' : 'SIN STOCK LOCAL';
+    final label = isOnline
+        ? (compact ? 'Sin stock' : 'SIN STOCK')
+        : (compact ? 'Sin stock local' : 'SIN STOCK LOCAL');
     final iconSize = compact ? 11.0 : 14.0;
     final fontSize = compact ? 10.0 : 11.0;
     final hPad = compact ? 6.0 : 8.0;
@@ -57,7 +65,7 @@ class StockLocalBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.cloud_off_outlined,
+            isOnline ? Icons.inventory_2_outlined : Icons.cloud_off_outlined,
             size: iconSize,
             color: SinStockLocalStyles.accent(context),
           ),

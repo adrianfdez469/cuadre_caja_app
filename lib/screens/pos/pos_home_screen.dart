@@ -12,6 +12,7 @@ import '../../core/theme/app_tokens.dart';
 import '../../services/release_service.dart' show ReleaseService, compareVersions;
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../core/utils/venta_sin_stock_policy.dart';
 import '../../data/models/categoria_model.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
@@ -47,7 +48,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   String? _initError;
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
-  bool? _lastOnline;
+  bool? _lastPermitirSinStock;
 
   /// La cabecera (barra superior + buscador + categorías) se oculta al
   /// desplazar el catálogo hacia abajo y reaparece de inmediato al primer
@@ -244,8 +245,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
       if (!mounted) return;
 
-      context.read<ProductosProvider>().applyConnectionFilter(
-        context.read<SyncProvider>().isOnline,
+      context.read<ProductosProvider>().applyStockFilter(
+        VentaSinStockPolicy.of(context, listen: false),
       );
 
       // Full sync si hay conexión (ventas primero, inventario al final)
@@ -274,7 +275,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   /// onDataRefreshed puede dispararse desde varias fuentes a la vez (fullSync de
   /// la carga inicial, timer de 30s, reconexión). Sin coordinación, dos refrescos
   /// concurrentes interleavan sus escrituras (p. ej. _ventasUnificado) y corren
-  /// applyConnectionFilter sobre una lista a medio reconstruir. Este guard
+  /// applyStockFilter sobre una lista a medio reconstruir. Este guard
   /// serializa: si ya hay uno en curso, marca uno pendiente y el actual lo
   /// re-ejecuta una vez al terminar, para no perder el último estado.
   Future<void> _refreshUiAfterSync() async {
@@ -311,8 +312,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
       if (!mounted) return;
 
-      context.read<ProductosProvider>().applyConnectionFilter(
-        context.read<SyncProvider>().isOnline,
+      context.read<ProductosProvider>().applyStockFilter(
+        VentaSinStockPolicy.of(context, listen: false),
       );
 
       final periodoId = context.read<PeriodoProvider>().periodoId;
@@ -382,13 +383,15 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     final cartProvider = context.watch<CartProvider>();
     final colors = context.colors;
 
-    if (_lastOnline != syncProvider.isOnline) {
-      _lastOnline = syncProvider.isOnline;
+    // El catálogo oculta los productos agotados salvo que se permita venderlos:
+    // hay que reconstruirlo tanto al perder/recuperar conexión como al cambiar
+    // el ajuste "Vender sin existencias".
+    final permitirSinStock = VentaSinStockPolicy.of(context);
+    if (_lastPermitirSinStock != permitirSinStock) {
+      _lastPermitirSinStock = permitirSinStock;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          context.read<ProductosProvider>().applyConnectionFilter(
-            syncProvider.isOnline,
-          );
+          context.read<ProductosProvider>().applyStockFilter(permitirSinStock);
         }
       });
     }
@@ -838,8 +841,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   /// Agregar 1 unidad al carrito desde el botón "+" del catálogo.
   Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
     final productosProvider = context.read<ProductosProvider>();
-    final isOnline = context.read<SyncProvider>().isOnline;
-    final offlineMode = !isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context, listen: false);
     final cart = context.read<CartProvider>().activeCart;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
@@ -849,9 +851,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+      permitirSinStock: permitirSinStock,
     );
-    if (isOnline && maxDisp <= 0) {
+    if (!permitirSinStock && maxDisp <= 0) {
       if (context.mounted) {
         AppSnackBar.show(
           context,
@@ -866,7 +868,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
-          isOnline: isOnline,
+          permitirSinStock: permitirSinStock,
         );
     if (!context.mounted) return;
     if (ok) {
@@ -876,7 +878,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
         backgroundColor: context.colors.positive,
         duration: const Duration(seconds: 1),
       );
-      if (offlineMode &&
+      if (permitirSinStock &&
           !ProductoPosRules.tieneStockLocalEfectivo(
             producto,
             productosProvider.allProductos,
@@ -884,7 +886,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
           )) {
         AppSnackBar.show(
           context,
-          content: const Text('Sin stock local — se validará al sincronizar'),
+          content: const Text('Sin stock — se validará al sincronizar'),
           backgroundColor: context.colors.caution,
           duration: const Duration(seconds: 2),
         );
@@ -893,8 +895,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   }
 
   void _showQuantitySheet(BuildContext context, ProductoModel producto) {
-    final isOnline = context.read<SyncProvider>().isOnline;
-    QuantitySheet.show(context, producto: producto, isOnline: isOnline);
+    QuantitySheet.show(
+      context,
+      producto: producto,
+      permitirSinStock: VentaSinStockPolicy.of(context, listen: false),
+    );
   }
 }
 
@@ -1022,7 +1027,7 @@ class _CatalogoResultados extends StatelessWidget {
     final results = productosProvider.productos;
     final monedas = context.watch<MonedasProvider>();
     final isOnline = context.watch<SyncProvider>().isOnline;
-    final offlineMode = !isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context);
 
     if (results.isEmpty) {
       return LayoutBuilder(
@@ -1068,10 +1073,10 @@ class _CatalogoResultados extends StatelessWidget {
           p,
           allProductos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: offlineMode,
+          permitirSinStock: permitirSinStock,
         );
         final enCarrito = cantidadEnCarrito > 0;
-        final sinStockLocal = offlineMode &&
+        final sinStockLocal = permitirSinStock &&
             !ProductoPosRules.tieneStockLocalEfectivo(
               p,
               allProductos,
@@ -1081,7 +1086,7 @@ class _CatalogoResultados extends StatelessWidget {
           p,
           allProductos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: offlineMode,
+          permitirSinStock: permitirSinStock,
         );
 
         final precioBase = monedas.precioEnBase(p.precio, p.monedaPrecioCode);
@@ -1158,9 +1163,9 @@ class _CatalogoResultados extends StatelessWidget {
                           ],
                         ),
                         if (sinStockLocal)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 2),
-                            child: StockLocalBadge(compact: true),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: StockLocalBadge(compact: true, isOnline: isOnline),
                           ),
                         // "Cant" y la última conversión comparten esta fila,
                         // que por el `spaceBetween` de arriba siempre cae en

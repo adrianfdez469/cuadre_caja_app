@@ -21,6 +21,7 @@ class CartItemTile extends StatelessWidget {
     required this.item,
     required this.allProductos,
     required this.isOnline,
+    required this.permitirSinStock,
     this.highlighted = false,
     this.dismissible = true,
   });
@@ -29,7 +30,13 @@ class CartItemTile extends StatelessWidget {
 
   /// Catálogo local; lo observa el padre una sola vez por lista.
   final List<ProductoModel> allProductos;
+
+  /// Solo para el aviso visual: sin conexión el stock que falta es el de la
+  /// caché ("Sin stock local"); con conexión es el real del servidor.
   final bool isOnline;
+
+  /// Si es true no se valida el stock al subir cantidades. Ver `VentaSinStockPolicy`.
+  final bool permitirSinStock;
 
   /// Resalta temporalmente la fila (producto recién escaneado).
   final bool highlighted;
@@ -39,7 +46,6 @@ class CartItemTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cartProvider = context.read<CartProvider>();
     final monedas = context.watch<MonedasProvider>();
-    final offlineMode = !isOnline;
 
     ProductoModel? producto;
     try {
@@ -54,7 +60,7 @@ class CartItemTile extends StatelessWidget {
             producto,
             allProductos,
             cantidadEnCarrito: cantidadEnCarrito,
-            offlineMode: offlineMode,
+            permitirSinStock: permitirSinStock,
           )
         : double.infinity;
     final maxTotalPermitido = producto != null
@@ -62,7 +68,7 @@ class CartItemTile extends StatelessWidget {
         : double.infinity;
     final canIncrement =
         maxTotalPermitido.isInfinite || item.cantidad < maxTotalPermitido;
-    final sinStockLocal = offlineMode &&
+    final sinStockLocal = permitirSinStock &&
         producto != null &&
         !ProductoPosRules.tieneStockLocalEfectivo(
           producto,
@@ -88,7 +94,7 @@ class CartItemTile extends StatelessWidget {
           decrementQty,
           allProductos: producto != null ? allProductos : null,
           producto: producto,
-          isOnline: isOnline,
+          permitirSinStock: permitirSinStock,
         );
       }
     }
@@ -102,7 +108,7 @@ class CartItemTile extends StatelessWidget {
         newQty,
         allProductos: producto != null ? allProductos : null,
         producto: producto,
-        isOnline: isOnline,
+        permitirSinStock: permitirSinStock,
       );
     }
 
@@ -216,7 +222,7 @@ class CartItemTile extends StatelessWidget {
               ),
               if (sinStockLocal) ...[
                 const SizedBox(height: 2),
-                const StockLocalBadge(compact: true),
+                StockLocalBadge(compact: true, isOnline: isOnline),
               ],
               MultiCurrencyAmount(
                 amount: subtotalBase,

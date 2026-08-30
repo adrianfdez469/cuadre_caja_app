@@ -14,7 +14,7 @@ class ProductosProvider extends ChangeNotifier {
   List<CategoriaModel> _categorias = [];
   bool _isLoading = false;
   String? _selectedCategoriaId;
-  bool _offlineMode = false;
+  bool _permitirSinStock = false;
 
   ProductosProvider(this._syncService);
 
@@ -23,13 +23,14 @@ class ProductosProvider extends ChangeNotifier {
   List<CategoriaModel> get categorias => _categorias;
   bool get isLoading => _isLoading;
   String? get selectedCategoriaId => _selectedCategoriaId;
-  bool get offlineMode => _offlineMode;
+  bool get permitirSinStock => _permitirSinStock;
 
-  /// Re-aplica el filtro de catálogo según el estado de conexión.
-  void applyConnectionFilter(bool isOnline) {
-    final offlineMode = !isOnline;
-    if (_offlineMode == offlineMode) return;
-    _offlineMode = offlineMode;
+  /// Re-aplica el filtro de catálogo según si se permite vender sin existencias
+  /// (sin conexión, o con el ajuste "Vender sin existencias" activo): los
+  /// productos agotados solo se listan cuando se permite. Ver `VentaSinStockPolicy`.
+  void applyStockFilter(bool permitirSinStock) {
+    if (_permitirSinStock == permitirSinStock) return;
+    _permitirSinStock = permitirSinStock;
     _rebuildProductLists();
     notifyListeners();
   }
@@ -37,7 +38,7 @@ class ProductosProvider extends ChangeNotifier {
   void _rebuildProductLists() {
     _allProductos = ProductoPosRules.filtrarYOrdenarParaPos(
       _rawProductos,
-      offlineMode: _offlineMode,
+      permitirSinStock: _permitirSinStock,
     );
     if (_selectedCategoriaId != null) {
       _filteredProductos = _allProductos

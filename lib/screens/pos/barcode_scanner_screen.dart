@@ -10,6 +10,7 @@ import '../../core/constants/storage_keys.dart';
 import '../../core/di/injection.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/producto_pos_rules.dart';
+import '../../core/utils/venta_sin_stock_policy.dart';
 import '../../widgets/stock_local_badge.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/auth_provider.dart';
@@ -374,8 +375,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (!mounted) return;
 
     final productosProvider = context.read<ProductosProvider>();
-    final isOnline = context.read<SyncProvider>().isOnline;
-    final offlineMode = !isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context, listen: false);
     final producto = productosProvider.findProductByCodigo(code);
 
     if (producto == null) {
@@ -420,11 +420,11 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+      permitirSinStock: permitirSinStock,
     );
 
     if (autoMode) {
-      if (isOnline && maxDisp <= 0) {
+      if (!permitirSinStock && maxDisp <= 0) {
         _playError();
         _startAutoScanCooldown();
         AppSnackBar.show(
@@ -437,12 +437,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         return;
       }
 
-      if (!isOnline &&
+      if (permitirSinStock &&
           !ProductoPosRules.puedeAgregar(
             producto,
             productosProvider.allProductos,
             cantidadEnCarrito: cantidadEnCarrito,
-            offlineMode: true,
+            permitirSinStock: true,
           )) {
         _playError();
         _startAutoScanCooldown();
@@ -462,7 +462,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             producto,
             cantidad: qty,
             allProductos: productosProvider.allProductos,
-            isOnline: isOnline,
+            permitirSinStock: permitirSinStock,
             moverAlInicio: true,
           )
           .then((ok) {
@@ -517,7 +517,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       producto,
       allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: !ctx.read<SyncProvider>().isOnline,
+      permitirSinStock: VentaSinStockPolicy.of(ctx, listen: false),
     );
   }
 
@@ -578,16 +578,16 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
   void _addPreviewToCart() {
     final producto = _previewProduct;
     if (producto == null || _isProcessing) return;
-    final isOnline = context.read<SyncProvider>().isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context, listen: false);
     // Se revalida en el instante del tap: el carrito pudo cambiar desde el
     // último build (por el panel o por la pistola).
     final maxDisp = _maxDisponible(context);
-    if (isOnline && maxDisp <= 0) return;
-    if (!isOnline &&
+    if (!permitirSinStock && maxDisp <= 0) return;
+    if (permitirSinStock &&
         !ProductoPosRules.puedeAgregar(
           producto,
           context.read<ProductosProvider>().allProductos,
-          offlineMode: true,
+          permitirSinStock: true,
         )) {
       return;
     }
@@ -608,7 +608,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
-          isOnline: isOnline,
+          permitirSinStock: permitirSinStock,
           moverAlInicio: true,
         )
         .then((ok) {
@@ -795,16 +795,17 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
               // recalcule cuando se editan cantidades en el panel.
               builder: (ctx, _, __) {
                 final maxDisp = _maxDisponible(ctx);
-                final isOnline = ctx.read<SyncProvider>().isOnline;
+                final permitirSinStock =
+                    VentaSinStockPolicy.of(ctx, listen: false);
                 final canAdd = _previewProduct != null &&
                     !_isProcessing &&
-                    (isOnline
-                        ? maxDisp > 0
-                        : ProductoPosRules.puedeAgregar(
+                    (permitirSinStock
+                        ? ProductoPosRules.puedeAgregar(
                             _previewProduct!,
                             ctx.read<ProductosProvider>().allProductos,
-                            offlineMode: true,
-                          ));
+                            permitirSinStock: true,
+                          )
+                        : maxDisp > 0);
 
                 return Stack(
                   // Expand, si no el overlay se encoge a su contenido y el Stack
@@ -1061,7 +1062,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
             .where((i) => i.productoTiendaId == producto.id)
             .fold<double>(0, (s, i) => s + i.cantidad) ??
         0;
-    final sinStockLocal = !isOnline &&
+    final permitirSinStock = VentaSinStockPolicy.of(context);
+    final sinStockLocal = permitirSinStock &&
         !ProductoPosRules.tieneStockLocalEfectivo(
           producto,
           allProductos,
@@ -1069,10 +1071,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         );
     final nombreProducto = ProductoPosRules.nombreParaMostrar(producto);
     final existenciaStr = sinStockLocal
-        ? 'Sin stock local'
+        ? (isOnline ? 'Sin stock' : 'Sin stock local')
         : ProductoPosRules.formatearCantidad(
             producto,
-            isOnline
+            !permitirSinStock
                 ? ProductoPosRules.existenciaReal(producto)
                 : ProductoPosRules.existenciaLocalEfectiva(
                     producto,

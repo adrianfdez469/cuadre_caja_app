@@ -20,11 +20,10 @@ class QuantitySheet {
   static Future<void> show(
     BuildContext context, {
     required ProductoModel producto,
-    required bool isOnline,
+    required bool permitirSinStock,
   }) async {
     final productosProvider = context.read<ProductosProvider>();
     final cart = context.read<CartProvider>().activeCart;
-    final offlineMode = !isOnline;
     final cantidadEnCarrito = cart?.items
             .where((i) => i.productoTiendaId == producto.id)
             .fold<double>(0, (s, i) => s + i.cantidad) ??
@@ -33,9 +32,9 @@ class QuantitySheet {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+      permitirSinStock: permitirSinStock,
     );
-    if (!offlineMode && maxDisp <= 0) return;
+    if (!permitirSinStock && maxDisp <= 0) return;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -43,7 +42,7 @@ class QuantitySheet {
       builder: (ctx) => _QuantitySheetContent(
         parentContext: context,
         producto: producto,
-        isOnline: isOnline,
+        permitirSinStock: permitirSinStock,
         maxDisp: maxDisp,
         cantidadEnCarrito: cantidadEnCarrito,
       ),
@@ -56,14 +55,14 @@ class _QuantitySheetContent extends StatefulWidget {
   /// cerrarla, a diferencia del contexto propio de la hoja.
   final BuildContext parentContext;
   final ProductoModel producto;
-  final bool isOnline;
+  final bool permitirSinStock;
   final double maxDisp;
   final double cantidadEnCarrito;
 
   const _QuantitySheetContent({
     required this.parentContext,
     required this.producto,
-    required this.isOnline,
+    required this.permitirSinStock,
     required this.maxDisp,
     required this.cantidadEnCarrito,
   });
@@ -206,7 +205,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: widget.cantidadEnCarrito,
-      offlineMode: !widget.isOnline,
+      permitirSinStock: widget.permitirSinStock,
     );
     final puedeConfirmar = _cantidad > 0 &&
         (!widget.maxDisp.isFinite || _cantidad <= widget.maxDisp);
@@ -319,7 +318,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                           producto,
                           cantidad: _cantidad,
                           allProductos: productosProvider.allProductos,
-                          isOnline: widget.isOnline,
+                          permitirSinStock: widget.permitirSinStock,
                         );
                     Navigator.of(context).pop();
                     if (!parentContext.mounted) return;

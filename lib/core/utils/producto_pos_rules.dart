@@ -45,11 +45,11 @@ class ProductoPosRules {
   static double maxPorTransaccionFraccion(
     ProductoModel p,
     List<ProductoModel> productos, {
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     final maxF = ((p.unidadesPorFraccion ?? 1) - 1).toDouble();
     if (maxF <= 0) return 0;
-    if (offlineMode) return maxF;
+    if (permitirSinStock) return maxF;
     final total = disponibilidadTotalFraccion(p, productos);
     return total < maxF ? total : maxF;
   }
@@ -79,7 +79,7 @@ class ProductoPosRules {
     return restante > 0 ? restante : 0;
   }
 
-  /// Stock local visible para UI offline (caché menos carrito).
+  /// Stock local visible para la UI (caché menos carrito).
   static bool tieneStockLocalEfectivo(
     ProductoModel p,
     List<ProductoModel> productos, {
@@ -94,18 +94,18 @@ class ProductoPosRules {
   }
 
   /// Máximo permitido para mostrar/agregar (considerando ya en carrito).
-  /// Online: normal = existencia; fracción = min(disponibilidadTotal, upf - 1).
-  /// Offline: normal = sin límite; fracción = solo upf - 1.
+  /// Con stock exigido: normal = existencia; fracción = min(disponibilidadTotal, upf - 1).
+  /// Permitiendo vender sin stock: normal = sin límite; fracción = solo upf - 1.
   static double getMaxQuantity(
     ProductoModel p,
     List<ProductoModel> productos, {
     double cantidadEnCarrito = 0,
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     double max;
     if (isFraccion(p)) {
-      max = maxPorTransaccionFraccion(p, productos, offlineMode: offlineMode);
-    } else if (offlineMode) {
+      max = maxPorTransaccionFraccion(p, productos, permitirSinStock: permitirSinStock);
+    } else if (permitirSinStock) {
       return double.infinity;
     } else {
       max = existenciaReal(p);
@@ -119,13 +119,13 @@ class ProductoPosRules {
     ProductoModel p,
     List<ProductoModel> productos, {
     double cantidadEnCarrito = 0,
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     return getMaxQuantity(
       p,
       productos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+      permitirSinStock: permitirSinStock,
     );
   }
 
@@ -134,28 +134,28 @@ class ProductoPosRules {
     ProductoModel p,
     List<ProductoModel> productos, {
     double cantidadEnCarrito = 0,
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
-    if (offlineMode && !isFraccion(p)) return true;
+    if (permitirSinStock && !isFraccion(p)) return true;
     return getMaxQuantity(
           p,
           productos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: offlineMode,
+          permitirSinStock: permitirSinStock,
         ) >
         0;
   }
 
   /// ¿Se debe mostrar el producto en POS?
-  /// Online: precio > 0 y stock local (con excepción fracción).
-  /// Offline: precio > 0 siempre.
+  /// Con stock exigido: precio > 0 y stock local (con excepción fracción).
+  /// Permitiendo vender sin stock: precio > 0 siempre.
   static bool debeMostrarEnPos(
     ProductoModel p,
     List<ProductoModel> productos, {
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     if (p.precio <= 0) return false;
-    if (offlineMode) return true;
+    if (permitirSinStock) return true;
     if (p.existencia > 0) return true;
     if (isFraccion(p)) {
       final padre = findPadre(p, productos);
@@ -167,10 +167,10 @@ class ProductoPosRules {
   /// Filtra y ordena lista para POS.
   static List<ProductoModel> filtrarYOrdenarParaPos(
     List<ProductoModel> productos, {
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     final list = productos
-        .where((p) => debeMostrarEnPos(p, productos, offlineMode: offlineMode))
+        .where((p) => debeMostrarEnPos(p, productos, permitirSinStock: permitirSinStock))
         .toList();
     list.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
     return list;
@@ -182,18 +182,19 @@ class ProductoPosRules {
   }
 
   /// Texto de stock para cards/listados del POS.
-  /// Offline con existencia local > 0: muestra la cantidad restante local.
-  /// Offline sin stock local: vacío (el badge "Sin stock local" cubre ese caso).
+  /// Permitiendo vender sin stock y con existencia local > 0: muestra la
+  /// cantidad restante local; sin existencia local, vacío (el badge de aviso
+  /// cubre ese caso).
   static String textoStockEnCard(
     ProductoModel p,
     List<ProductoModel> productos, {
     double cantidadEnCarrito = 0,
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     final esFraccion = isFraccion(p);
     final exist = existenciaReal(p);
 
-    if (offlineMode) {
+    if (permitirSinStock) {
       final efectiva = existenciaLocalEfectiva(
         p,
         productos,
@@ -205,7 +206,7 @@ class ProductoPosRules {
           p,
           productos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: true,
+          permitirSinStock: true,
         );
         return 'Stock: ${formatearCantidad(p, exist)} | Máx: ${formatearCantidad(p, maxDisp)}';
       }
@@ -228,12 +229,12 @@ class ProductoPosRules {
     ProductoModel p,
     List<ProductoModel> productos, {
     double cantidadEnCarrito = 0,
-    bool offlineMode = false,
+    bool permitirSinStock = false,
   }) {
     final esFraccion = isFraccion(p);
     final exist = existenciaReal(p);
 
-    if (offlineMode) {
+    if (permitirSinStock) {
       final efectiva = existenciaLocalEfectiva(
         p,
         productos,
@@ -245,18 +246,18 @@ class ProductoPosRules {
             p,
             productos,
             cantidadEnCarrito: cantidadEnCarrito,
-            offlineMode: true,
+            permitirSinStock: true,
           );
-          return 'Stock local agotado en carrito | Máx. por venta: ${formatearCantidad(p, maxDisp)} (offline)';
+          return 'Stock agotado en carrito | Máx. por venta: ${formatearCantidad(p, maxDisp)}';
         }
-        return 'Sin stock local — venta permitida offline';
+        return 'Sin stock — se validará al sincronizar';
       }
       if (esFraccion) {
         final maxDisp = getMaxQuantity(
           p,
           productos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: true,
+          permitirSinStock: true,
         );
         return 'Stock: ${formatearCantidad(p, exist)} | Máx. por venta: ${formatearCantidad(p, maxDisp)}';
       }

@@ -9,7 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/periodo_provider.dart';
 import '../providers/productos_provider.dart';
-import '../providers/sync_provider.dart';
+import '../core/utils/venta_sin_stock_policy.dart';
 import '../screens/pos/asociar_codigo_sheet.dart';
 import 'scan_audio_service.dart';
 
@@ -27,8 +27,7 @@ class BarcodeScanProcessor {
     if (!context.read<PeriodoProvider>().hasActivePeriodo) return;
 
     final productosProvider = context.read<ProductosProvider>();
-    final isOnline = context.read<SyncProvider>().isOnline;
-    final offlineMode = !isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context, listen: false);
     final producto = productosProvider.findProductByCodigo(code);
 
     if (producto == null) {
@@ -76,10 +75,10 @@ class BarcodeScanProcessor {
       producto,
       productosProvider.allProductos,
       cantidadEnCarrito: cantidadEnCarrito,
-      offlineMode: offlineMode,
+      permitirSinStock: permitirSinStock,
     );
 
-    if (isOnline && maxDisp <= 0) {
+    if (!permitirSinStock && maxDisp <= 0) {
       await ScanAudioService.instance.playError();
       AppSnackBar.show(
         context,
@@ -91,11 +90,11 @@ class BarcodeScanProcessor {
       return;
     }
 
-    if (!isOnline && !ProductoPosRules.puedeAgregar(
+    if (permitirSinStock && !ProductoPosRules.puedeAgregar(
           producto,
           productosProvider.allProductos,
           cantidadEnCarrito: cantidadEnCarrito,
-          offlineMode: true,
+          permitirSinStock: true,
         )) {
       await ScanAudioService.instance.playError();
       AppSnackBar.show(
@@ -111,7 +110,7 @@ class BarcodeScanProcessor {
           producto,
           cantidad: qty,
           allProductos: productosProvider.allProductos,
-          isOnline: isOnline,
+          permitirSinStock: permitirSinStock,
           moverAlInicio: true,
         );
 
@@ -121,7 +120,7 @@ class BarcodeScanProcessor {
       await ScanAudioService.instance.playSuccess();
       // Un único mensaje por escaneo: AppSnackBar reemplaza al anterior, así que
       // dos seguidos harían desaparecer el primero al instante.
-      final sinStockLocal = offlineMode &&
+      final sinStockLocal = permitirSinStock &&
           !ProductoPosRules.tieneStockLocalEfectivo(
             producto,
             productosProvider.allProductos,
@@ -132,7 +131,7 @@ class BarcodeScanProcessor {
         context,
         content: Text(
           sinStockLocal
-              ? '$nombre agregado — sin stock local, se validará al sincronizar'
+              ? '$nombre agregado — sin stock, se validará al sincronizar'
               : '$nombre agregado',
         ),
         backgroundColor:

@@ -103,7 +103,8 @@ class CartProvider extends ChangeNotifier {
 
   /// Agrega producto al carrito activo.
   /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
-  /// [isOnline]: con conexión valida stock local; offline permite vender sin stock.
+  /// [permitirSinStock]: si es true no se valida el stock local (sin conexión, o
+  /// con el ajuste "Vender sin existencias" activo). Ver `VentaSinStockPolicy`.
   /// [moverAlInicio]: coloca la línea en la posición 0 (la inserta ahí si es nueva
   /// o la mueve si ya existía). Lo usan los flujos de escaneo para que lo recién
   /// leído quede siempre visible arriba. Es el ÚNICO punto del provider que
@@ -113,7 +114,7 @@ class CartProvider extends ChangeNotifier {
     ProductoModel producto, {
     double cantidad = 1,
     List<ProductoModel>? allProductos,
-    bool isOnline = true,
+    bool permitirSinStock = false,
     bool moverAlInicio = false,
   }) async {
     final cart = activeCart;
@@ -128,7 +129,7 @@ class CartProvider extends ChangeNotifier {
         producto,
         allProductos,
         cantidadEnCarrito: cantidadYaEnCarrito,
-        offlineMode: !isOnline,
+        permitirSinStock: permitirSinStock,
       );
       // Se valida antes de mutar: un escaneo rechazado no debe reordenar nada.
       if (cantidad > maxPermitido) return false;
@@ -166,14 +167,14 @@ class CartProvider extends ChangeNotifier {
 
   /// Actualiza cantidad de un item.
   /// [allProductos] opcional: si se pasa, se valida máximo (normales y fracción).
-  /// [isOnline]: con conexión valida stock local; offline permite vender sin stock.
+  /// [permitirSinStock]: si es true no se valida el stock local. Ver `VentaSinStockPolicy`.
   /// Retorna true si se actualizó, false si la cantidad supera el máximo.
   Future<bool> updateItemCantidad(
     int itemIndex,
     double cantidad, {
     List<ProductoModel>? allProductos,
     ProductoModel? producto,
-    bool isOnline = true,
+    bool permitirSinStock = false,
   }) async {
     final cart = activeCart;
     if (cart == null || itemIndex >= cart.items.length) return false;
@@ -193,7 +194,7 @@ class CartProvider extends ChangeNotifier {
         producto,
         allProductos,
         cantidadEnCarrito: cantidadOtrosItems,
-        offlineMode: !isOnline,
+        permitirSinStock: permitirSinStock,
       );
       if (cantidad > maxPermitido) return false;
     }
@@ -229,7 +230,7 @@ class CartProvider extends ChangeNotifier {
     double cantidad, {
     List<ProductoModel>? allProductos,
     ProductoModel? producto,
-    bool isOnline = true,
+    bool permitirSinStock = false,
   }) async {
     final idx = indexOfProducto(productoTiendaId);
     if (idx < 0) return false;
@@ -238,7 +239,7 @@ class CartProvider extends ChangeNotifier {
       cantidad,
       allProductos: allProductos,
       producto: producto,
-      isOnline: isOnline,
+      permitirSinStock: permitirSinStock,
     );
   }
 

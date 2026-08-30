@@ -11,7 +11,7 @@ import '../../providers/cart_provider.dart';
 import '../../providers/monedas_provider.dart';
 import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
-import '../../providers/sync_provider.dart';
+import '../../core/utils/venta_sin_stock_policy.dart';
 import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import 'cobrar_screen.dart';
@@ -437,7 +437,7 @@ class _CartLine extends StatelessWidget {
     final colors = context.colors;
     final cartProvider = context.read<CartProvider>();
     final productosProvider = context.watch<ProductosProvider>();
-    final isOnline = context.watch<SyncProvider>().isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context);
     final monedas = context.watch<MonedasProvider>();
     final allProductos = productosProvider.allProductos;
 
@@ -453,7 +453,7 @@ class _CartLine extends StatelessWidget {
             producto,
             allProductos,
             cantidadEnCarrito: item.cantidad,
-            offlineMode: !isOnline,
+            permitirSinStock: permitirSinStock,
           )
         : double.infinity;
     final maxTotal = producto != null && disponible.isFinite
@@ -480,7 +480,7 @@ class _CartLine extends StatelessWidget {
           decrementQty,
           allProductos: producto != null ? allProductos : null,
           producto: producto,
-          isOnline: isOnline,
+          permitirSinStock: permitirSinStock,
         );
       }
     }
@@ -494,7 +494,7 @@ class _CartLine extends StatelessWidget {
         newQty,
         allProductos: producto != null ? allProductos : null,
         producto: producto,
-        isOnline: isOnline,
+        permitirSinStock: permitirSinStock,
       );
     }
 

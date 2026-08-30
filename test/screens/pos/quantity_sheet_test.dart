@@ -58,7 +58,7 @@ void main() {
             body: Builder(
               builder: (context) => ElevatedButton(
                 onPressed: () =>
-                    QuantitySheet.show(context, producto: p, isOnline: true),
+                    QuantitySheet.show(context, producto: p, permitirSinStock: false),
                 child: const Text('abrir'),
               ),
             ),

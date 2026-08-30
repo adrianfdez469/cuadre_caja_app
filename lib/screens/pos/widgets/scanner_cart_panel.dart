@@ -5,6 +5,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/cart_model.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/productos_provider.dart';
+import '../../../core/utils/venta_sin_stock_policy.dart';
 import '../../../providers/sync_provider.dart';
 import 'cart_checkout_bar.dart';
 import 'cart_item_tile.dart';
@@ -86,6 +87,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
     final items = activeCart?.items ?? const [];
     final allProductos = context.watch<ProductosProvider>().allProductos;
     final isOnline = context.watch<SyncProvider>().isOnline;
+    final permitirSinStock = VentaSinStockPolicy.of(context);
     final colors = context.colors;
 
     return ClipRRect(
@@ -122,6 +124,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
                     item: items[i],
                     allProductos: allProductos,
                     isOnline: isOnline,
+                    permitirSinStock: permitirSinStock,
                     highlighted: hid == items[i].productoTiendaId,
                   ),
                 ),

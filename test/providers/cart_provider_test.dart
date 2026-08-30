@@ -123,6 +123,53 @@ void main() {
       expect(idsDe(provider), ['a', 'b', 'c']);
       expect(provider.activeCart!.items.last.cantidad, 1);
     });
+
+    test('con permitirSinStock entra igual y sube la cantidad', () async {
+      final prods = [producto('a'), producto('c', existencia: 1)];
+      final (provider, _) = build(
+        items: [item('a'), item('b'), item('c', cantidad: 1)],
+      );
+
+      final ok = await provider.addToCart(
+        producto('c', existencia: 1),
+        allProductos: prods,
+        permitirSinStock: true,
+        moverAlInicio: true,
+      );
+
+      expect(ok, isTrue);
+      expect(idsDe(provider), ['c', 'a', 'b']);
+      expect(provider.activeCart!.items.first.cantidad, 2);
+    });
+
+    test('updateItemCantidad supera la existencia solo con permitirSinStock',
+        () async {
+      final prods = [producto('a', existencia: 2)];
+      final (provider, _) = build(items: [item('a', cantidad: 1)]);
+
+      expect(
+        await provider.updateItemCantidad(
+          0,
+          9,
+          allProductos: prods,
+          producto: prods.first,
+        ),
+        isFalse,
+      );
+      expect(provider.activeCart!.items.first.cantidad, 1);
+
+      expect(
+        await provider.updateItemCantidad(
+          0,
+          9,
+          allProductos: prods,
+          producto: prods.first,
+          permitirSinStock: true,
+        ),
+        isTrue,
+      );
+      expect(provider.activeCart!.items.first.cantidad, 9);
+    });
   });
 
   group('mutación por id', () {

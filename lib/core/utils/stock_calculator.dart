@@ -67,8 +67,9 @@ class StockCalculator {
   /// Cada venta se aplica sobre el resultado de la anterior (la desagregación de
   /// fracción depende del stock corriente). Devuelve el mapa
   /// `productoTiendaId -> existencia final` **solo** de los productos tocados por
-  /// alguna venta. No clampea: permitir existencias negativas offline es
-  /// intencional (se venden productos sin stock hasta que la venta sincronice).
+  /// alguna venta. No clampea: las existencias negativas son intencionales
+  /// (se venden productos sin stock hasta que la venta sincronice, sin conexión
+  /// o con el ajuste "Vender sin existencias" activo).
   static Map<String, double> replayVentas(
     List<ProductoModel> snapshot,
     List<VentaLocalModel> ventas,

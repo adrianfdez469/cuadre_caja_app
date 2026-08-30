@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 
 import 'package:cuadre_caja_app/core/theme/app_theme.dart';
@@ -9,12 +10,16 @@ import 'package:cuadre_caja_app/providers/cart_provider.dart';
 import 'package:cuadre_caja_app/providers/monedas_provider.dart';
 import 'package:cuadre_caja_app/providers/productos_provider.dart';
 import 'package:cuadre_caja_app/providers/sync_provider.dart';
+import 'package:cuadre_caja_app/providers/venta_sin_stock_provider.dart';
 import 'package:cuadre_caja_app/screens/pos/widgets/scanner_cart_panel.dart';
 
 import '../../fakes/test_fakes.dart';
 import '../../helpers/payment_test_harness.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   ProductoModel producto(String id, String nombre) => ProductoModel(
         id: id,
         productoId: 'p-$id',
@@ -64,6 +69,9 @@ void main() {
           ),
           ChangeNotifierProvider<MonedasProvider>.value(value: monedas),
           ChangeNotifierProvider<SyncProvider>(create: (_) => SyncProvider(sync)),
+          ChangeNotifierProvider<VentaSinStockProvider>(
+            create: (_) => VentaSinStockProvider(),
+          ),
         ],
         child: MaterialApp(
           theme: appLightTheme,
