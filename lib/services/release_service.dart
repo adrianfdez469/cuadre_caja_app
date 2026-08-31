@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'dart:io';
@@ -61,9 +62,47 @@ class ReleaseService {
       final body = start >= 0 && end > start ? trimmed.substring(start, end + 1) : trimmed;
       final data = jsonDecode(body) as Map<String, dynamic>?;
       if (data == null) return null;
-      return ReleaseInfo.fromJson(data);
+      final release = ReleaseInfo.fromJson(data);
+      // El historial de novedades tiene que poder verse sin conexión: se guarda
+      // la última respuesta buena para leerla cuando Drive no esté disponible.
+      unawaited(_cacheReleasesJson(body));
+      return release;
     } catch (e) {
       logDebug('ReleaseService.fetchReleases error: $e');
+      return null;
+    }
+  }
+
+  /// Nombre del archivo con la última copia buena de releases.json.
+  static const _releasesCacheFileName = 'releases_cache.json';
+
+  Future<File> _releasesCacheFile() async {
+    final base = await getApplicationSupportDirectory();
+    return File('${base.path}/$_releasesCacheFileName');
+  }
+
+  Future<void> _cacheReleasesJson(String body) async {
+    try {
+      final file = await _releasesCacheFile();
+      await file.writeAsString(body, flush: true);
+    } catch (e) {
+      // Que no se pueda cachear no debe romper la comprobación de versiones.
+      logDebug('ReleaseService.cacheReleases error: $e');
+    }
+  }
+
+  /// Última copia de releases.json guardada en el equipo, o null si nunca se
+  /// descargó. Solo alimenta el historial de novedades: la comprobación de
+  /// actualizaciones sigue exigiendo datos frescos.
+  Future<ReleaseInfo?> loadCachedReleases() async {
+    try {
+      final file = await _releasesCacheFile();
+      if (!file.existsSync()) return null;
+      final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>?;
+      if (data == null) return null;
+      return ReleaseInfo.fromJson(data);
+    } catch (e) {
+      logDebug('ReleaseService.loadCachedReleases error: $e');
       return null;
     }
   }

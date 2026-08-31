@@ -65,4 +65,38 @@ void main() {
       expect(sections.map((s) => s.version).toList(), ['2.0.0']);
     });
   });
+
+  group('ReleaseInfo.getAllChangelog', () {
+    test('devuelve todas las versiones publicadas, de nueva a antigua', () {
+      final secciones = release.getAllChangelog(compareVersions);
+
+      expect(secciones.map((s) => s.version).toList(),
+          ['1.1.8', '1.1.7', '1.1.6']);
+    });
+
+    test('incluye la versión instalada y las anteriores', () {
+      final secciones = release.getAllChangelog(compareVersions);
+      final total = secciones.fold<int>(0, (sum, s) => sum + s.items.length);
+
+      expect(total, 4);
+    });
+
+    test('separa categoría y texto de cada mejora', () {
+      final v117 = release
+          .getAllChangelog(compareVersions)
+          .firstWhere((s) => s.version == '1.1.7');
+
+      expect(v117.items.first.categoria, 'Arreglos');
+      expect(v117.items.first.texto,
+          'Se corrige el vuelto en moneda extranjera');
+      expect(v117.entries.first,
+          'Arreglos: Se corrige el vuelto en moneda extranjera');
+    });
+
+    test('sin changelog devuelve lista vacía', () {
+      const vacio = ReleaseInfo(version: '1.0.0', apks: {});
+
+      expect(vacio.getAllChangelog(compareVersions), isEmpty);
+    });
+  });
 }

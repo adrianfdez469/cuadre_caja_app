@@ -15,6 +15,7 @@ import '../core/utils/device_abi.dart';
 import '../data/models/release_model.dart';
 import '../providers/ventas_provider.dart';
 import '../services/release_service.dart' show ReleaseService, compareVersions;
+import 'changelog_screen.dart';
 
 class VersionScreen extends StatefulWidget {
   const VersionScreen({super.key, this.releaseService});
@@ -595,6 +596,21 @@ class _VersionScreenState extends State<VersionScreen>
     return widgets;
   }
 
+  /// Historial completo de versiones. Se le pasa lo ya descargado para no
+  /// repetir la petición; si aún no hay nada, la pantalla lo resuelve sola
+  /// (red y, sin conexión, la copia guardada en el equipo).
+  void _openChangelog() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChangelogScreen(
+          currentVersion: _currentVersion,
+          release: _remoteRelease,
+          releaseService: _releaseService,
+        ),
+      ),
+    );
+  }
+
   Widget _buildChangelogBullet(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -643,6 +659,18 @@ class _VersionScreenState extends State<VersionScreen>
                   ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.history, color: colors.accent),
+              title: const Text('Novedades'),
+              subtitle: const Text(
+                'Qué trae esta versión y todas las anteriores',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openChangelog,
             ),
           ),
           const SizedBox(height: 16),
