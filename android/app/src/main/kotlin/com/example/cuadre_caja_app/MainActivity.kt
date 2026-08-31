@@ -4,6 +4,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -11,10 +14,29 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.RandomAccessFile
+import kotlin.system.exitProcess
 
 class MainActivity : FlutterActivity() {
 
     private val channel = "com.example.cuadre_caja_app/native"
+
+    /** Ruta del APK desde el que arrancó ESTE proceso. Android le da a cada
+     *  instalación un directorio nuevo, así que si el archivo desaparece es que
+     *  el APK se reemplazó por debajo y seguimos ejecutando código viejo. */
+    private var startupSourceDir: String? = null
+
+    /** versionCode instalado cuando arrancó este proceso. Al arrancar coincide
+     *  con el código que estamos ejecutando; si luego difiere, hubo una
+     *  actualización. */
+    private var startupVersionCode: Long = 0L
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (startupSourceDir == null) {
+            startupSourceDir = applicationInfo.sourceDir
+            startupVersionCode = installedVersionCode()
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -44,6 +66,13 @@ class MainActivity : FlutterActivity() {
                         return@setMethodCallHandler
                     }
                     result.success(installApk(apkPath))
+                }
+                "checkStaleBuild" -> {
+                    result.success(checkStaleBuild())
+                }
+                "closeApp" -> {
+                    result.success(null)
+                    closeApp()
                 }
                 "canInstallFromUnknownSources" -> {
                     result.success(canInstallFromUnknownSources())
@@ -161,6 +190,52 @@ class MainActivity : FlutterActivity() {
             true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /// Detecta si este proceso quedó huérfano: el APK que lo lanzó ya no es el
+    /// instalado. Pasa cuando Android instala la actualización sin matar el
+    /// proceso viejo; si no se cierra, conviven dos versiones de la app sobre
+    /// la misma base de datos.
+    private fun checkStaleBuild(): Map<String, Any?> {
+        val installed = installedVersionCode()
+        val sourceDir = startupSourceDir
+        // El APK de arranque borrado pesa más que el versionCode: PackageManager
+        // cachea por proceso y puede seguir devolviendo el valor viejo.
+        val sourceGone = sourceDir != null && !File(sourceDir).exists()
+        val versionChanged =
+            startupVersionCode > 0L && installed > 0L && installed != startupVersionCode
+        val stale = sourceGone || versionChanged
+
+        var versionName: String? = null
+        if (stale) {
+            versionName = try {
+                packageManager.getPackageInfo(packageName, 0).versionName
+            } catch (_: Exception) {
+                null
+            }
+        }
+        return mapOf(
+            "stale" to stale,
+            "runningVersionCode" to startupVersionCode.toInt(),
+            "installedVersionCode" to installed.toInt(),
+            "installedVersionName" to versionName,
+        )
+    }
+
+    /// Cierra la app quitándola además de "recientes", para que no quede la
+    /// tarjeta de la versión vieja invitando a reabrirla. El exit es necesario:
+    /// sin él el proceso sigue vivo en segundo plano sincronizando.
+    private fun closeApp() {
+        finishAndRemoveTask()
+        Handler(Looper.getMainLooper()).postDelayed({ exitProcess(0) }, 300)
+    }
+
+    private fun installedVersionCode(): Long {
+        return try {
+            getVersionCode(packageManager.getPackageInfo(packageName, 0))
+        } catch (_: Exception) {
+            0L
         }
     }
 

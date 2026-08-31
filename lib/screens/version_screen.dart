@@ -438,8 +438,10 @@ class _VersionScreenState extends State<VersionScreen>
       await _installDownloadedApk();
       return;
     }
-    // Si la instalación hubiera arrancado, este proceso estaría muerto: llegar
-    // aquí significa que el usuario canceló el instalador del sistema.
+    // Volver aquí normalmente significa que el usuario canceló el instalador:
+    // si la instalación hubiera arrancado, Android habría matado el proceso.
+    // Cuando no lo mata, StaleBuildGuard ya tapó la pantalla y está cerrando
+    // la app, así que resetear el botón es inocuo.
     if (mounted) setState(() => _installing = false);
   }
 

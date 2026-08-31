@@ -54,6 +54,30 @@ class ApkUpdateValidation {
   }
 }
 
+/// Estado de "este proceso ya no corresponde al APK instalado".
+class StaleBuildInfo {
+  final bool stale;
+  final int? runningVersionCode;
+  final int? installedVersionCode;
+  final String? installedVersionName;
+
+  const StaleBuildInfo({
+    required this.stale,
+    this.runningVersionCode,
+    this.installedVersionCode,
+    this.installedVersionName,
+  });
+
+  factory StaleBuildInfo.fromMap(Map<dynamic, dynamic> map) {
+    return StaleBuildInfo(
+      stale: map['stale'] as bool? ?? false,
+      runningVersionCode: (map['runningVersionCode'] as num?)?.toInt(),
+      installedVersionCode: (map['installedVersionCode'] as num?)?.toInt(),
+      installedVersionName: map['installedVersionName'] as String?,
+    );
+  }
+}
+
 class ApkInstallHelper {
   ApkInstallHelper._();
 
@@ -93,6 +117,31 @@ class ApkInstallHelper {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Comprueba si este proceso quedó corriendo una versión que ya fue
+  /// reemplazada en disco. Android normalmente mata la app al actualizarla,
+  /// pero no siempre: cuando no lo hace conviven la ventana vieja y la nueva
+  /// sobre la misma base de datos.
+  static Future<StaleBuildInfo?> checkStaleBuild() async {
+    if (!isAndroid) return null;
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'checkStaleBuild',
+      );
+      if (result == null) return null;
+      return StaleBuildInfo.fromMap(result);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Cierra la app y quita su tarjeta de "recientes".
+  static Future<void> closeApp() async {
+    if (!isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('closeApp');
+    } catch (_) {}
   }
 
   /// Indica si el usuario debe habilitar instalación desde orígenes desconocidos.

@@ -6,6 +6,7 @@ import 'core/di/injection.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_tokens.dart';
 import 'core/utils/app_route_observer.dart';
+import 'core/widgets/stale_build_guard.dart';
 import 'providers/auth_provider.dart';
 import 'providers/productos_provider.dart';
 import 'providers/cart_provider.dart';
@@ -100,7 +101,10 @@ class MyApp extends StatelessWidget {
               data: mq.copyWith(
                 textScaler: mq.textScaler.clamp(maxScaleFactor: maxTextScale),
               ),
-              child: child!,
+              // Por encima del Navigator: si Android actualizó el APK sin matar
+              // este proceso, tapa toda la app (rutas y diálogos incluidos) para
+              // que no queden dos versiones vivas a la vez.
+              child: StaleBuildGuard(child: child!),
             );
           },
           home: const SplashScreen(),
