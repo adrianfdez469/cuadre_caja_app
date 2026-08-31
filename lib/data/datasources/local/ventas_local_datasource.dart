@@ -233,6 +233,19 @@ class VentasLocalDataSource {
     return result.first['count'] as int;
   }
 
+  /// Cuenta lo que el servidor ya rechazó: ventas en `error` y anulaciones en
+  /// `cancelError`. Es lo que el cajero debe **revisar a mano**, a diferencia de
+  /// [countPendientes] / [countCancelacionesPendientes], que sólo esperan
+  /// conexión y se resuelven solas.
+  Future<int> countVentasConError() async {
+    final db = await dbHelper.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM ventas_pendientes WHERE syncState IN (?, ?)',
+      [SyncState.error.name, SyncState.cancelError.name],
+    );
+    return result.first['count'] as int;
+  }
+
   /// Verifica si hay ventas pendientes
   Future<bool> hasPendientes() async {
     return (await countPendientes()) > 0;

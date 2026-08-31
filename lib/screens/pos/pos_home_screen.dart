@@ -32,6 +32,7 @@ import '../../core/utils/app_route_observer.dart';
 import '../../widgets/hardware_scanner_listener.dart';
 import '../../widgets/multi_currency_amount.dart';
 import '../../widgets/stock_local_badge.dart';
+import '../../widgets/sync_badge.dart';
 import '../login_screen.dart';
 import 'barcode_scanner_screen.dart';
 import 'cart_items_screen.dart' show CartPanel;
@@ -402,10 +403,33 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
   String _statusSubtitle(SyncProvider sync, VentasProvider ventas) {
     final base = sync.isOnline ? 'Conectado' : 'Sin conexión';
-    if (ventas.pendingCount > 0) {
-      return '$base · ${ventas.pendingCount} sin subir';
+    // Lo rechazado por el servidor se nombra aparte de lo que sólo espera
+    // conexión: mezclarlo en un único "N sin subir" era lo que dejaba pasar
+    // desapercibida una venta que nunca va a subir sola.
+    final partes = [
+      base,
+      if (ventas.errorCount > 0) '${ventas.errorCount} con error',
+      if (ventas.porSubirCount > 0) '${ventas.porSubirCount} sin subir',
+    ];
+    return partes.join(' · ');
+  }
+
+  /// Qué anuncia el lector de pantalla sobre el badge del botón "⋯".
+  String? _pendientesLabel(VentasProvider ventas) {
+    if (ventas.errorCount > 0) {
+      final n = ventas.errorCount;
+      return '$n ${n == 1 ? "venta con error" : "ventas con error"}';
     }
-    return base;
+    if (ventas.porSubirCount > 0) {
+      final n = ventas.porSubirCount;
+      return '$n ${n == 1 ? "venta sin subir" : "ventas sin subir"}';
+    }
+    return null;
+  }
+
+  String _accionesTooltip(VentasProvider ventas) {
+    final aviso = _pendientesLabel(ventas);
+    return aviso == null ? 'Acciones del POS' : 'Acciones del POS — $aviso';
   }
 
   String _initials(String nombre) {
@@ -753,19 +777,24 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          SizedBox(
-                            width: AppTapTarget.comfortable,
-                            height: AppTapTarget.comfortable,
-                            child: IconButton.filledTonal(
-                              onPressed: () => PosActionsSheet.show(
-                                context,
-                                onSync: _performSync,
-                              ),
-                              icon: const Icon(Icons.more_horiz),
-                              tooltip: 'Acciones del POS',
-                              style: IconButton.styleFrom(
-                                backgroundColor: context.colors.sunken,
-                                foregroundColor: context.colors.textPrimary,
+                          BadgedIcon(
+                            errorCount: ventasProvider.errorCount,
+                            pendingCount: ventasProvider.porSubirCount,
+                            semanticsLabel: _pendientesLabel(ventasProvider),
+                            child: SizedBox(
+                              width: AppTapTarget.comfortable,
+                              height: AppTapTarget.comfortable,
+                              child: IconButton.filledTonal(
+                                onPressed: () => PosActionsSheet.show(
+                                  context,
+                                  onSync: _performSync,
+                                ),
+                                icon: const Icon(Icons.more_horiz),
+                                tooltip: _accionesTooltip(ventasProvider),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: context.colors.sunken,
+                                  foregroundColor: context.colors.textPrimary,
+                                ),
                               ),
                             ),
                           ),

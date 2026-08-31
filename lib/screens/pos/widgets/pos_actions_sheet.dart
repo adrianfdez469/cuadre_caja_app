@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../providers/sync_provider.dart';
+import '../../../providers/ventas_provider.dart';
 import '../../../widgets/action_row.dart';
+import '../../../widgets/sync_badge.dart';
 import 'accounts_sheet.dart';
 import '../productos_vendidos_screen.dart';
 import '../punto_de_partida_screen.dart';
@@ -35,9 +37,11 @@ class _PosActionsSheetContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final syncProvider = context.watch<SyncProvider>();
     final cartProvider = context.watch<CartProvider>();
+    final ventasProvider = context.watch<VentasProvider>();
+    final errorCount = ventasProvider.errorCount;
+    final porSubirCount = ventasProvider.porSubirCount;
 
     return SafeArea(
       child: ConstrainedBox(
@@ -65,11 +69,26 @@ class _PosActionsSheetContent extends StatelessWidget {
                     ActionRow(
                       icon: Icons.sync,
                       title: 'Sincronizar',
-                      subtitle: syncProvider.lastMessage.isNotEmpty
-                          ? syncProvider.lastMessage
-                          : (syncProvider.isOnline
-                                ? 'Sincronizar ahora'
-                                : 'Sin conexión'),
+                      // Un rechazo del servidor manda sobre el último mensaje de
+                      // sync: es lo que el cajero tiene que resolver.
+                      subtitle: errorCount > 0
+                          ? _plural(errorCount, 'venta con error',
+                              'ventas con error')
+                          : (syncProvider.lastMessage.isNotEmpty
+                                ? syncProvider.lastMessage
+                                : (syncProvider.isOnline
+                                      ? 'Sincronizar ahora'
+                                      : 'Sin conexión')),
+                      trailing: CountBadge(
+                        count: errorCount > 0 ? errorCount : porSubirCount,
+                        tone: errorCount > 0
+                            ? BadgeTone.error
+                            : BadgeTone.pending,
+                        semanticsLabel: _pendientesSemantics(
+                          errorCount,
+                          porSubirCount,
+                        ),
+                      ),
                       onTap: () {
                         Navigator.pop(context);
                         onSync();
@@ -80,12 +99,12 @@ class _PosActionsSheetContent extends StatelessWidget {
                       title: 'Cuentas abiertas',
                       subtitle:
                           '${cartProvider.cartCount} · activa "${cartProvider.activeCart?.nombre ?? '-'}"',
-                      trailing: cartProvider.cartCount > 1
-                          ? _CountBadge(
-                              count: cartProvider.cartCount,
-                              colors: colors,
-                            )
-                          : null,
+                      trailing: CountBadge(
+                        count: cartProvider.cartCount > 1
+                            ? cartProvider.cartCount
+                            : 0,
+                        tone: BadgeTone.accent,
+                      ),
                       onTap: () {
                         Navigator.pop(context);
                         AccountsSheet.show(context);
@@ -94,6 +113,18 @@ class _PosActionsSheetContent extends StatelessWidget {
                     ActionRow(
                       icon: Icons.receipt_long,
                       title: 'Ventas y sincronizaciones',
+                      subtitle: _ventasSubtitle(errorCount, porSubirCount),
+                      iconColor: errorCount > 0 ? context.colors.negative : null,
+                      trailing: CountBadge(
+                        count: errorCount > 0 ? errorCount : porSubirCount,
+                        tone: errorCount > 0
+                            ? BadgeTone.error
+                            : BadgeTone.pending,
+                        semanticsLabel: _pendientesSemantics(
+                          errorCount,
+                          porSubirCount,
+                        ),
+                      ),
                       onTap: () {
                         Navigator.pop(context);
                         Navigator.push(
@@ -142,28 +173,26 @@ class _PosActionsSheetContent extends StatelessWidget {
   }
 }
 
-class _CountBadge extends StatelessWidget {
-  final int count;
-  final AppSemanticColors colors;
+/// "1 venta" / "2 ventas", sin dejar el singular en plural.
+String _plural(int count, String singular, String plural) =>
+    '$count ${count == 1 ? singular : plural}';
 
-  const _CountBadge({required this.count, required this.colors});
+/// Subtítulo de "Ventas y sincronizaciones": sólo aparece si hay algo que
+/// contar, y nombra por separado lo que hay que revisar y lo que sólo espera.
+String? _ventasSubtitle(int errorCount, int porSubirCount) {
+  final partes = [
+    if (errorCount > 0) '$errorCount con error',
+    if (porSubirCount > 0) '$porSubirCount sin subir',
+  ];
+  return partes.isEmpty ? null : partes.join(' · ');
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: colors.accentWash,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text(
-        '$count',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: colors.accent,
-        ),
-      ),
-    );
+String? _pendientesSemantics(int errorCount, int porSubirCount) {
+  if (errorCount > 0) {
+    return _plural(errorCount, 'venta con error', 'ventas con error');
   }
+  if (porSubirCount > 0) {
+    return _plural(porSubirCount, 'venta sin subir', 'ventas sin subir');
+  }
+  return null;
 }

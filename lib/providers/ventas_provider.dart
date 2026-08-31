@@ -19,6 +19,7 @@ class VentasProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool _isLoadingVentas = false;
   int _cancelacionesPendientes = 0;
+  int _ventasConError = 0;
 
   VentasProvider(this._syncService);
 
@@ -32,6 +33,21 @@ class VentasProvider extends ChangeNotifier {
   /// anulaciones por confirmar. Las dos se pierden al cerrar sesión y las dos
   /// deben contar en el "N sin subir" de la barra superior.
   int get pendingCount => _ventasPendientes.length + _cancelacionesPendientes;
+
+  /// Lo que el servidor **rechazó** (ventas en `error` + anulaciones en
+  /// `cancelError`): no se reintenta solo, lo tiene que mirar el cajero. Es el
+  /// contador que pinta los avisos en rojo.
+  int get errorCount => _ventasConError;
+
+  /// Lo que sólo espera conexión (`pending` + `cancelPending`): se resuelve solo
+  /// en el próximo ciclo de sync, así que se avisa en ámbar, no en rojo.
+  ///
+  /// `pendingCount` es la suma de éste y [errorCount]: la consulta local que
+  /// alimenta la cola de subida (`getVentasPendientes`) devuelve `pending` y
+  /// `error` juntos a propósito.
+  int get porSubirCount =>
+      _ventasPendientes.where((v) => v.syncState == SyncState.pending).length +
+      _cancelacionesPendientes;
 
   /// Crea una venta desde el carrito activo
   Future<VentaLocalModel> crearVenta({
@@ -122,6 +138,7 @@ class VentasProvider extends ChangeNotifier {
     _ventasPendientes = await _syncService.ventasLocal.getVentasPendientes();
     _cancelacionesPendientes =
         await _syncService.ventasLocal.countCancelacionesPendientes();
+    _ventasConError = await _syncService.ventasLocal.countVentasConError();
     notifyListeners();
   }
 
@@ -208,6 +225,13 @@ class VentasProvider extends ChangeNotifier {
     await _syncService.descartarAnulacion(syncId);
     await refreshPendientes();
     notifyListeners();
+  }
+
+  /// Lee de la base local el estado de sincronización de una venta concreta.
+  /// Devuelve `null` si ya no existe (una anulación confirmada borra la fila).
+  /// Lo usa la pantalla de cobro para seguir la venta que acaba de registrar.
+  Future<VentaLocalModel?> getVentaLocal(String syncId) {
+    return _syncService.ventasLocal.getVentaBySyncId(syncId);
   }
 
   /// Mueve una venta con conflicto de período al período actual y la resetea a pendiente.

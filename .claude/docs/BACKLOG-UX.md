@@ -297,6 +297,36 @@ cerrar sesión).
 
 ---
 
+### UX-20 · Una venta rechazada por el servidor no se ve en ninguna parte
+**Prioridad:** alta · **Estado:** HECHO
+
+El POST de una venta es fire-and-forget (`sync_service.dart:crearVenta`), así
+que la pantalla de éxito se pintaba antes de saber si el servidor la aceptaba y
+nunca se corregía. Una venta en `error` sólo se veía abriendo `VentasListScreen`
+a mano, y el subtítulo de la barra decía "N sin subir" mezclando lo rechazado
+con lo que sólo esperaba conexión.
+
+**Arreglo:** tres avisos, con **rojo** para lo que hay que revisar (`error` /
+`cancelError`) y **ámbar** para lo que sólo espera red (`pending` /
+`cancelPending`):
+
+- `VentasProvider` separa `errorCount` de `porSubirCount` (`pendingCount` sigue
+  siendo el total), sobre un `countVentasConError()` nuevo en el local de ventas.
+- `CobrarScreen` sigue su propia venta por `syncId` sondeando la base local cada
+  segundo (tope de 20 s, se corta en cuanto hay desenlace): la pantalla de éxito
+  pasa de "Enviando al servidor…" a "Enviada al servidor" o a un bloque rojo con
+  el motivo real del servidor y un botón "Revisar ventas". Se sondea en vez de
+  engancharse a `onDataRefreshed` porque ese callback hoy sólo lo registra
+  `POSHomeScreen`.
+- Badge sobre el botón "⋯" (`BadgedIcon`) y en las filas *Sincronizar* y
+  *Ventas y sincronizaciones* del menú (`CountBadge`), más el conteo separado en
+  el subtítulo de la barra superior.
+
+Widget compartido nuevo: `lib/widgets/sync_badge.dart` (absorbe el `_CountBadge`
+privado de `pos_actions_sheet.dart`).
+
+---
+
 ## E. Funcionalidad ausente — decisión de producto, no bug
 
 Estas no son fallas de implementación: son cosas que el POS no hace. Requieren
@@ -345,5 +375,5 @@ forma de aplicar uno al cobrar.
    queda junto a UX-05.
 4. El resto por prioridad.
 
-Cerradas por completo las secciones B (salvo UX-05) y D. Pendientes: UX-05,
+Cerradas por completo las secciones A, B (salvo UX-05) y D. Pendientes: UX-05,
 UX-07 y toda la sección E (decisiones de producto).

@@ -62,22 +62,43 @@ class FakeProductosLocalDataSource extends Fake
 /// que ejercitan el listado unificado pueblan [delPeriodo].
 class FakeVentasLocalDataSource extends Fake implements VentasLocalDataSource {
   FakeVentasLocalDataSource({
-    this.pendientes = const [],
+    List<VentaLocalModel> pendientes = const [],
     this.delPeriodo = const [],
     this.enErrorDeLaTienda = const [],
     this.cancelacionesPendientes = 0,
-  });
+    this.cancelacionesRechazadas = 0,
+  }) : pendientes = [...pendientes];
 
+  /// Mutable: `crearVenta` la va llenando, como haría la tabla real.
   final List<VentaLocalModel> pendientes;
   final List<VentaLocalModel> delPeriodo;
   final List<VentaLocalModel> enErrorDeLaTienda;
   final int cancelacionesPendientes;
+
+  /// Anulaciones en `cancelError`: viven en la misma tabla pero no aparecen en
+  /// ninguna de las dos colas, así que se cuentan aparte.
+  final int cancelacionesRechazadas;
 
   @override
   Future<List<VentaLocalModel>> getVentasPendientes() async => pendientes;
 
   @override
   Future<int> countCancelacionesPendientes() async => cancelacionesPendientes;
+
+  // Como en la BD real: `error` sale de la misma tabla que la cola de subida,
+  // `cancelError` no está en ninguna cola.
+  @override
+  Future<int> countVentasConError() async =>
+      pendientes.where((v) => v.syncState == SyncState.error).length +
+      cancelacionesRechazadas;
+
+  @override
+  Future<VentaLocalModel?> getVentaBySyncId(String syncId) async {
+    for (final v in [...pendientes, ...delPeriodo, ...enErrorDeLaTienda]) {
+      if (v.syncId == syncId) return v;
+    }
+    return null;
+  }
 
   @override
   Future<List<VentaLocalModel>> getVentasByPeriodo(String periodoId) async =>
@@ -86,6 +107,25 @@ class FakeVentasLocalDataSource extends Fake implements VentasLocalDataSource {
   @override
   Future<List<VentaLocalModel>> getVentasErrorByTienda(String tiendaId) async =>
       enErrorDeLaTienda;
+
+  @override
+  Future<void> saveVentaPendiente(VentaLocalModel venta) async =>
+      pendientes.add(venta);
+
+  /// Simula el desenlace del POST: lo que `_syncSingleVenta` escribiría en la
+  /// fila tras hablar con el servidor.
+  void debugSetEstado(
+    String syncId,
+    SyncState syncState, {
+    String? errorMessage,
+  }) {
+    final i = pendientes.indexWhere((v) => v.syncId == syncId);
+    if (i < 0) return;
+    pendientes[i] = pendientes[i].copyWith(
+      syncState: syncState,
+      errorMessage: errorMessage,
+    );
+  }
 }
 
 class FakeSyncService extends Fake implements SyncService {
@@ -151,7 +191,12 @@ class FakeSyncService extends Fake implements SyncService {
   }
 
   @override
-  Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async => venta;
+  Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async {
+    // Como el servicio real: la venta queda en la tabla local antes de que se
+    // sepa nada del servidor.
+    await _ventasLocal.saveVentaPendiente(venta);
+    return venta;
+  }
 
   @override
   Future<List<VentaServerModel>> loadVentas(

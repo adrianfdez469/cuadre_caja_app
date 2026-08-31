@@ -463,6 +463,13 @@ class FakeVentasLocalSync extends Fake implements VentasLocalDataSource {
       .length;
 
   @override
+  Future<int> countVentasConError() async => ventas
+      .where((v) =>
+          v.syncState == SyncState.error ||
+          v.syncState == SyncState.cancelError)
+      .length;
+
+  @override
   Future<void> saveVentaPendiente(VentaLocalModel venta) async =>
       ventas.add(venta);
 

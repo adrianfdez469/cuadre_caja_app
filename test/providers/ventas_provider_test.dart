@@ -131,5 +131,54 @@ void main() {
 
       expect(provider.pendingCount, 3);
     });
+
+    test('separa lo rechazado por el servidor de lo que sólo espera conexión',
+        () async {
+      final sync = FakeSyncService(
+        ventasLocal: FakeVentasLocalDataSource(
+          // getVentasPendientes devuelve `pending` y `error` juntos, igual que
+          // la consulta real que alimenta la cola de subida.
+          pendientes: [
+            _local(syncId: 'a', syncState: SyncState.pending),
+            _local(syncId: 'b', syncState: SyncState.pending),
+            _local(syncId: 'c', syncState: SyncState.error),
+          ],
+          cancelacionesPendientes: 1,
+          cancelacionesRechazadas: 2,
+        ),
+      );
+      final provider = VentasProvider(sync);
+
+      await provider.refreshPendientes();
+
+      expect(provider.errorCount, 3, reason: '1 venta en error + 2 anulaciones rechazadas');
+      expect(provider.porSubirCount, 3, reason: '2 ventas pending + 1 anulación en cola');
+      expect(provider.pendingCount, 4, reason: 'el total de siempre no cambia');
+    });
+
+    test('sin nada pendiente los tres contadores quedan en cero', () async {
+      final provider = VentasProvider(FakeSyncService());
+
+      await provider.refreshPendientes();
+
+      expect(provider.errorCount, 0);
+      expect(provider.porSubirCount, 0);
+      expect(provider.pendingCount, 0);
+    });
+  });
+
+  group('VentasProvider.getVentaLocal', () {
+    test('devuelve la fila local por syncId, o null si ya no existe', () async {
+      final sync = FakeSyncService(
+        ventasLocal: FakeVentasLocalDataSource(
+          pendientes: [_local(syncId: 'a', syncState: SyncState.error)],
+        ),
+      );
+      final provider = VentasProvider(sync);
+
+      final venta = await provider.getVentaLocal('a');
+      expect(venta?.syncState, SyncState.error);
+      expect(await provider.getVentaLocal('desconocida'), isNull);
+    });
   });
 }

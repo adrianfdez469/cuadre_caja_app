@@ -1,4 +1,5 @@
-import 'dart:async' show unawaited;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -9,10 +10,12 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/payment_logic.dart';
 import '../../core/utils/slide_route.dart';
+import '../../core/utils/sync_error_messages.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../data/models/moneda_model.dart';
 import '../../data/models/pago_multimoneda_model.dart';
 import '../../data/models/transfer_destination_model.dart';
+import '../../data/models/venta_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../providers/monedas_provider.dart';
@@ -23,6 +26,7 @@ import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/multi_currency_amount.dart';
 import 'cart_items_screen.dart';
+import 'ventas_list_screen.dart';
 import 'widgets/agregar_pago_sheet.dart';
 import 'widgets/cambio_sheet.dart';
 import 'widgets/moneda_pago_sheet.dart';
@@ -53,10 +57,13 @@ Future<CobrarResult> showCobrarScreen(BuildContext context) async {
 /// Snapshot de la venta ya confirmada, tomado antes de vaciar el carrito, para
 /// poder mostrar la pantalla de éxito con datos que ya no viven en el carrito.
 class _UltimaVenta {
+  /// Identifica la fila local de la venta, para poder seguir su sincronización
+  /// mientras la pantalla de éxito sigue abierta.
+  final String syncId;
+
   final double totalBase;
   final List<PagoLinea> pagos;
   final List<VueltoLinea> vuelto;
-  final bool isOnline;
 
   /// Nombre del cajero y hora del cobro. Se capturan al confirmar, no al
   /// pintar: para entonces el carrito ya se vació y los providers cambiaron.
@@ -64,13 +71,30 @@ class _UltimaVenta {
   final DateTime hora;
 
   const _UltimaVenta({
+    required this.syncId,
     required this.totalBase,
     required this.pagos,
     required this.vuelto,
-    required this.isOnline,
     required this.cajero,
     required this.hora,
   });
+}
+
+/// Cómo va el envío de la venta recién registrada al servidor. Se deriva del
+/// `syncState` de su fila local, releído mientras la pantalla de éxito está
+/// abierta.
+enum _EstadoEnvio {
+  /// Guardada sin conexión: subirá sola cuando vuelva la red.
+  offline,
+
+  /// POST en vuelo (o en cola con conexión).
+  enviando,
+
+  /// El servidor la aceptó.
+  enviada,
+
+  /// El servidor la rechazó. No se reintenta sola: hay que mirarla.
+  error,
 }
 
 /// Pantalla de cobro. Reemplaza al antiguo modal de cinco pasos: todas las
@@ -100,6 +124,22 @@ class _CobrarScreenState extends State<CobrarScreen> {
   bool _isProcessing = false;
   _UltimaVenta? _ultimaVenta;
 
+  /// Cómo va el envío de [_ultimaVenta] y, si falló, el motivo que dio el
+  /// servidor.
+  _EstadoEnvio _estadoEnvio = _EstadoEnvio.enviando;
+  String? _errorEnvio;
+
+  /// Relee el estado de la venta mientras el cajero mira la pantalla de éxito.
+  /// El POST es fire-and-forget (`SyncService.crearVenta`), así que al pintar el
+  /// éxito todavía no se sabe si el servidor la aceptó. Se sondea la base local
+  /// en vez de engancharse a `onDataRefreshed` porque ese callback hoy sólo lo
+  /// registra `POSHomeScreen`: así la pantalla es autónoma y testeable.
+  Timer? _seguimientoEnvio;
+
+  /// Tope del sondeo. Si a los 20 s el POST sigue en vuelo se deja de mirar y el
+  /// aviso queda en "enviando": el resto de la app ya lo señala con sus badges.
+  static const _maxSeguimiento = Duration(seconds: 20);
+
   /// Bloques de pago, en el orden en que se agregaron. El primero es el
   /// principal: es el que lleva los montos rápidos.
   final Map<String, PagoMonedaState> _pagos = {};
@@ -123,6 +163,12 @@ class _CobrarScreenState extends State<CobrarScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+  }
+
+  @override
+  void dispose() {
+    _seguimientoEnvio?.cancel();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -625,7 +671,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
       final totalSnapshot = _total;
       final isOnlineSnapshot = sync.isOnline;
 
-      await ventas.crearVenta(
+      final creada = await ventas.crearVenta(
         tiendaId: auth.tiendaId,
         periodoId: periodo.periodoId!,
         cart: cart.activeCart!,
@@ -647,17 +693,24 @@ class _CobrarScreenState extends State<CobrarScreen> {
       if (mounted) {
         setState(() {
           _ultimaVenta = _UltimaVenta(
+            syncId: creada.syncId,
             totalBase: totalSnapshot,
             pagos: pagos,
             vuelto: vuelto,
-            isOnline: isOnlineSnapshot,
             cajero: auth.usuario?.nombre ?? '',
             hora: DateTime.now(),
           );
+          _estadoEnvio = isOnlineSnapshot
+              ? _EstadoEnvio.enviando
+              : _EstadoEnvio.offline;
+          _errorEnvio = null;
         });
+        _iniciarSeguimientoEnvio(creada.syncId);
       }
-
-      unawaited(productos.loadProductos(auth.tiendaId, showLoading: false));
+      // El inventario del servidor lo refresca `crearVenta` en segundo plano
+      // (`_pullInventario` tras el POST) y el repintado llega por
+      // `onDataRefreshed`. Pedirlo también aquí duplicaba el GET y, peor,
+      // corría en carrera con esa reconciliación sobre las mismas filas.
     } catch (e) {
       if (mounted) {
         AppSnackBar.show(
@@ -668,6 +721,58 @@ class _CobrarScreenState extends State<CobrarScreen> {
       }
     }
     if (mounted) setState(() => _isProcessing = false);
+  }
+
+  /// Sondea el estado de la venta hasta que el servidor decide, o hasta agotar
+  /// [_maxSeguimiento]. Sin conexión no se sondea: la venta no se va a mover
+  /// hasta que vuelva la red, y para entonces el cajero ya no está aquí.
+  void _iniciarSeguimientoEnvio(String syncId) {
+    _seguimientoEnvio?.cancel();
+    if (_estadoEnvio == _EstadoEnvio.offline) return;
+
+    final inicio = DateTime.now();
+    unawaited(_revisarEstadoEnvio(syncId));
+    _seguimientoEnvio = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || DateTime.now().difference(inicio) > _maxSeguimiento) {
+        timer.cancel();
+        return;
+      }
+      unawaited(_revisarEstadoEnvio(syncId));
+    });
+  }
+
+  Future<void> _revisarEstadoEnvio(String syncId) async {
+    final ventas = context.read<VentasProvider>();
+    final VentaLocalModel? venta;
+    try {
+      venta = await ventas.getVentaLocal(syncId);
+    } catch (e) {
+      // Un fallo leyendo la base local no debe romper la pantalla de éxito: se
+      // deja el aviso como está y se reintenta en el siguiente tick.
+      logDebug('⚠️ No se pudo leer el estado de la venta $syncId: $e');
+      return;
+    }
+    if (!mounted || _ultimaVenta?.syncId != syncId) return;
+
+    // Sin fila local la venta ya se cerró contra el servidor (`limpiarSincronizadas`).
+    final estado = switch (venta?.syncState) {
+      null || SyncState.synced => _EstadoEnvio.enviada,
+      SyncState.error => _EstadoEnvio.error,
+      SyncState.pending when !context.read<SyncProvider>().isOnline =>
+        _EstadoEnvio.offline,
+      _ => _EstadoEnvio.enviando,
+    };
+
+    if (estado == _estadoEnvio && venta?.errorMessage == _errorEnvio) return;
+    setState(() {
+      _estadoEnvio = estado;
+      _errorEnvio = venta?.errorMessage;
+    });
+
+    // Estado terminal: nada más que mirar.
+    if (estado == _EstadoEnvio.enviada || estado == _EstadoEnvio.error) {
+      _seguimientoEnvio?.cancel();
+    }
   }
 
   // ── Build ──────────────────────────────────────────────────────────────
@@ -1418,18 +1523,8 @@ class _CobrarScreenState extends State<CobrarScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12.5, color: colors.textSecondary),
                   ),
-                  if (!venta.isOnline) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      'Sin conexión: la venta queda guardada y se sube al '
-                      'sincronizar.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ],
+                  const SizedBox(height: 16),
+                  _buildEstadoEnvio(colors),
                 ],
               ),
             ),
@@ -1454,6 +1549,147 @@ class _CobrarScreenState extends State<CobrarScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Qué pasó con el envío de esta venta al servidor. Es la única parte de la
+  /// pantalla de éxito que cambia sola después de pintarse.
+  Widget _buildEstadoEnvio(AppSemanticColors colors) {
+    switch (_estadoEnvio) {
+      case _EstadoEnvio.offline:
+        return Text(
+          'Sin conexión: la venta queda guardada y se sube al sincronizar.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12.5, color: colors.textSecondary),
+        );
+
+      case _EstadoEnvio.enviando:
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 13,
+              height: 13,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Enviando al servidor…',
+                style: TextStyle(fontSize: 12.5, color: colors.textSecondary),
+              ),
+            ),
+          ],
+        );
+
+      case _EstadoEnvio.enviada:
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.cloud_done, size: 15, color: colors.positive),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                'Enviada al servidor',
+                style: TextStyle(fontSize: 12.5, color: colors.positive),
+              ),
+            ),
+          ],
+        );
+
+      case _EstadoEnvio.error:
+        return _buildErrorEnvio(colors);
+    }
+  }
+
+  /// El servidor rechazó la venta. Se dice aquí y no sólo en la lista: es el
+  /// único momento en que el cajero todavía tiene delante al cliente.
+  Widget _buildErrorEnvio(AppSemanticColors colors) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.negativeWash,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: colors.negative.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                size: 18,
+                color: colors.negative,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'No se pudo enviar al servidor',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: colors.negative,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      SyncErrorMessages.title(_errorEnvio),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    if (_errorEnvio?.trim().isNotEmpty ?? false) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _errorEnvio!.trim(),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                      'La venta quedó guardada en el equipo. Revísala antes de '
+                      'cerrar el período.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const VentasListScreen()),
+              ),
+              icon: const Icon(Icons.receipt_long, size: 17),
+              label: const Text('Revisar ventas'),
+              style: TextButton.styleFrom(
+                foregroundColor: colors.negative,
+                minimumSize: const Size(0, AppTapTarget.min),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
