@@ -194,25 +194,50 @@ class MultiCurrencyAmount extends StatelessWidget {
     // sola línea unida, ya con abreviatura en vez de símbolo.
     if (variant == MultiCurrencyVariant.checkout) {
       return Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        // Por línea de base, no por el borde inferior de las cajas: con 38px de
+        // un lado y 12.5px del otro, alinear los fondos deja los números
+        // visiblemente desfasados.
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        // Las conversiones toman su ancho natural y el monto se queda con todo
+        // el resto: antes ambos eran flexibles, se repartían el espacio libre a
+        // mitades y el total se dibujaba a la mitad de su tamaño aunque al lado
+        // sobrara sitio. El hueco que quede va entre los dos, así que el monto
+        // sigue pegado al borde izquierdo y las conversiones al derecho.
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          primaryWidget,
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final m in alts)
-                  Text(
-                    _altText(monedas, amount, m),
-                    style: altStyle,
-                    textAlign: TextAlign.right,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
+          // Se encoge antes que desbordar, y sin recortarse con puntos
+          // suspensivos: un importe a medias es peor que un importe pequeño.
+          // Ya solo ocurre con totales enormes; mientras no se encoja, su base
+          // coincide exactamente con la de la última conversión (al encogerse,
+          // `FittedBox` publica la base sin escalar y se desvía unos píxeles:
+          // mal menor frente a no ver el total entero).
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: primaryWidget,
             ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            // Las conversiones se apilan hacia arriba desde la última, que es
+            // la que comparte línea de base con el monto: un `Column` publica
+            // como base la de su primer hijo, así que invertir la lista y
+            // crecer hacia arriba deja abajo —y como referencia— a la última.
+            verticalDirection: VerticalDirection.up,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final m in alts.reversed)
+                Text(
+                  _altText(monedas, amount, m),
+                  style: altStyle,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
           ),
         ],
       );

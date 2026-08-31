@@ -42,6 +42,20 @@ class PosCheckoutBar extends StatelessWidget {
     // translúcido anterior, para los 3 controles de esta fila.
     final borderColor = colors.onInverse.withValues(alpha: 0.4);
     final contrastColor = colors.onInverse;
+    // La cuenta activa y "Vaciar" van pegados y tienen que verse iguales. Con
+    // el recuadro dibujado a mano por un lado y un botón de Material por el
+    // otro acababan con alturas distintas (cada uno resuelve a su manera el
+    // mínimo táctil, y Material además lo ajusta según la densidad visual de
+    // la plataforma). Mismo widget y mismo estilo: no pueden separarse.
+    final estiloDeLaFila = TextButton.styleFrom(
+      foregroundColor: contrastColor,
+      minimumSize: const Size(0, AppTapTarget.min),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      side: BorderSide(color: borderColor),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+    );
 
     return Container(
       color: colors.inverse,
@@ -58,32 +72,23 @@ class PosCheckoutBar extends StatelessWidget {
                     button: true,
                     excludeSemantics: true,
                     label: 'Cuenta activa: ${activeCart?.nombre ?? "-"}. Cambiar de cuenta.',
-                    child: InkWell(
-                      onTap: () => AccountsSheet.show(context),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: AppTapTarget.min),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                              border: Border.all(color: borderColor),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => AccountsSheet.show(context),
+                        style: estiloDeLaFila,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                activeCart?.nombre ?? '-',
+                                style: const TextStyle(fontSize: 11.5),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    'A cobrar · ${activeCart?.nombre ?? '-'}',
-                                    style: TextStyle(fontSize: 11.5, color: contrastColor),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                Icon(Icons.expand_more, size: 16, color: contrastColor),
-                              ],
-                            ),
-                          ),
+                            const Icon(Icons.expand_more, size: 16),
+                          ],
                         ),
                       ),
                     ),
@@ -101,15 +106,7 @@ class PosCheckoutBar extends StatelessWidget {
                         cartProvider,
                         cartProvider.activeCartIndex,
                       ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: contrastColor,
-                        minimumSize: const Size(0, AppTapTarget.min),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        side: BorderSide(color: borderColor),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                        ),
-                      ),
+                      style: estiloDeLaFila,
                       icon: const Icon(Icons.remove_shopping_cart_outlined, size: 16),
                       label: const Text('Vaciar', style: TextStyle(fontSize: 11.5)),
                     ),
@@ -177,17 +174,10 @@ class PosCheckoutBar extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: MultiCurrencyAmount(
-                    amount: total,
-                    variant: MultiCurrencyVariant.checkout,
-                    onInverseSurface: true,
-                  ),
-                ),
-              ],
+            MultiCurrencyAmount(
+              amount: total,
+              variant: MultiCurrencyVariant.checkout,
+              onInverseSurface: true,
             ),
             const SizedBox(height: 12),
             CobrarButton(

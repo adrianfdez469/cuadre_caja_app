@@ -32,3 +32,4 @@ The topics below used to live inline in this file. They're split out so they onl
 - **`.claude/docs/MULTIMONEDA.md`** — multi-currency payments, `payment_logic.dart`.
 - **`.claude/docs/BARCODE.md`** — barcode scanning (camera + hardware scanner gun).
 - **`.claude/docs/CONVENTIONS.md`** — testing, logging (`logDebug`, never `print`), UUID conventions, other reference docs at repo root.
+- **`.claude/docs/BACKLOG-UX.md`** — backlog priorizado de UX/accesibilidad del flujo de venta (UX-01…UX-19). Consultar antes de proponer mejoras al POS: puede que ya esté registrado.
