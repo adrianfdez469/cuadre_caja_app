@@ -401,6 +401,35 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     super.dispose();
   }
 
+  /// Estado de sincronía bajo el nombre del negocio. Sin conexión no puede
+  /// pasar desapercibido: se pinta en [AppSemanticColors.caution] y con ícono,
+  /// porque es lo que explica que la venta se quede esperando en el equipo.
+  Widget _buildStatusSubtitle(
+    SyncProvider sync,
+    VentasProvider ventas,
+    AppSemanticColors colors,
+  ) {
+    final offline = !sync.isOnline;
+    final style = TextStyle(
+      fontSize: 11,
+      color: offline ? colors.caution : colors.textSecondary,
+      fontWeight: offline ? FontWeight.w600 : FontWeight.normal,
+    );
+    final texto = Text(
+      _statusSubtitle(sync, ventas),
+      style: style,
+      overflow: TextOverflow.ellipsis,
+    );
+    if (!offline) return texto;
+    return Row(
+      children: [
+        Icon(Icons.cloud_off, size: 12, color: colors.caution),
+        const SizedBox(width: 4),
+        Flexible(child: texto),
+      ],
+    );
+  }
+
   String _statusSubtitle(SyncProvider sync, VentasProvider ventas) {
     final base = sync.isOnline ? 'Conectado' : 'Sin conexión';
     // Lo rechazado por el servidor se nombra aparte de lo que sólo espera
@@ -586,12 +615,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      _statusSubtitle(syncProvider, ventasProvider),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.textSecondary,
-                      ),
+                    _buildStatusSubtitle(
+                      syncProvider,
+                      ventasProvider,
+                      colors,
                     ),
                   ],
                 ),
