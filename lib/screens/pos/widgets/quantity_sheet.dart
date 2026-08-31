@@ -1,4 +1,7 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_tokens.dart';
@@ -10,6 +13,16 @@ import '../../../providers/cart_provider.dart';
 import '../../../providers/monedas_provider.dart';
 import '../../../providers/productos_provider.dart';
 import '../../../widgets/numeric_keypad.dart';
+
+/// Para qué se abrió la hoja de cantidad.
+enum QuantitySheetMode {
+  /// Desde el catálogo: se elige cuánto **sumar** al carrito y la hoja lo hace.
+  agregar,
+
+  /// Desde una línea del carrito: se elige la cantidad **total** de esa línea y
+  /// la hoja se limita a devolverla. Ver [QuantitySheet.editar].
+  editar,
+}
 
 /// Hoja de cantidad compartida por la pantalla de venta y el catálogo: elegir
 /// cuántas unidades de un producto agregar al carrito, con teclado numérico
@@ -48,6 +61,42 @@ class QuantitySheet {
       ),
     );
   }
+
+  /// Edita la cantidad de una línea del carrito. Devuelve la cantidad elegida,
+  /// o `null` si se cerró sin confirmar. **Cero es un resultado válido**:
+  /// significa quitar la línea.
+  ///
+  /// A diferencia de [show], esta hoja **no toca el carrito**: solo elige un
+  /// número. Aplicarlo es cosa de quien la abre, porque quitar la última línea
+  /// implica además saltar a otra cuenta con productos o cerrar la vista, y esa
+  /// lógica ya vive en la pantalla del carrito.
+  ///
+  /// [cantidadActual] es la de la línea y [maxTotal] el tope **total** que puede
+  /// alcanzar (lo disponible más lo que ya está en la línea), no lo que aún
+  /// cabría sumar.
+  static Future<double?> editar(
+    BuildContext context, {
+    required ProductoModel producto,
+    required bool permitirSinStock,
+    required double cantidadActual,
+    required double maxTotal,
+  }) {
+    // Sin la guarda de `show` (`maxDisp <= 0` corta): una línea que ya agotó el
+    // stock tiene que poder abrirse, precisamente para bajarla.
+    return showModalBottomSheet<double>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _QuantitySheetContent(
+        parentContext: context,
+        producto: producto,
+        permitirSinStock: permitirSinStock,
+        maxDisp: maxTotal,
+        cantidadEnCarrito: cantidadActual,
+        mode: QuantitySheetMode.editar,
+        cantidadInicial: cantidadActual,
+      ),
+    );
+  }
 }
 
 class _QuantitySheetContent extends StatefulWidget {
@@ -58,6 +107,11 @@ class _QuantitySheetContent extends StatefulWidget {
   final bool permitirSinStock;
   final double maxDisp;
   final double cantidadEnCarrito;
+  final QuantitySheetMode mode;
+
+  /// Cantidad con la que arranca la hoja. `null` = la mínima manejable del
+  /// producto (1, o 0.1 si admite fracción), que es lo que quiere el catálogo.
+  final double? cantidadInicial;
 
   const _QuantitySheetContent({
     required this.parentContext,
@@ -65,14 +119,19 @@ class _QuantitySheetContent extends StatefulWidget {
     required this.permitirSinStock,
     required this.maxDisp,
     required this.cantidadEnCarrito,
+    this.mode = QuantitySheetMode.agregar,
+    this.cantidadInicial,
   });
+
+  bool get esEdicion => mode == QuantitySheetMode.editar;
 
   @override
   State<_QuantitySheetContent> createState() => _QuantitySheetContentState();
 }
 
 class _QuantitySheetContentState extends State<_QuantitySheetContent> {
-  late double _cantidad = widget.producto.permiteDecimal ? 0.1 : 1.0;
+  late double _cantidad = widget.cantidadInicial ??
+      (widget.producto.permiteDecimal ? 0.1 : 1.0);
 
   /// Dígitos crudos tecleados en esta sesión del teclado numérico (`null`
   /// mientras no se haya tecleado nada, o tras usar un atajo rápido). Evita
@@ -93,8 +152,8 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
   /// que un "1." en curso se vea tal cual y no como "1.00".
   String get _displayText => _keypadRaw ?? _cantidadText;
 
-  /// Cero es un estado válido: el borrado deja la cantidad en cero y el botón
-  /// de confirmar se apaga solo (`puedeConfirmar` exige > 0).
+  /// Cero es un estado válido: el borrado deja la cantidad en cero. Al agregar,
+  /// el botón de confirmar se apaga solo; al editar, pasa a "Quitar del carrito".
   void _setCantidad(double value) {
     var next = value;
     if (_permiteDecimal) {
@@ -192,6 +251,51 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
     _setCantidad(_parseRaw(trimmed));
   }
 
+  /// Texto del botón principal. Al editar, cero deja de ser "guardar" para
+  /// pasar a ser lo que de verdad va a ocurrir: quitar la línea.
+  String get _etiquetaConfirmar {
+    if (!widget.esEdicion) return 'Agregar $_cantidadText';
+    if (_cantidad <= 0) return 'Quitar del carrito';
+    return 'Guardar $_cantidadText';
+  }
+
+  /// Modo agregar: suma al carrito y cierra. (En modo edición la hoja solo
+  /// devuelve la cantidad; ver [QuantitySheet.editar].)
+  Future<void> _confirmarAgregado() async {
+    final colors = context.colors;
+    final producto = widget.producto;
+    final productosProvider = context.read<ProductosProvider>();
+    final parentContext = widget.parentContext;
+
+    final ok = await context.read<CartProvider>().addToCart(
+          producto,
+          cantidad: _cantidad,
+          allProductos: productosProvider.allProductos,
+          permitirSinStock: widget.permitirSinStock,
+        );
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    if (!parentContext.mounted) return;
+
+    if (ok) {
+      unawaited(HapticFeedback.lightImpact());
+      AppSnackBar.show(
+        parentContext,
+        content: Text(
+          '${ProductoPosRules.nombreParaMostrar(producto)} x$_cantidadText agregado',
+        ),
+        backgroundColor: colors.positive,
+        duration: const Duration(seconds: 1),
+      );
+    } else {
+      AppSnackBar.show(
+        parentContext,
+        content: const Text('Cantidad supera el máximo disponible'),
+        backgroundColor: colors.negative,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -207,7 +311,9 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
       cantidadEnCarrito: widget.cantidadEnCarrito,
       permitirSinStock: widget.permitirSinStock,
     );
-    final puedeConfirmar = _cantidad > 0 &&
+    // Al agregar, 0 no tiene sentido y apaga el botón. Al editar sí lo tiene:
+    // significa quitar la línea del carrito.
+    final puedeConfirmar = (_cantidad > 0 || widget.esEdicion) &&
         (!widget.maxDisp.isFinite || _cantidad <= widget.maxDisp);
 
     return Padding(
@@ -311,35 +417,14 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: puedeConfirmar
-                ? () async {
-                    final parentContext = widget.parentContext;
-                    final ok = await context.read<CartProvider>().addToCart(
-                          producto,
-                          cantidad: _cantidad,
-                          allProductos: productosProvider.allProductos,
-                          permitirSinStock: widget.permitirSinStock,
-                        );
-                    Navigator.of(context).pop();
-                    if (!parentContext.mounted) return;
-                    if (ok) {
-                      AppSnackBar.show(
-                        parentContext,
-                        content: Text(
-                          '${ProductoPosRules.nombreParaMostrar(producto)} x$_cantidadText agregado',
-                        ),
-                        backgroundColor: colors.positive,
-                        duration: const Duration(seconds: 1),
-                      );
-                    } else {
-                      AppSnackBar.show(
-                        parentContext,
-                        content: const Text('Cantidad supera el máximo disponible'),
-                        backgroundColor: colors.negative,
-                      );
-                    }
-                  }
-                : null,
+            onPressed: !puedeConfirmar
+                ? null
+                : widget.esEdicion
+                    // La hoja no toca el carrito: devuelve la cantidad y quien
+                    // la abrió decide (actualizar, o quitar la línea y cerrar
+                    // la vista si la cuenta queda vacía).
+                    ? () => Navigator.of(context).pop(_cantidad)
+                    : _confirmarAgregado,
             style: ElevatedButton.styleFrom(
               backgroundColor: colors.accent,
               foregroundColor: colors.onAccent,
@@ -348,7 +433,7 @@ class _QuantitySheetContentState extends State<_QuantitySheetContent> {
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
             ),
-            child: Text('Agregar $_cantidadText'),
+            child: Text(_etiquetaConfirmar),
           ),
         ],
       ),

@@ -17,6 +17,7 @@ import '../../widgets/multi_currency_amount.dart';
 import 'cobrar_screen.dart';
 import 'widgets/accounts_sheet.dart';
 import 'widgets/cobrar_button.dart';
+import 'widgets/quantity_sheet.dart';
 
 /// Abre [CartItemsScreen] con una transición de derecha a izquierda (como un
 /// panel que entra desde el borde), en vez del `Navigator.push` con la
@@ -25,10 +26,13 @@ import 'widgets/cobrar_button.dart';
 /// [onCobrar] reemplaza la acción del botón de cobro. Lo usa la pantalla de
 /// cobro, que abre este detalle por encima de sí misma: ahí "Cobrar" solo
 /// cierra, porque ya se está cobrando.
-Future<void> showCartItemsScreen(BuildContext context, {VoidCallback? onCobrar}) {
-  return Navigator.of(context).push(
-    slideFromRightRoute<void>(CartItemsScreen(onCobrar: onCobrar)),
-  );
+Future<void> showCartItemsScreen(
+  BuildContext context, {
+  VoidCallback? onCobrar,
+}) {
+  return Navigator.of(
+    context,
+  ).push(slideFromRightRoute<void>(CartItemsScreen(onCobrar: onCobrar)));
 }
 
 /// Vista "En la venta": el carrito de la cuenta activa a pantalla completa,
@@ -106,7 +110,7 @@ class CartPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 36,
+                  height: AppTapTarget.min,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: cartProvider.cartCount + 1,
@@ -143,93 +147,94 @@ class CartPanel extends StatelessWidget {
                 ),
               ),
               if (onClose != null)
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: onClose,
-                ),
+                IconButton(icon: const Icon(Icons.close), onPressed: onClose),
             ],
           ),
         ),
         const SizedBox(height: 12),
         Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  // Unidades, igual que el pie y el botón de cobro: antes esta
-                  // línea contaba tipos de producto y decía otro número.
-                  'EN LA VENTA · ${totalUnidadesLabel.toUpperCase()}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.6,
-                    color: colors.textSecondary,
-                  ),
-                ),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              // Unidades, igual que el pie y el botón de cobro: antes esta
+              // línea contaba tipos de producto y decía otro número.
+              'EN LA VENTA · ${totalUnidadesLabel.toUpperCase()}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.6,
+                color: colors.textSecondary,
               ),
             ),
-            Expanded(
-              child: items.isEmpty
-                  ? Center(
-                      child: Text(
-                        'El carrito está vacío',
-                        style: TextStyle(color: colors.textSecondary),
-                      ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      itemCount: items.length,
-                      separatorBuilder: (_, __) =>
-                          Divider(height: 1, thickness: 1, color: colors.border),
-                      itemBuilder: (context, index) => _CartLine(
-                        item: items[index],
-                        onCerrarVista: onClose,
-                      ),
-                    ),
-            ),
-            Container(
-              color: colors.inverse,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? Center(
+                  child: Text(
+                    'El carrito está vacío',
+                    style: TextStyle(color: colors.textSecondary),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, thickness: 1, color: colors.border),
+                  itemBuilder: (context, index) =>
+                      _CartLine(item: items[index], onCerrarVista: onClose),
+                ),
+        ),
+        Container(
+          color: colors.inverse,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            'A cobrar · ${activeCart?.nombre ?? '-'}',
-                            style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                    Flexible(
+                      child: Text(
+                        'A cobrar · ${activeCart?.nombre ?? '-'}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.onInverseMuted,
                         ),
-                        Text(
-                          totalUnidadesLabel,
-                          style: TextStyle(fontSize: 11.5, color: colors.onInverseMuted),
-                        ),
-                      ],
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    MultiCurrencyAmount(
-                      amount: total,
-                      variant: MultiCurrencyVariant.checkout,
-                      onInverseSurface: true,
-                    ),
-                    const SizedBox(height: 12),
-                    CobrarButton(
-                      unidades: totalUnidades,
-                      onPressed: habilitado
-                          ? (onCobrar ?? () => _cobrarYCerrarSiVacia(context))
-                          : null,
+                    Text(
+                      totalUnidadesLabel,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.onInverseMuted,
+                      ),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 6),
+                MultiCurrencyAmount(
+                  amount: total,
+                  variant: MultiCurrencyVariant.checkout,
+                  onInverseSurface: true,
+                ),
+                const SizedBox(height: 12),
+                CobrarButton(
+                  unidades: totalUnidades,
+                  onPressed: habilitado
+                      ? (onCobrar ?? () => _cobrarYCerrarSiVacia(context))
+                      : null,
+                ),
+              ],
             ),
-          ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -261,7 +266,7 @@ class _AccountChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: Container(
-        height: 36,
+        constraints: const BoxConstraints(minHeight: AppTapTarget.min),
         padding: EdgeInsets.only(left: 16, right: showChevron ? 10 : 16),
         alignment: Alignment.center,
         decoration: BoxDecoration(
@@ -417,13 +422,10 @@ class _AddAccountButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: Container(
-        width: 36,
-        height: 36,
+        width: AppTapTarget.min,
+        height: AppTapTarget.min,
         alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: colors.sunken,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: colors.sunken, shape: BoxShape.circle),
         child: Icon(Icons.add, size: 20, color: colors.textSecondary),
       ),
     );
@@ -473,16 +475,21 @@ class _CartLine extends StatelessWidget {
         ? (item.cantidad - 0.1).clamp(0.1, double.infinity)
         : (item.cantidad - 1).roundToDouble().clamp(1.0, double.infinity);
 
+    // Quitar una línea puede dejar la cuenta vacía: mismo destino que "Vaciar
+    // carrito" — saltar a otra cuenta con venta en curso, o volver al catálogo
+    // si no queda ninguna. Lo comparten el "−" y el "Quitar del carrito" de la
+    // hoja de cantidad.
+    Future<void> quitarLinea() async {
+      await cartProvider.removeItemById(item.productoTiendaId);
+      if (cartProvider.activeCart?.isEmpty ?? false) {
+        cartProvider.selectFirstNonEmptyCart();
+        if (cartProvider.activeCart?.isEmpty ?? true) onCerrarVista?.call();
+      }
+    }
+
     void onDecrement() async {
       if (item.cantidad <= (producto?.permiteDecimal == true ? 0.1 : 1)) {
-        await cartProvider.removeItemById(item.productoTiendaId);
-        // Bajar la última unidad deja la cuenta vacía: mismo destino que
-        // "Vaciar carrito" — saltar a otra cuenta con venta en curso, o volver
-        // al catálogo si no queda ninguna.
-        if (cartProvider.activeCart?.isEmpty ?? false) {
-          cartProvider.selectFirstNonEmptyCart();
-          if (cartProvider.activeCart?.isEmpty ?? true) onCerrarVista?.call();
-        }
+        await quitarLinea();
       } else {
         cartProvider.updateItemCantidadById(
           item.productoTiendaId,
@@ -507,58 +514,148 @@ class _CartLine extends StatelessWidget {
       );
     }
 
+    /// Teclear la cantidad exacta en vez de subirla de a una. La hoja solo
+    /// devuelve el número; aplicarlo (y cerrar la vista si la cuenta queda
+    /// vacía) es cosa de acá.
+    Future<void> onEditarCantidad() async {
+      // Copia local: `producto` es mutable y Dart no lo promueve dentro de un
+      // closure.
+      final p = producto;
+      if (p == null) return;
+
+      final nueva = await QuantitySheet.editar(
+        context,
+        producto: p,
+        permitirSinStock: permitirSinStock,
+        cantidadActual: item.cantidad,
+        maxTotal: maxTotal,
+      );
+      if (nueva == null) return;
+
+      if (nueva <= 0) {
+        await quitarLinea();
+        return;
+      }
+
+      await cartProvider.updateItemCantidadById(
+        item.productoTiendaId,
+        nueva,
+        allProductos: allProductos,
+        producto: p,
+        permitirSinStock: permitirSinStock,
+      );
+    }
+
     final subtotalBase = monedas.convertToBase(
       item.subtotal,
       item.monedaPrecioCode ?? monedas.monedaBase,
     );
-    final cantidadText =
-        item.cantidad.toStringAsFixed(item.cantidad == item.cantidad.roundToDouble() ? 0 : 1);
+    final cantidadText = item.cantidad.toStringAsFixed(
+      item.cantidad == item.cantidad.roundToDouble() ? 0 : 1,
+    );
 
-    Widget squareButton({required IconData icon, required VoidCallback? onPressed}) {
-      return SizedBox(
-        width: 36,
-        height: 36,
-        child: OutlinedButton(
-          onPressed: onPressed,
-          style: OutlinedButton.styleFrom(
-            padding: EdgeInsets.zero,
-            side: BorderSide(color: colors.border),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.sm),
+    Widget squareButton({
+      required IconData icon,
+      required VoidCallback? onPressed,
+      required String semantica,
+    }) {
+      return Semantics(
+        button: true,
+        enabled: onPressed != null,
+        excludeSemantics: true,
+        label: semantica,
+        child: SizedBox(
+          width: AppTapTarget.min,
+          height: AppTapTarget.min,
+          child: OutlinedButton(
+            onPressed: onPressed,
+            style: OutlinedButton.styleFrom(
+              padding: EdgeInsets.zero,
+              // Sin esto el botón arrastra el mínimo por defecto de Material
+              // (64×36) y desborda su propia caja cuadrada.
+              minimumSize: const Size(AppTapTarget.min, AppTapTarget.min),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
             ),
+            child: Icon(icon, size: 18, color: colors.textPrimary),
           ),
-          child: Icon(icon, size: 18, color: colors.textPrimary),
         ),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Text(
-            '$cantidadText ×',
-            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: colors.textSecondary),
+    // TalkBack leería sueltos "3 ×", el nombre y el importe; como una sola
+    // etiqueta la línea se entiende de una pasada. Los −/+ quedan fuera del
+    // `excludeSemantics` porque son hijos con su propia etiqueta.
+    final semanticaLinea =
+        '$cantidadText × ${item.nombre}, ${Formatters.formatNumber(subtotalBase)}';
+
+    return Semantics(
+      button: producto != null,
+      label: semanticaLinea,
+      child: InkWell(
+        // Tocar la línea abre el teclado numérico para poner la cantidad exacta:
+        // de 1 a 12 eran once toques en "+". Sin producto en el catálogo no hay
+        // precio ni stock con los que abrir la hoja.
+        onTap: producto == null ? null : onEditarCantidad,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Text(
+                '$cantidadText ×',
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.nombre,
+                  // Dos líneas: el nombre guardado es "nombre - proveedor", así que
+                  // con una sola se recortaba justo la parte que distingue dos
+                  // productos parecidos.
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Sin `Flexible`: siendo flexibles el nombre y el importe se
+              // repartían el espacio libre a mitades exactas, así que el nombre
+              // se quedaba con la mitad del ancho aunque el importe fueran
+              // cuatro cifras, y el importe encima se dibujaba encogido.
+              // Tomando el importe solo lo que ocupa, el nombre se queda con
+              // todo lo demás y el importe queda pegado a los −/+, contra el
+              // borde derecho y a la misma altura en todas las líneas.
+              Text(
+                Formatters.formatNumber(subtotalBase),
+                style: tabularNums(
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(width: 12),
+              squareButton(
+                icon: Icons.remove,
+                onPressed: onDecrement,
+                semantica: 'Quitar una unidad de ${item.nombre}',
+              ),
+              const SizedBox(width: 8),
+              squareButton(
+                icon: Icons.add,
+                onPressed: canIncrement ? onIncrement : null,
+                semantica: 'Agregar una unidad de ${item.nombre}',
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              item.nombre,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            Formatters.formatNumber(subtotalBase),
-            style: tabularNums(const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(width: 12),
-          squareButton(icon: Icons.remove, onPressed: onDecrement),
-          const SizedBox(width: 8),
-          squareButton(icon: Icons.add, onPressed: canIncrement ? onIncrement : null),
-        ],
+        ),
       ),
     );
   }

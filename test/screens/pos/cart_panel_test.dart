@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 
 import 'package:cuadre_caja_app/core/theme/app_theme.dart';
+import 'package:cuadre_caja_app/core/theme/app_tokens.dart';
 import 'package:cuadre_caja_app/data/models/producto_model.dart';
 import 'package:cuadre_caja_app/providers/cart_provider.dart';
 import 'package:cuadre_caja_app/providers/monedas_provider.dart';
@@ -390,6 +391,214 @@ void main() {
       expect(cartProvider.cartCount, 2);
       expect(cartProvider.activeCart!.nombre, 'Cuenta #2');
       expect(cerrada, isTrue);
+    });
+  });
+
+  group('editar la cantidad tocando la línea', () {
+    /// La hoja de cantidad no cabe en la superficie por defecto de los tests
+    /// (800×600) y desborda en layout; se usa una de móvil, igual que hace
+    /// `quantity_sheet_test.dart`.
+    void superficieMovil(WidgetTester tester) {
+      tester.view.physicalSize = const Size(420, 950);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    /// Toca la línea del producto y espera a que abra la hoja de cantidad.
+    Future<void> abrirHoja(WidgetTester tester, String nombre) async {
+      await tester.tap(find.text(nombre));
+      await tester.pumpAndSettle();
+    }
+
+    /// Pulsa una tecla del teclado numérico de la hoja.
+    Future<void> tecla(WidgetTester tester, String label) async {
+      await tester.tap(find.widgetWithText(InkWell, label).last);
+      await tester.pump();
+    }
+
+    Future<void> confirmar(WidgetTester tester) async {
+      await tester.tap(find.byType(ElevatedButton).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('tocar la línea abre la hoja con la cantidad actual',
+        (tester) async {
+      superficieMovil(tester);
+      await pumpPanel(tester, unidades: {'a': 3});
+
+      await abrirHoja(tester, 'Cerveza');
+
+      expect(find.text('Guardar 3'), findsOneWidget);
+    });
+
+    testWidgets('guardar una cantidad nueva la aplica al carrito',
+        (tester) async {
+      superficieMovil(tester);
+      // Doce unidades eran doce toques en "+"; ahora se teclean.
+      final provider = await pumpPanel(tester, unidades: {'a': 1});
+
+      await abrirHoja(tester, 'Cerveza');
+      await tecla(tester, '1');
+      await tecla(tester, '2');
+      await confirmar(tester);
+
+      expect(provider.activeCart!.items.single.cantidad, 12);
+    });
+
+    testWidgets('guardar cero quita la línea y cierra la vista si queda vacía',
+        (tester) async {
+      superficieMovil(tester);
+      var cerrada = false;
+      final provider = await pumpPanel(
+        tester,
+        unidades: {'a': 1},
+        onClose: () => cerrada = true,
+      );
+
+      await abrirHoja(tester, 'Cerveza');
+      await tester.tap(find.byIcon(Icons.backspace_outlined));
+      await tester.pump();
+      await confirmar(tester);
+
+      expect(provider.activeCart!.isEmpty, isTrue);
+      expect(cerrada, isTrue, reason: 'mismo destino que el "−" en la última línea');
+    });
+
+    testWidgets('guardar cero con otra línea presente no cierra la vista',
+        (tester) async {
+      superficieMovil(tester);
+      var cerrada = false;
+      final provider = await pumpPanel(
+        tester,
+        unidades: {'a': 1, 'b': 2},
+        onClose: () => cerrada = true,
+      );
+
+      await abrirHoja(tester, 'Cerveza');
+      await tester.tap(find.byIcon(Icons.backspace_outlined));
+      await tester.pump();
+      await confirmar(tester);
+
+      expect(provider.activeCart!.items.length, 1);
+      expect(cerrada, isFalse);
+    });
+
+    testWidgets('cerrar la hoja sin confirmar no cambia nada', (tester) async {
+      superficieMovil(tester);
+      final provider = await pumpPanel(tester, unidades: {'a': 3});
+
+      await abrirHoja(tester, 'Cerveza');
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      expect(provider.activeCart!.items.single.cantidad, 3);
+    });
+  });
+
+  group('nombre del producto en la línea', () {
+    testWidgets('admite dos líneas para no cortar el proveedor',
+        (tester) async {
+      // El carrito guarda "nombre - proveedor": con una sola línea, dos
+      // productos del mismo nombre y distinto proveedor se veían idénticos.
+      await pumpPanel(tester, unidades: {'a': 1});
+
+      final texto = tester.widget<Text>(find.text('Cerveza'));
+      expect(texto.maxLines, 2);
+    });
+  });
+
+  group('accesibilidad de la línea del carrito', () {
+    testWidgets('los −/+ cumplen el objetivo táctil mínimo', (tester) async {
+      // Eran 36×36: por debajo de los 48 de Material, y son los controles más
+      // pulsados de la app.
+      await pumpPanel(tester, unidades: {'a': 2});
+
+      for (final icono in [Icons.remove, Icons.add]) {
+        final size = tester.getSize(
+          find.ancestor(
+            of: find.byIcon(icono),
+            matching: find.byType(SizedBox),
+          ).first,
+        );
+        expect(size.width, greaterThanOrEqualTo(AppTapTarget.min),
+            reason: 'ancho de $icono');
+        expect(size.height, greaterThanOrEqualTo(AppTapTarget.min),
+            reason: 'alto de $icono');
+      }
+    });
+
+    testWidgets('los −/+ dicen a TalkBack sobre qué producto actúan',
+        (tester) async {
+      // Antes eran iconos mudos: "botón" a secas, sin decir de qué producto.
+      await pumpPanel(tester, unidades: {'a': 2});
+
+      expect(find.bySemanticsLabel('Quitar una unidad de Cerveza'),
+          findsOneWidget);
+      expect(find.bySemanticsLabel('Agregar una unidad de Cerveza'),
+          findsOneWidget);
+    });
+
+    testWidgets('la línea se lee como una sola etiqueta con sentido',
+        (tester) async {
+      await pumpPanel(tester, unidades: {'a': 2});
+
+      // Cantidad, nombre e importe juntos, en vez de tres fragmentos sueltos.
+      expect(
+        find.bySemanticsLabel(RegExp(r'^2 × Cerveza, ')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('alineación de la línea del carrito', () {
+    /// El "+" del catálogo de cuentas usa el mismo ícono; los de las líneas son
+    /// los únicos dentro de un `OutlinedButton`.
+    Finder masDeLinea() => find.descendant(
+          of: find.byType(OutlinedButton),
+          matching: find.byIcon(Icons.add),
+        );
+
+    testWidgets('los −/+ caen en la misma columna aunque cambie el importe',
+        (tester) async {
+      // Dos líneas con importes de distinto largo: 100.00 y 5000.00.
+      await pumpPanel(tester, unidades: {'a': 1, 'b': 50});
+
+      final menos = find.byIcon(Icons.remove);
+      final mas = masDeLinea();
+      expect(menos, findsNWidgets(2));
+      expect(mas, findsNWidgets(2));
+
+      // Antes el importe y el nombre se repartían el espacio libre a mitades:
+      // lo que al importe le sobraba quedaba como hueco a la derecha del "+",
+      // así que los botones bailaban de una línea a otra.
+      expect(tester.getRect(mas.at(0)).right, tester.getRect(mas.at(1)).right);
+      expect(
+        tester.getRect(menos.at(0)).right,
+        tester.getRect(menos.at(1)).right,
+      );
+    });
+
+    testWidgets('el importe va pegado a los botones, contra el borde derecho',
+        (tester) async {
+      await pumpPanel(tester, unidades: {'a': 1});
+
+      final menos = tester.getRect(find.byType(OutlinedButton).at(0));
+      final mas = tester.getRect(find.byType(OutlinedButton).at(1));
+      final importe = tester.getRect(find.text('100.00'));
+
+      // El bloque importe + − + + termina contra el borde derecho de la lista
+      // (16 de padding), sin hueco sobrante que lo empuje hacia la izquierda.
+      expect(
+        mas.right,
+        closeTo(tester.getRect(find.byType(CartPanel)).right - 16, 0.5),
+      );
+      expect(importe.right, closeTo(menos.left - 12, 0.5));
+      // Y el nombre se queda con todo el ancho que el importe no usa: entre los
+      // dos solo está el separador de 8.
+      expect(
+        tester.getRect(find.text('Cerveza')).right + 8,
+        closeTo(importe.left, 0.5),
+      );
     });
   });
 }
