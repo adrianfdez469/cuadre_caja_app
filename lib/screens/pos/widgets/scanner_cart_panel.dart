@@ -10,11 +10,23 @@ import '../../../providers/sync_provider.dart';
 import 'cart_checkout_bar.dart';
 import 'cart_item_tile.dart';
 
-/// Alto del encabezado fijo del panel: asa (18) + fila del nombre del carrito
-/// (20) + barra de total/Cobrar (~86 con el importe en monedas alternativas,
-/// que es el caso más alto). Debe cubrir el peor caso porque el
-/// SliverPersistentHeader es de alto fijo.
+/// Alto del encabezado fijo del panel a escala de texto 1: asa (18) + fila del
+/// nombre del carrito (20) + barra de total/Cobrar (~86 con el importe en
+/// monedas alternativas, que es el caso más alto). Debe cubrir el peor caso
+/// porque el SliverPersistentHeader es de alto fijo.
 const double kScannerPanelHeaderHeight = 124;
+
+/// Lo mismo, ajustado a la letra del sistema.
+///
+/// Casi todo el encabezado es texto, y al ampliarlo el importe en monedas
+/// alternativas pasa a ocupar dos líneas, así que crece bastante más rápido que
+/// el propio factor de escala. El sumando está calibrado contra el tope de
+/// [maxTextScale] y lo vigila `test/core/textscale_test.dart`: si algún día el
+/// encabezado gana contenido, ese test falla antes que el usuario lo vea.
+double scannerPanelHeaderHeight(BuildContext context) {
+  final escala = MediaQuery.textScalerOf(context).scale(1);
+  return kScannerPanelHeaderHeight + (escala - 1) * 240;
+}
 
 /// Panel del carrito que vive en la mitad inferior de la pantalla del escáner.
 ///
@@ -101,7 +113,7 @@ class _ScannerCartPanelState extends State<ScannerCartPanel> {
             SliverPersistentHeader(
               pinned: true,
               delegate: _PanelHeaderDelegate(
-                height: kScannerPanelHeaderHeight,
+                height: scannerPanelHeaderHeight(context),
                 child: _buildHeader(
                   nombreCarrito: activeCart?.nombre ?? 'Cuenta',
                   items: items,

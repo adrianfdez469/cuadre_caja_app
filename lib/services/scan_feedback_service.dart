@@ -2,12 +2,20 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
 
-/// Tonos de feedback para escaneo (éxito / error), sin archivos de audio.
-class ScanAudioService {
-  ScanAudioService._();
+/// Feedback de escaneo (éxito / error): tono generado sin archivos de audio
+/// **más vibración**.
+///
+/// Las dos señales van juntas a propósito. Se llama desde ~15 sitios entre
+/// `barcode_scanner_screen.dart` y `barcode_scan_processor.dart`; si la
+/// vibración se sembrara en cada llamada, tarde o temprano alguna sonaría sin
+/// vibrar. En un local ruidoso el tono se pierde y la vibración es lo único que
+/// le queda al cajero para saber si el escaneo entró.
+class ScanFeedbackService {
+  ScanFeedbackService._();
 
-  static final ScanAudioService instance = ScanAudioService._();
+  static final ScanFeedbackService instance = ScanFeedbackService._();
 
   final AudioPlayer _player = AudioPlayer();
 
@@ -55,6 +63,8 @@ class ScanAudioService {
 
   Future<void> playSuccess() async {
     try {
+      // Un toque corto: el escaneo entró y el cajero sigue.
+      await HapticFeedback.lightImpact();
       await _player.play(
         BytesSource(_generateTone(frequency: 880.0, durationSeconds: 0.1)),
       );
@@ -67,6 +77,8 @@ class ScanAudioService {
 
   Future<void> playError() async {
     try {
+      // Más fuerte que el éxito: hay que parar y mirar la pantalla.
+      await HapticFeedback.heavyImpact();
       await _player.play(
         BytesSource(_generateTone(frequency: 210.0, durationSeconds: 0.45)),
       );

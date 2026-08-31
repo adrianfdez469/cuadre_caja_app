@@ -99,11 +99,14 @@ UsuarioModel buildTestUsuario({String monedaBase = 'CUP'}) {
   );
 }
 
+/// [textScaler] permite montar el cobro con la letra del sistema ampliada, para
+/// los tests de escalado (`test/core/textscale_test.dart`).
 Widget buildCobrarScreenHarness({
   required MultimonedaConfig config,
   required CartModel cart,
   required FakeSyncService syncService,
   String monedaBase = 'CUP',
+  TextScaler textScaler = TextScaler.noScaling,
 }) {
   final auth = createTestAuthProvider()
     ..debugSetUsuario(buildTestUsuario(monedaBase: monedaBase));
@@ -120,6 +123,10 @@ Widget buildCobrarScreenHarness({
     ],
     child: MaterialApp(
       theme: appLightTheme,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
       home: Scaffold(
         body: CobrarScreen(
           getTransferDestinationsLocalOverride:

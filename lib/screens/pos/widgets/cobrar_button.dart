@@ -38,27 +38,33 @@ class CobrarButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          const Text(
-            'Cobrar',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-          ),
-          if (habilitado) ...[
-            const SizedBox(width: 8),
-            Text(
-              Formatters.formatUnidades(unidades),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: colors.onAccent.withValues(alpha: 0.65),
-              ),
+      // Con la letra del sistema ampliada, "Cobrar" + "N artículos" dejaba de
+      // caber a lo ancho del botón. `FittedBox` lo encoge lo justo en lugar de
+      // desbordar, y el `Row` se mantiene en una sola línea.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            const Text(
+              'Cobrar',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
+            if (habilitado) ...[
+              const SizedBox(width: 8),
+              Text(
+                Formatters.formatUnidades(unidades),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: colors.onAccent.withValues(alpha: 0.65),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

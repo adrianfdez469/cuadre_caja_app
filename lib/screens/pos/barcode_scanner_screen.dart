@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../services/scan_audio_service.dart';
+import '../../services/scan_feedback_service.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/constants/storage_keys.dart';
 import '../../core/di/injection.dart';
@@ -333,9 +333,9 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     super.dispose();
   }
 
-  Future<void> _playSuccess() => ScanAudioService.instance.playSuccess();
+  Future<void> _playSuccess() => ScanFeedbackService.instance.playSuccess();
 
-  Future<void> _playError() => ScanAudioService.instance.playError();
+  Future<void> _playError() => ScanFeedbackService.instance.playError();
 
   // ---------------------------------------------------------------------------
   // Lógica de escaneo
@@ -713,7 +713,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
           // Tope en 0.45: los snapSizes deben ser estrictamente ascendentes, y
           // el mínimo nunca debe igualar al tamaño inicial.
           _sheetMinSize = alto > 0
-              ? ((kScannerPanelHeaderHeight +
+              ? ((scannerPanelHeaderHeight(context) +
                           MediaQuery.paddingOf(context).bottom) /
                       alto)
                   .clamp(0.1, 0.45)

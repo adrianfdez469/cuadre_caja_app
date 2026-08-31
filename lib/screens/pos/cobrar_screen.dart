@@ -876,8 +876,9 @@ class _CobrarScreenState extends State<CobrarScreen> {
       onTap: () => _elegirMoneda(moneda),
       borderRadius: BorderRadius.circular(AppRadius.pill),
       child: Container(
-        height: 40,
+        constraints: const BoxConstraints(minHeight: AppTapTarget.min),
         padding: const EdgeInsets.only(left: 16, right: 10),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: colors.accentWash,
           borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -915,8 +916,8 @@ class _CobrarScreenState extends State<CobrarScreen> {
         onTap: () => _toggleTransfer(moneda),
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: Container(
-          width: 48,
-          height: 40,
+          width: AppTapTarget.min,
+          height: AppTapTarget.min,
           decoration: BoxDecoration(
             color: activa ? colors.accentWash : null,
             border: Border.all(color: activa ? colors.accent : colors.border),

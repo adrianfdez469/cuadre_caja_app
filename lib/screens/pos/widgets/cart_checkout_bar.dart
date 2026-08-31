@@ -38,20 +38,26 @@ class CartCheckoutBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Row(
         children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Total', style: TextStyle(fontSize: 12, color: colors.textSecondary)),
-              MultiCurrencyAmount(
-                amount: totalBase,
-                variant: MultiCurrencyVariant.total,
-              ),
-            ],
+          // `Expanded` en vez de un `Column` suelto + `Spacer`: con la letra
+          // ampliada el total y sus conversiones no cabían y desbordaban la
+          // barra. Así el bloque cede el ancho que le sobra al botón.
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Total',
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary)),
+                MultiCurrencyAmount(
+                  amount: totalBase,
+                  variant: MultiCurrencyVariant.total,
+                ),
+              ],
+            ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           SizedBox(
-            height: 42,
+            height: AppTapTarget.min,
             child: ElevatedButton.icon(
               onPressed: habilitado ? () => _cobrar(context) : null,
               icon: const Icon(Icons.payment),

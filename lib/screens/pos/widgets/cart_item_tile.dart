@@ -243,8 +243,8 @@ class CartItemTile extends StatelessWidget {
     );
   }
 
-  /// Controles − / cantidad / +. Los targets táctiles se mantienen en 36x36
-  /// también en compacto: es un POS que se usa con el dedo.
+  /// Controles − / cantidad / +. Los targets táctiles se mantienen en el mínimo
+  /// (`AppTapTarget.min`) también en compacto: es un POS que se usa con el dedo.
   Widget _buildStepper({
     required AppSemanticColors colors,
     required bool canIncrement,
@@ -260,7 +260,10 @@ class CartItemTile extends StatelessWidget {
           onPressed: onDecrement,
           iconSize: iconSize,
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          constraints: const BoxConstraints(
+            minWidth: AppTapTarget.min,
+            minHeight: AppTapTarget.min,
+          ),
           color: colors.negative,
         ),
         SizedBox(
@@ -278,7 +281,10 @@ class CartItemTile extends StatelessWidget {
           onPressed: canIncrement ? onIncrement : null,
           iconSize: iconSize,
           padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          constraints: const BoxConstraints(
+            minWidth: AppTapTarget.min,
+            minHeight: AppTapTarget.min,
+          ),
           color: colors.positive,
         ),
       ],

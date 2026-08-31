@@ -11,7 +11,7 @@ import '../providers/periodo_provider.dart';
 import '../providers/productos_provider.dart';
 import '../core/utils/venta_sin_stock_policy.dart';
 import '../screens/pos/asociar_codigo_sheet.dart';
-import 'scan_audio_service.dart';
+import 'scan_feedback_service.dart';
 
 /// Procesa un código escaneado por pistola (hardware) y lo agrega al carrito.
 class BarcodeScanProcessor {
@@ -43,7 +43,7 @@ class BarcodeScanProcessor {
         );
         if (!context.mounted) return;
         if (asociado != null) {
-          await ScanAudioService.instance.playSuccess();
+          await ScanFeedbackService.instance.playSuccess();
           AppSnackBar.show(
             context,
             content: Text(
@@ -53,10 +53,10 @@ class BarcodeScanProcessor {
           );
           await processHardwareScan(context, code);
         } else {
-          await ScanAudioService.instance.playError();
+          await ScanFeedbackService.instance.playError();
         }
       } else {
-        await ScanAudioService.instance.playError();
+        await ScanFeedbackService.instance.playError();
         AppSnackBar.show(
           context,
           content: const Text('Producto no encontrado para el código escaneado'),
@@ -79,7 +79,7 @@ class BarcodeScanProcessor {
     );
 
     if (!permitirSinStock && maxDisp <= 0) {
-      await ScanAudioService.instance.playError();
+      await ScanFeedbackService.instance.playError();
       AppSnackBar.show(
         context,
         content: Text(
@@ -96,7 +96,7 @@ class BarcodeScanProcessor {
           cantidadEnCarrito: cantidadEnCarrito,
           permitirSinStock: true,
         )) {
-      await ScanAudioService.instance.playError();
+      await ScanFeedbackService.instance.playError();
       AppSnackBar.show(
         context,
         content: const Text('Cantidad supera el máximo permitido'),
@@ -117,7 +117,7 @@ class BarcodeScanProcessor {
     if (!context.mounted) return;
 
     if (ok) {
-      await ScanAudioService.instance.playSuccess();
+      await ScanFeedbackService.instance.playSuccess();
       // Un único mensaje por escaneo: AppSnackBar reemplaza al anterior, así que
       // dos seguidos harían desaparecer el primero al instante.
       final sinStockLocal = permitirSinStock &&
@@ -139,7 +139,7 @@ class BarcodeScanProcessor {
         duration: Duration(seconds: sinStockLocal ? 2 : 1),
       );
     } else {
-      await ScanAudioService.instance.playError();
+      await ScanFeedbackService.instance.playError();
       AppSnackBar.show(
         context,
         content: const Text('Cantidad supera el máximo'),

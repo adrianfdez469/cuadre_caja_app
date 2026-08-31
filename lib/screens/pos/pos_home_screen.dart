@@ -4,13 +4,16 @@ import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../services/release_service.dart' show ReleaseService, compareVersions;
+import '../../services/release_service.dart'
+    show ReleaseService, compareVersions;
 import '../../core/widgets/app_snackbar.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../core/utils/venta_sin_stock_policy.dart';
 import '../../data/models/categoria_model.dart';
@@ -22,6 +25,7 @@ import '../../providers/periodo_provider.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/monedas_provider.dart';
 import '../../providers/ventas_provider.dart';
+import '../../services/screen_wake_service.dart';
 import '../../services/sync_service.dart';
 import '../../core/utils/app_route_observer.dart';
 import '../../widgets/hardware_scanner_listener.dart';
@@ -214,9 +218,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
               messenger.hideCurrentMaterialBanner();
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const VersionScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const VersionScreen()),
               );
             },
             child: const Text('Actualizar'),
@@ -262,7 +264,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
       // Cargar listado unificado de ventas
       final periodoId = context.read<PeriodoProvider>().periodoId;
       if (periodoId != null && periodoId.isNotEmpty) {
-        await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
+        await context.read<VentasProvider>().loadVentasUnificado(
+          tiendaId,
+          periodoId,
+        );
       }
     } catch (e) {
       logDebug('⚠️ Error inicializando: $e');
@@ -301,7 +306,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
     try {
       await Future.wait([
-        context.read<ProductosProvider>().loadProductos(tiendaId, showLoading: false),
+        context.read<ProductosProvider>().loadProductos(
+          tiendaId,
+          showLoading: false,
+        ),
         context.read<PeriodoProvider>().loadPeriodo(tiendaId),
         context.read<VentasProvider>().refreshPendientes(),
         context.read<MonedasProvider>().load(
@@ -318,7 +326,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
       final periodoId = context.read<PeriodoProvider>().periodoId;
       if (periodoId != null && periodoId.isNotEmpty) {
-        await context.read<VentasProvider>().loadVentasUnificado(tiendaId, periodoId);
+        await context.read<VentasProvider>().loadVentasUnificado(
+          tiendaId,
+          periodoId,
+        );
       }
     } catch (e) {
       logDebug('⚠️ Error refrescando UI: $e');
@@ -341,10 +352,7 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
       return;
     }
 
-    await syncProvider.fullSync(
-      auth.tiendaId,
-      negocioId: auth.negocioId,
-    );
+    await syncProvider.fullSync(auth.tiendaId, negocioId: auth.negocioId);
   }
 
   @override
@@ -352,6 +360,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     appRouteObserver.unsubscribe(this);
     _scaffoldMessenger?.clearMaterialBanners();
     _syncProvider?.stopMonitoring();
+    // Salir del POS o cerrar sesión no puede dejar el wakelock colgado.
+    unawaited(ScreenWakeService.instance.liberar());
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
@@ -366,8 +376,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   }
 
   String _initials(String nombre) {
-    final parts =
-        nombre.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = nombre
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
@@ -382,6 +395,15 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     final ventasProvider = context.watch<VentasProvider>();
     final cartProvider = context.watch<CartProvider>();
     final colors = context.colors;
+
+    // Venta en curso = cualquier cuenta abierta con productos, no solo la
+    // activa: con varias cuentas el cajero alterna entre ellas y la pantalla no
+    // debe apagarse por estar mirando una vacía. El servicio ignora las
+    // repeticiones, así que llamarlo en cada build es barato.
+    unawaited(
+      ScreenWakeService.instance
+          .setActivo(cartProvider.totalItemCountAcrossCarts > 0),
+    );
 
     // El catálogo oculta los productos agotados salvo que se permita venderlos:
     // hay que reconstruirlo tanto al perder/recuperar conexión como al cambiar
@@ -440,7 +462,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
         // una cuenta recién creada no se podía cerrar sin agregarle antes un
         // producto. Con una sola cuenta vacía no hay nada que hacer ahí, así
         // que se sigue ocultando y la pantalla queda limpia.
-        bottomNavigationBar: !showCartPanel &&
+        bottomNavigationBar:
+            !showCartPanel &&
                 _isInitialized &&
                 periodoProvider.hasActivePeriodo &&
                 (cartProvider.activeItemCount > 0 || cartProvider.cartCount > 1)
@@ -461,7 +484,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   ) {
     return Container(
       color: colors.raised,
-      height: kToolbarHeight,
+      // Alto mínimo, no fijo: con la letra ampliada las dos líneas (tienda y
+      // estado de sincronía) necesitan más sitio y antes se recortaban.
+      constraints: const BoxConstraints(minHeight: kToolbarHeight),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -498,12 +523,18 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                       auth.negocioNombre.isNotEmpty
                           ? '${auth.negocioNombre} · ${auth.tiendaNombre}'
                           : auth.tiendaNombre,
-                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
                       _statusSubtitle(syncProvider, ventasProvider),
-                      style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -515,7 +546,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                   excludeSemantics: true,
                   label: 'Cuenta: modo oscuro, versión y cerrar sesión.',
                   child: InkWell(
-                    onTap: () => UserMenuSheet.show(context, onLogout: _confirmLogout),
+                    onTap: () =>
+                        UserMenuSheet.show(context, onLogout: _confirmLogout),
                     customBorder: const CircleBorder(),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(
@@ -573,7 +605,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.error_outline, size: 48, color: context.colors.negative),
+                  Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: context.colors.negative,
+                  ),
                   const SizedBox(height: 16),
                   Text('Error: $_initError'),
                   const SizedBox(height: 16),
@@ -616,7 +652,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                     if (syncProvider.lastMessage.isNotEmpty)
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         color: syncProvider.isOnline
                             ? context.colors.positiveWash
                             : context.colors.cautionWash,
@@ -641,7 +680,8 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                               controller: _searchController,
                               focusNode: _searchFocusNode,
                               decoration: InputDecoration(
-                                hintText: 'Buscar entre ${productosProvider.allProductos.length} productos',
+                                hintText:
+                                    'Buscar entre ${productosProvider.allProductos.length} productos',
                                 prefixIcon: const Icon(Icons.search),
                                 suffixIcon: _searchController.text.isNotEmpty
                                     ? IconButton(
@@ -655,14 +695,26 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                                 filled: true,
                                 fillColor: context.colors.raised,
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.md),
-                                  borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.md,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: context.colors.textPrimary,
+                                    width: 2,
+                                  ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(AppRadius.md),
-                                  borderSide: BorderSide(color: context.colors.textPrimary, width: 2),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.md,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: context.colors.textPrimary,
+                                    width: 2,
+                                  ),
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
                               ),
                               onChanged: productosProvider.searchProductos,
                             ),
@@ -691,7 +743,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                             child: IconButton.filled(
                               onPressed: () => Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                                MaterialPageRoute(
+                                  builder: (_) => const BarcodeScannerScreen(),
+                                ),
                               ),
                               icon: const Icon(Icons.qr_code_scanner),
                               tooltip: 'Escanear con cámara',
@@ -770,8 +824,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
               style: ElevatedButton.styleFrom(
                 backgroundColor: context.colors.positive,
                 foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
               ),
             ),
           ],
@@ -831,7 +887,10 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
                 );
               }
             },
-            child: Text('Cerrar sesión', style: TextStyle(color: context.colors.negative)),
+            child: Text(
+              'Cerrar sesión',
+              style: TextStyle(color: context.colors.negative),
+            ),
           ),
         ],
       ),
@@ -839,11 +898,15 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   }
 
   /// Agregar 1 unidad al carrito desde el botón "+" del catálogo.
-  Future<void> _quickAddToCart(BuildContext context, ProductoModel producto) async {
+  Future<void> _quickAddToCart(
+    BuildContext context,
+    ProductoModel producto,
+  ) async {
     final productosProvider = context.read<ProductosProvider>();
     final permitirSinStock = VentaSinStockPolicy.of(context, listen: false);
     final cart = context.read<CartProvider>().activeCart;
-    final cantidadEnCarrito = cart?.items
+    final cantidadEnCarrito =
+        cart?.items
             .where((i) => i.productoTiendaId == producto.id)
             .fold<double>(0, (s, i) => s + i.cantidad) ??
         0;
@@ -865,16 +928,21 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     }
     final qty = maxDisp >= 1 ? 1.0 : (producto.permiteDecimal ? 0.1 : 1.0);
     final ok = await context.read<CartProvider>().addToCart(
-          producto,
-          cantidad: qty,
-          allProductos: productosProvider.allProductos,
-          permitirSinStock: permitirSinStock,
-        );
+      producto,
+      cantidad: qty,
+      allProductos: productosProvider.allProductos,
+      permitirSinStock: permitirSinStock,
+    );
     if (!context.mounted) return;
     if (ok) {
+      // Confirmación táctil: en un mostrador ruidoso, y con el snackbar fuera
+      // del punto donde mira el cajero, la vibración es la señal más fiable.
+      unawaited(HapticFeedback.lightImpact());
       AppSnackBar.show(
         context,
-        content: Text('${ProductoPosRules.nombreParaMostrar(producto)} agregado'),
+        content: Text(
+          '${ProductoPosRules.nombreParaMostrar(producto)} agregado',
+        ),
         backgroundColor: context.colors.positive,
         duration: const Duration(seconds: 1),
       );
@@ -944,7 +1012,10 @@ class _CategoriaChipsState extends State<_CategoriaChips> {
   @override
   Widget build(BuildContext context) {
     final categoriasConProductos = productosProvider.categorias
-        .where((c) => productosProvider.allProductos.any((p) => p.categoriaId == c.id))
+        .where(
+          (c) =>
+              productosProvider.allProductos.any((p) => p.categoriaId == c.id),
+        )
         .toList();
 
     if (categoriasConProductos.isEmpty) return const SizedBox.shrink();
@@ -952,7 +1023,11 @@ class _CategoriaChipsState extends State<_CategoriaChips> {
     final colors = context.colors;
     final seleccionada = productosProvider.selectedCategoriaId;
 
-    Widget chip(String label, {required bool selected, required VoidCallback onTap}) {
+    Widget chip(
+      String label, {
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
       return Padding(
         padding: const EdgeInsets.only(right: 8),
         child: ChoiceChip(
@@ -974,8 +1049,13 @@ class _CategoriaChipsState extends State<_CategoriaChips> {
       );
     }
 
+    // Un carril horizontal necesita alto acotado, así que no puede crecer solo:
+    // se escala con la letra del sistema para no recortar los chips. (El target
+    // táctil ya lo garantiza `ChoiceChip`, que reserva 48 aunque se vea 34.)
+    final altoChips = MediaQuery.textScalerOf(context).scale(34) + 16;
+
     return SizedBox(
-      height: 34 + 16,
+      height: altoChips,
       child: Listener(
         onPointerSignal: _handlePointerSignal,
         child: ScrollConfiguration(
@@ -999,7 +1079,8 @@ class _CategoriaChipsState extends State<_CategoriaChips> {
                 chip(
                   categoria.nombre.trim(),
                   selected: seleccionada == categoria.id,
-                  onTap: () => productosProvider.filterByCategoria(categoria.id),
+                  onTap: () =>
+                      productosProvider.filterByCategoria(categoria.id),
                 ),
             ],
           ),
@@ -1040,7 +1121,11 @@ class _CatalogoResultados extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.search_off, size: 48, color: context.colors.textDisabled),
+                    Icon(
+                      Icons.search_off,
+                      size: 48,
+                      color: context.colors.textDisabled,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'Sin productos para mostrar',
@@ -1065,7 +1150,8 @@ class _CatalogoResultados extends StatelessWidget {
       itemCount: results.length,
       itemBuilder: (context, index) {
         final p = results[index];
-        final cantidadEnCarrito = cart?.items
+        final cantidadEnCarrito =
+            cart?.items
                 .where((i) => i.productoTiendaId == p.id)
                 .fold<double>(0, (s, i) => s + i.cantidad) ??
             0;
@@ -1076,7 +1162,8 @@ class _CatalogoResultados extends StatelessWidget {
           permitirSinStock: permitirSinStock,
         );
         final enCarrito = cantidadEnCarrito > 0;
-        final sinStockLocal = permitirSinStock &&
+        final sinStockLocal =
+            permitirSinStock &&
             !ProductoPosRules.tieneStockLocalEfectivo(
               p,
               allProductos,
@@ -1099,132 +1186,168 @@ class _CatalogoResultados extends StatelessWidget {
         final hasAlts = altLines.isNotEmpty;
         // Todas las conversiones menos la última van arriba, junto al
         // precio; la última comparte fila con "Cant" (ver abajo).
-        final topAltLines = hasAlts ? altLines.sublist(0, altLines.length - 1) : const <Widget>[];
+        final topAltLines = hasAlts
+            ? altLines.sublist(0, altLines.length - 1)
+            : const <Widget>[];
         final lastAltLine = hasAlts ? altLines.last : null;
 
-        return InkWell(
-          onTap: puedeAgregar ? () => onProductTap(context, p) : null,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: AppTapTarget.rowLarge),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: enCarrito ? context.colors.accentWash : null,
-              border: Border(bottom: BorderSide(color: context.colors.border)),
-            ),
-            // `IntrinsicHeight` le da a la fila una altura concreta (la que
-            // pida el contenido) para que `stretch` pueda repartirla entre
-            // el botón, el precio centrado (sin conversiones) y la columna
-            // de texto, en vez de necesitar una altura ya fijada por fuera.
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Nombre y precio en la misma línea, para que el
-                        // nombre llegue hasta el precio en vez de quedar en
-                        // una columna angosta con espacio vacío de por
-                        // medio. Sin conversiones, el precio se muestra
-                        // centrado aparte (ver más abajo) y esta fila lleva
-                        // solo el nombre.
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                ProductoPosRules.nombreParaMostrar(p),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            if (hasAlts) ...[
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  MultiCurrencyAmount.primaryOnly(
-                                    context,
-                                    amount: precioBase,
-                                    variant: MultiCurrencyVariant.compact,
-                                    textAlign: TextAlign.end,
+        // Sin esto TalkBack lee la fila como fragmentos sueltos: el nombre, cada
+        // conversión de moneda por separado y el texto de stock. Como una sola
+        // etiqueta se entiende de una pasada. El "+" queda fuera del
+        // `excludeSemantics` porque es un hijo con su propia etiqueta.
+        final semanticaFila = [
+          ProductoPosRules.nombreParaMostrar(p),
+          Formatters.formatMonedaAmount(
+            precioBase,
+            simbolo: monedas.simboloFor(monedas.monedaBase),
+            code: monedas.monedaBase,
+          ),
+          if (stockText.isNotEmpty) stockText,
+        ].join(', ');
+
+        return Semantics(
+          button: puedeAgregar,
+          label: semanticaFila,
+          child: InkWell(
+            onTap: puedeAgregar ? () => onProductTap(context, p) : null,
+            child: Container(
+              constraints: const BoxConstraints(
+                minHeight: AppTapTarget.rowLarge,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: enCarrito ? context.colors.accentWash : null,
+                border: Border(
+                  bottom: BorderSide(color: context.colors.border),
+                ),
+              ),
+              // `IntrinsicHeight` le da a la fila una altura concreta (la que
+              // pida el contenido) para que `stretch` pueda repartirla entre
+              // el botón, el precio centrado (sin conversiones) y la columna
+              // de texto, en vez de necesitar una altura ya fijada por fuera.
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Nombre y precio en la misma línea, para que el
+                          // nombre llegue hasta el precio en vez de quedar en
+                          // una columna angosta con espacio vacío de por
+                          // medio. Sin conversiones, el precio se muestra
+                          // centrado aparte (ver más abajo) y esta fila lleva
+                          // solo el nombre.
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  ProductoPosRules.nombreParaMostrar(p),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  if (topAltLines.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    ...topAltLines,
-                                  ],
-                                ],
+                                ),
                               ),
+                              if (hasAlts) ...[
+                                const SizedBox(width: 8),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    MultiCurrencyAmount.primaryOnly(
+                                      context,
+                                      amount: precioBase,
+                                      variant: MultiCurrencyVariant.compact,
+                                      textAlign: TextAlign.end,
+                                    ),
+                                    if (topAltLines.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      ...topAltLines,
+                                    ],
+                                  ],
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                        if (sinStockLocal)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: StockLocalBadge(compact: true, isOnline: isOnline),
                           ),
-                        // "Cant" y la última conversión comparten esta fila,
-                        // que por el `spaceBetween` de arriba siempre cae en
-                        // el borde inferior — el mismo al que se ancla el
-                        // botón "+".
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: stockText.isNotEmpty
-                                  ? Text(
-                                      stockText,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
-                                    )
-                                  : const SizedBox.shrink(),
+                          if (sinStockLocal)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: StockLocalBadge(
+                                compact: true,
+                                isOnline: isOnline,
+                              ),
                             ),
-                            if (lastAltLine != null) ...[
-                              const SizedBox(width: 8),
-                              lastAltLine,
+                          // "Cant" y la última conversión comparten esta fila,
+                          // que por el `spaceBetween` de arriba siempre cae en
+                          // el borde inferior — el mismo al que se ancla el
+                          // botón "+".
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: stockText.isNotEmpty
+                                    ? Text(
+                                        stockText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          color: context.colors.textSecondary,
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+                              if (lastAltLine != null) ...[
+                                const SizedBox(width: 8),
+                                lastAltLine,
+                              ],
                             ],
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  if (!hasAlts) ...[
+                    if (!hasAlts) ...[
+                      const SizedBox(width: 8),
+                      Center(
+                        child: MultiCurrencyAmount.primaryOnly(
+                          context,
+                          amount: precioBase,
+                          variant: MultiCurrencyVariant.compact,
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
-                    Center(
-                      child: MultiCurrencyAmount.primaryOnly(
-                        context,
-                        amount: precioBase,
-                        variant: MultiCurrencyVariant.compact,
-                        textAlign: TextAlign.end,
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: SizedBox(
+                        width: AppTapTarget.min,
+                        height: AppTapTarget.min,
+                        child: IconButton(
+                          icon: const Icon(Icons.add),
+                          style: IconButton.styleFrom(
+                            backgroundColor: context.colors.accent,
+                            foregroundColor: context.colors.onAccent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                          ),
+                          onPressed: puedeAgregar
+                              ? () => onQuickAdd(context, p)
+                              : null,
+                          tooltip:
+                              'Agregar 1 de ${ProductoPosRules.nombreParaMostrar(p)}',
+                        ),
                       ),
                     ),
                   ],
-                  const SizedBox(width: 8),
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: SizedBox(
-                      width: AppTapTarget.min,
-                      height: AppTapTarget.min,
-                      child: IconButton(
-                        icon: const Icon(Icons.add),
-                        style: IconButton.styleFrom(
-                          backgroundColor: context.colors.accent,
-                          foregroundColor: context.colors.onAccent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                          ),
-                        ),
-                        onPressed: puedeAgregar ? () => onQuickAdd(context, p) : null,
-                        tooltip: 'Agregar 1 al carrito',
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

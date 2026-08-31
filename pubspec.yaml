@@ -59,6 +59,9 @@ dependencies:
   # Reproducción de audio
   audioplayers: ^6.6.0
 
+  # Mantener la pantalla encendida mientras hay una venta en curso (UX-15)
+  wakelock_plus: ^1.2.8
+
   # Versión y actualizaciones
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5

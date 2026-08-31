@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'core/di/injection.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_tokens.dart';
 import 'core/utils/app_route_observer.dart';
 import 'providers/auth_provider.dart';
 import 'providers/productos_provider.dart';
@@ -88,6 +89,20 @@ class MyApp extends StatelessWidget {
           darkTheme: appDarkTheme,
           themeMode: themeModeProvider.themeMode,
           navigatorObservers: [appRouteObserver],
+          builder: (context, child) {
+            // Android deja subir la letra hasta 2x, y a esa escala el POS
+            // desborda (importes, chips, filas del catálogo). Se acota a 1.3x:
+            // el texto crece lo suficiente para ayudar de verdad y la UI sigue
+            // cabiendo. Decisión consciente, no un olvido — ver UX-13 en
+            // `.claude/docs/BACKLOG-UX.md`.
+            final mq = MediaQuery.of(context);
+            return MediaQuery(
+              data: mq.copyWith(
+                textScaler: mq.textScaler.clamp(maxScaleFactor: maxTextScale),
+              ),
+              child: child!,
+            );
+          },
           home: const SplashScreen(),
         ),
       ),

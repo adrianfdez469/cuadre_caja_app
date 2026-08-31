@@ -11,14 +11,27 @@ class AppRadius {
 }
 
 /// Objetivos táctiles mínimos del design system (`foundations/paleta.html`).
+///
+/// Nunca escribir estos tamaños como literales en los widgets: el mínimo se
+/// sube desde aquí y tiene que llegar a todos los controles a la vez.
 class AppTapTarget {
   const AppTapTarget._();
 
-  static const double min = 44; // "+", "✕", íconos
+  /// "+", "✕", íconos. 48 es el mínimo de Material; el design system decía 44,
+  /// que es la guía de iOS, y esta app es Android-only.
+  static const double min = 48;
   static const double comfortable = 56; // buscador, escáner, botón cobrar
   static const double row = 56; // fila de ajuste / forma de pago
   static const double rowLarge = 72; // fila de catálogo
 }
+
+/// Tope del escalado de fuente del sistema.
+///
+/// Android permite subir la letra hasta 2x; a esa escala el POS desborda.
+/// Se acota en `MaterialApp.builder` (ver `main.dart`) para que el texto crezca
+/// lo suficiente sin romper el layout. Los tests de `test/core/textscale_test.dart`
+/// verifican que a esta escala no hay overflow.
+const double maxTextScale = 1.3;
 
 /// Puntos de quiebre de layout responsive.
 class AppBreakpoints {
