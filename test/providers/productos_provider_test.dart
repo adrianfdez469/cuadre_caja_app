@@ -356,4 +356,163 @@ void main() {
           reason: 'el índice debe reconstruirse al asociar el código');
     });
   });
+
+  group('ProductosProvider.refreshFromLocalCache', () {
+    // Es el repintado que corre tras cada sincronización desde que el callback
+    // dejó de ir a la red: si no reconstruye las listas, el POS mostraría
+    // existencias viejas tras cada venta.
+    test('reconstruye el catálogo desde la base local', () async {
+      final provider = ProductosProvider(FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      ));
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.allProductos.map((p) => p.id), ['pt-1']);
+    });
+
+    test('deja el catálogo buscable', () async {
+      final provider = ProductosProvider(FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      ));
+
+      await provider.refreshFromLocalCache('tienda-1');
+      provider.searchProductos('Refresco');
+
+      expect(provider.productos.map((p) => p.id), ['pt-1']);
+    });
+
+    test('notifica a los oyentes', () async {
+      final provider = ProductosProvider(FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      ));
+      var notificaciones = 0;
+      provider.addListener(() => notificaciones++);
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(notificaciones, greaterThanOrEqualTo(1));
+    });
+  });
+
+  group('ProductosProvider.tieneCatalogoLocal', () {
+    test('sin cargar nada, no hay catálogo con el que arrancar', () {
+      final provider = ProductosProvider(FakeSyncService());
+
+      expect(provider.tieneCatalogoLocal, isFalse);
+    });
+
+    test('tras cargar, hay catálogo', () async {
+      final provider = ProductosProvider(FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      ));
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.tieneCatalogoLocal, isTrue);
+    });
+
+    test('mira la lista cruda, no la filtrada por stock', () async {
+      // Un catálogo entero agotado deja `allProductos` vacío cuando no se
+      // permite vender sin existencias, pero sí hay con qué arrancar el POS.
+      final provider = ProductosProvider(FakeSyncService(
+        productos: [
+          ProductoModel(
+            id: 'pt-1',
+            productoId: 'p-1',
+            nombre: 'Agotado',
+            precio: 100,
+            costo: 50,
+            existencia: 0,
+          ),
+        ],
+        productosLocal: FakeProductosLocalDataSource(),
+      ));
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.allProductos, isEmpty,
+          reason: 'por defecto no se listan los agotados');
+      expect(provider.tieneCatalogoLocal, isTrue);
+    });
+  });
+
+  group('ProductosProvider — el repintado tras sync no vuelve a la red', () {
+    // Es el objetivo entero de la reestructuración: onDataRefreshed repinta
+    // desde SQLite, porque quien habló con el servidor fue fullSync.
+    test('refreshFromLocalCache lee de disco y no llama a loadProductos',
+        () async {
+      final sync = FakeSyncService(
+        productos: [producto()],
+        productosEnCacheLocal: [
+          ProductoModel(
+            id: 'pt-local',
+            productoId: 'p-local',
+            nombre: 'Solo en disco',
+            precio: 100,
+            costo: 50,
+            existencia: 3,
+          ),
+        ],
+        productosLocal: FakeProductosLocalDataSource(),
+      );
+      final provider = ProductosProvider(sync);
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.allProductos.map((p) => p.id), ['pt-local']);
+      expect(sync.loadProductosCalls, 0, reason: 'cero GET /productos');
+      expect(sync.loadProductosLocalOnlyCalls, 1);
+    });
+
+    test('loadProductos sí va a la red (contraste del test anterior)',
+        () async {
+      final sync = FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      );
+      final provider = ProductosProvider(sync);
+
+      await provider.loadProductos('tienda-1');
+
+      expect(sync.loadProductosCalls, 1);
+      expect(sync.loadProductosLocalOnlyCalls, 0);
+    });
+
+    test('refreshFromLocalCache no toca isLoading', () async {
+      // Corre tras cada sincronización: mover isLoading pondría el catálogo en
+      // spinner cada vez que se vende algo.
+      final sync = FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      );
+      final provider = ProductosProvider(sync);
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.isLoading, isFalse);
+    });
+
+    test('el repintado conserva la búsqueda activa', () async {
+      final sync = FakeSyncService(
+        productos: [producto()],
+        productosLocal: FakeProductosLocalDataSource(),
+      );
+      final provider = ProductosProvider(sync);
+      await provider.loadProductos('tienda-1');
+      provider.searchProductos('nada-que-coincida');
+      expect(provider.productos, isEmpty);
+
+      await provider.refreshFromLocalCache('tienda-1');
+
+      expect(provider.productos, isEmpty,
+          reason: 'un refresco no puede devolver el catálogo completo bajo '
+              'el cajero mientras busca');
+      expect(provider.query, 'nada-que-coincida');
+    });
+  });
 }

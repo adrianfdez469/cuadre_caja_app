@@ -35,6 +35,16 @@ class PeriodoProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Solo lectura desde disco (sin red). El cache es espejo del servidor: si no
+  /// hay fila, es que no hay período abierto.
+  ///
+  /// No toca `_isLoading` a propósito: esto corre tras cada sincronización, y
+  /// hacerlo dejaría el botón "Abrir Período" parpadeando deshabilitado.
+  Future<void> loadFromCache(String tiendaId) async {
+    _periodo = await _syncService.getPeriodoLocal(tiendaId);
+    notifyListeners();
+  }
+
   /// Abre un nuevo período
   Future<bool> abrirPeriodo(String tiendaId) async {
     _isLoading = true;

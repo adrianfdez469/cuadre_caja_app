@@ -7,6 +7,7 @@ import 'package:cuadre_caja_app/data/datasources/local/ventas_local_datasource.d
 import 'package:cuadre_caja_app/data/datasources/remote/auth_remote_datasource.dart';
 import 'package:cuadre_caja_app/data/models/cart_model.dart';
 import 'package:cuadre_caja_app/data/models/categoria_model.dart';
+import 'package:cuadre_caja_app/data/models/moneda_model.dart';
 import 'package:cuadre_caja_app/data/models/periodo_model.dart';
 import 'package:cuadre_caja_app/data/models/producto_model.dart';
 import 'package:cuadre_caja_app/data/models/transfer_destination_model.dart';
@@ -91,17 +92,32 @@ class FakeSyncService extends Fake implements SyncService {
   FakeSyncService({
     this.destinations = const [],
     this.productos = const [],
+    this.productosEnCacheLocal,
     this.categorias = const [],
     this.ventasServidor = const [],
     this.periodoAbierto,
+    this.periodoEnCacheLocal,
     ProductosLocalDataSource? productosLocal,
     VentasLocalDataSource? ventasLocal,
   })  : _productosLocal = productosLocal ?? FakeProductosLocalDataSource(),
         _ventasLocal = ventasLocal ?? FakeVentasLocalDataSource();
 
   final List<TransferDestinationModel> destinations;
+
+  /// Lo que devuelve la carga **por red** (`loadProductos`).
   final List<ProductoModel> productos;
+
+  /// Lo que devuelve la lectura **de disco** (`loadProductosLocalOnly`). Si no
+  /// se define, se reutiliza [productos]; darle un valor distinto es lo que
+  /// permite demostrar que `refreshFromLocalCache` no pasa por la red.
+  final List<ProductoModel>? productosEnCacheLocal;
+
   final List<CategoriaModel> categorias;
+
+  /// Cuántas veces se pidió cada variante, para poder afirmar que el repintado
+  /// tras un sync no vuelve a golpear el servidor.
+  int loadProductosCalls = 0;
+  int loadProductosLocalOnlyCalls = 0;
 
   /// Lo que devuelve el GET de ventas del período.
   final List<VentaServerModel> ventasServidor;
@@ -109,6 +125,13 @@ class FakeSyncService extends Fake implements SyncService {
   /// Si se define, `loadPeriodoActual` lo devuelve — necesario para que
   /// `PaymentModal._processPayment()` encuentre un período activo en tests.
   final PeriodoModel? periodoAbierto;
+
+  /// Lo que hay en SQLite. Si no se define se reutiliza [periodoAbierto];
+  /// darle otro valor permite demostrar que `loadFromCache` lee de disco.
+  final PeriodoModel? periodoEnCacheLocal;
+
+  int loadPeriodoActualCalls = 0;
+  int getPeriodoLocalCalls = 0;
 
   final ProductosLocalDataSource _productosLocal;
   final VentasLocalDataSource _ventasLocal;
@@ -121,6 +144,7 @@ class FakeSyncService extends Fake implements SyncService {
 
   @override
   Future<PeriodoModel> loadPeriodoActual(String tiendaId) async {
+    loadPeriodoActualCalls++;
     final periodo = periodoAbierto;
     if (periodo == null) throw UnimplementedError();
     return periodo;
@@ -160,11 +184,33 @@ class FakeSyncService extends Fake implements SyncService {
       destinations;
 
   @override
-  Future<List<ProductoModel>> loadProductos(String tiendaId) async => productos;
+  Future<List<ProductoModel>> loadProductos(String tiendaId) async {
+    loadProductosCalls++;
+    return productos;
+  }
+
+  @override
+  Future<List<ProductoModel>> loadProductosLocalOnly(String tiendaId) async {
+    loadProductosLocalOnlyCalls++;
+    return productosEnCacheLocal ?? productos;
+  }
+
+  @override
+  Future<PeriodoModel?> getPeriodoLocal(String tiendaId) async {
+    getPeriodoLocalCalls++;
+    return periodoEnCacheLocal ?? periodoAbierto;
+  }
+
+  @override
+  Future<MultimonedaConfig?> getMultimonedaConfigLocal(String negocioId) async =>
+      null;
 
   @override
   Future<List<CategoriaModel>> loadCategorias(String tiendaId) async =>
       categorias;
+
+  @override
+  Future<void> Function(SyncRefreshInfo info)? onDataRefreshed;
 }
 
 AuthProvider createTestAuthProvider() {

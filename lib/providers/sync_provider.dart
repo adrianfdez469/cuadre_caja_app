@@ -49,15 +49,19 @@ class SyncProvider extends ChangeNotifier {
   Future<void> startMonitoring() => _syncService.startMonitoring();
   void stopMonitoring() => _syncService.stopMonitoring();
 
+  /// El `finally` es obligatorio: en el arranque esto se llama sin `await`, y
+  /// sin él un fullSync que lance dejaría `_isSyncing` en true para siempre.
   Future<void> fullSync(String tiendaId, {String? negocioId}) async {
     _isSyncing = true;
     notifyListeners();
 
-    await _syncService.fullSync(tiendaId, negocioId: negocioId);
-    await _refreshPendingCount();
-
-    _isSyncing = false;
-    notifyListeners();
+    try {
+      await _syncService.fullSync(tiendaId, negocioId: negocioId);
+      await _refreshPendingCount();
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _refreshPendingCount() async {

@@ -53,6 +53,12 @@ class ProductosProvider extends ChangeNotifier {
   bool get permitirSinStock => _permitirSinStock;
   String get query => _query;
 
+  /// ¿Hay catálogo en la base local con el que arrancar el POS?
+  ///
+  /// Mira la lista cruda y no `allProductos`, que está post-filtro y puede salir
+  /// vacía con el catálogo lleno (todo agotado y sin permitir vender sin stock).
+  bool get tieneCatalogoLocal => _rawProductos.isNotEmpty;
+
   /// Re-aplica el filtro de catálogo según si se permite vender sin existencias
   /// (sin conexión, o con el ajuste "Vender sin existencias" activo): los
   /// productos agotados solo se listan cuando se permite. Ver `VentaSinStockPolicy`.

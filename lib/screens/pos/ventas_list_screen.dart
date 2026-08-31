@@ -329,7 +329,11 @@ class _VentasListScreenState extends State<VentasListScreen> {
       await ventasProvider.loadVentasUnificado(tiendaId, periodoId);
     }
     if (mounted) {
-      await productosProvider.loadProductos(tiendaId);
+      // Desde la base local: `anularVenta`/`reintentarAnulacion` ya devolvieron
+      // el stock antes de retornar. Un GET aquí no solo sobraba: podía caer en
+      // la ventana en que la venta está en `cancelling` —estado que la
+      // reconciliación no replaya— y hacer desaparecer el stock devuelto.
+      await productosProvider.refreshFromLocalCache(tiendaId);
     }
 
     final (mensaje, color) = switch (resultado) {
@@ -415,7 +419,11 @@ class _VentasListScreenState extends State<VentasListScreen> {
       await ventasProvider.loadVentasUnificado(tiendaId, periodoId);
     }
     if (mounted) {
-      await productosProvider.loadProductos(tiendaId);
+      // Desde la base local: `anularVenta`/`reintentarAnulacion` ya devolvieron
+      // el stock antes de retornar. Un GET aquí no solo sobraba: podía caer en
+      // la ventana en que la venta está en `cancelling` —estado que la
+      // reconciliación no replaya— y hacer desaparecer el stock devuelto.
+      await productosProvider.refreshFromLocalCache(tiendaId);
     }
   }
 }

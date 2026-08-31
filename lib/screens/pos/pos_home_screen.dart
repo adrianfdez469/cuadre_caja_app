@@ -14,6 +14,7 @@ import '../../services/release_service.dart'
     show ReleaseService, compareVersions;
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/pos_startup.dart';
 import '../../core/utils/producto_pos_rules.dart';
 import '../../core/utils/venta_sin_stock_policy.dart';
 import '../../data/models/categoria_model.dart';
@@ -87,6 +88,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   bool _isRefreshingUi = false;
   bool _refreshUiPending = false;
 
+  /// Acumula lo que reportaron los avisos recibidos mientras había un refresco
+  /// en curso, para que un `ventasCambiaron: true` no lo pise un aviso
+  /// posterior que no traía novedades del servidor.
+  SyncRefreshInfo _pendingRefreshInfo = const SyncRefreshInfo();
+
   /// Referencia al ScaffoldMessenger capturada mientras el widget está activo,
   /// para poder limpiar banners en dispose() sin llamar a
   /// ScaffoldMessenger.of(context) sobre un element ya defunct (lanza assertion).
@@ -139,9 +145,9 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
       }
     };
 
-    syncService.onDataRefreshed = () async {
+    syncService.onDataRefreshed = (info) async {
       if (mounted) {
-        await _refreshUiAfterSync();
+        await _refreshUiAfterSync(info);
       }
     };
 
@@ -228,18 +234,25 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     );
   }
 
+  /// Arranque en dos tiempos: primero se pinta lo que hay en SQLite (cero
+  /// peticiones), y después `fullSync` hace **una sola** ronda de red cuyo
+  /// resultado llega a la pantalla por `onDataRefreshed`. Antes estas dos
+  /// etapas pedían lo mismo por separado y `fullSync` lo volvía a pedir por
+  /// dentro: tres rondas para el mismo arranque.
   Future<void> _loadData() async {
     final auth = context.read<AuthProvider>();
     final tiendaId = auth.tiendaId;
 
     try {
-      // Cargar en paralelo: productos, período, carrito y ventas pendientes
+      final productos = context.read<ProductosProvider>();
+
+      // 1. Pintar desde la base local.
       await Future.wait([
-        context.read<ProductosProvider>().loadProductos(tiendaId),
-        context.read<PeriodoProvider>().loadPeriodo(tiendaId),
+        productos.refreshFromLocalCache(tiendaId),
+        context.read<PeriodoProvider>().loadFromCache(tiendaId),
         context.read<CartProvider>().init(tiendaId),
         context.read<VentasProvider>().refreshPendientes(),
-        context.read<MonedasProvider>().load(
+        context.read<MonedasProvider>().loadFromCache(
           auth.negocioId,
           fallbackMonedaBase: auth.monedaBase,
         ),
@@ -247,26 +260,37 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
 
       if (!mounted) return;
 
-      context.read<ProductosProvider>().applyStockFilter(
+      productos.applyStockFilter(
         VentaSinStockPolicy.of(context, listen: false),
       );
 
-      // Full sync si hay conexión (ventas primero, inventario al final)
-      if (context.read<SyncProvider>().isOnline) {
-        await context.read<SyncProvider>().fullSync(
-          tiendaId,
-          negocioId: auth.negocioId,
-        );
+      final syncProvider = context.read<SyncProvider>();
+      if (!syncProvider.isOnline) {
+        // Sin conexión no habrá ronda de red ni, por tanto, aviso que recargue
+        // el listado: se sirve aquí desde el cache de ventas del servidor.
+        final periodoId = context.read<PeriodoProvider>().periodoId;
+        if (periodoId != null && periodoId.isNotEmpty) {
+          await context.read<VentasProvider>().loadVentasUnificado(
+            tiendaId,
+            periodoId,
+          );
+        }
+        return;
       }
 
-      if (!mounted) return;
-
-      // Cargar listado unificado de ventas
-      final periodoId = context.read<PeriodoProvider>().periodoId;
-      if (periodoId != null && periodoId.isNotEmpty) {
-        await context.read<VentasProvider>().loadVentasUnificado(
-          tiendaId,
-          periodoId,
+      // 2. Única ronda de red. Con catálogo en cache el POS ya se puede usar,
+      //    así que no se espera; sin catálogo no hay nada que pintar y sí.
+      final sync = syncProvider.fullSync(tiendaId, negocioId: auth.negocioId);
+      if (debeEsperarPrimerSync(
+        tieneCatalogoLocal: productos.tieneCatalogoLocal,
+        isOnline: syncProvider.isOnline,
+      )) {
+        await sync;
+      } else {
+        // Sin capturar el error, un fallo de esta rama sería una excepción
+        // asíncrona no atendida y tumbaría la app en release.
+        unawaited(
+          sync.catchError((Object e) => logDebug('⚠️ fullSync inicial: $e')),
         );
       }
     } catch (e) {
@@ -278,12 +302,13 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
   /// Refresca providers tras una sincronización (reconexión o manual), sin repetir fullSync.
   ///
   /// onDataRefreshed puede dispararse desde varias fuentes a la vez (fullSync de
-  /// la carga inicial, timer de 30s, reconexión). Sin coordinación, dos refrescos
-  /// concurrentes interleavan sus escrituras (p. ej. _ventasUnificado) y corren
-  /// applyStockFilter sobre una lista a medio reconstruir. Este guard
+  /// la carga inicial, timer, reconexión, venta o anulación en segundo plano).
+  /// Sin coordinación, dos refrescos concurrentes interleavan sus escrituras y
+  /// corren applyStockFilter sobre una lista a medio reconstruir. Este guard
   /// serializa: si ya hay uno en curso, marca uno pendiente y el actual lo
   /// re-ejecuta una vez al terminar, para no perder el último estado.
-  Future<void> _refreshUiAfterSync() async {
+  Future<void> _refreshUiAfterSync(SyncRefreshInfo info) async {
+    _pendingRefreshInfo = _pendingRefreshInfo.merge(info);
     if (_isRefreshingUi) {
       _refreshUiPending = true;
       return;
@@ -292,27 +317,30 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
     try {
       do {
         _refreshUiPending = false;
-        await _doRefreshUiAfterSync();
+        final actual = _pendingRefreshInfo;
+        _pendingRefreshInfo = const SyncRefreshInfo();
+        await _doRefreshUiAfterSync(actual);
       } while (_refreshUiPending && mounted);
     } finally {
       _isRefreshingUi = false;
     }
   }
 
-  Future<void> _doRefreshUiAfterSync() async {
+  /// Repintado **desde la base local**: quien acaba de hablar con el servidor es
+  /// fullSync / _pullInventario, y ya dejó el resultado escrito en SQLite.
+  /// Releerlo por red aquí era lo que multiplicaba las peticiones de cada
+  /// sincronización por tres.
+  Future<void> _doRefreshUiAfterSync(SyncRefreshInfo info) async {
     final auth = context.read<AuthProvider>();
     final tiendaId = auth.tiendaId;
     if (tiendaId.isEmpty) return;
 
     try {
       await Future.wait([
-        context.read<ProductosProvider>().loadProductos(
-          tiendaId,
-          showLoading: false,
-        ),
-        context.read<PeriodoProvider>().loadPeriodo(tiendaId),
+        context.read<ProductosProvider>().refreshFromLocalCache(tiendaId),
+        context.read<PeriodoProvider>().loadFromCache(tiendaId),
         context.read<VentasProvider>().refreshPendientes(),
-        context.read<MonedasProvider>().load(
+        context.read<MonedasProvider>().loadFromCache(
           auth.negocioId,
           fallbackMonedaBase: auth.monedaBase,
         ),
@@ -324,6 +352,11 @@ class _POSHomeScreenState extends State<POSHomeScreen> with RouteAware {
         VentaSinStockPolicy.of(context, listen: false),
       );
 
+      // Lo único que sigue yendo al servidor, y solo si el servidor tiene algo
+      // nuevo que contar. Lo consumen VentasListScreen y
+      // ProductosVendidosScreen cuando están encima del POS; si no subió ni se
+      // anuló nada, releer la lista devolvería exactamente lo mismo.
+      if (!info.ventasCambiaron) return;
       final periodoId = context.read<PeriodoProvider>().periodoId;
       if (periodoId != null && periodoId.isNotEmpty) {
         await context.read<VentasProvider>().loadVentasUnificado(

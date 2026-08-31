@@ -24,6 +24,7 @@ import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
 import '../core/utils/stock_calculator.dart';
+import '../core/utils/sync_error_messages.dart';
 import '../core/utils/venta_cancel_policy.dart';
 import 'venta_sync_payload_patcher.dart';
 
@@ -67,7 +68,7 @@ class SyncService {
 
   // Throttle de validación de sesión. /auth/refresh valida que la sesión siga
   // viva (/health solo confirma que el servidor responde, no la validez del
-  // token), pero reconfirmarlo en cada ciclo de sync (cada 30s) inunda la red y
+  // token), pero reconfirmarlo en cada ciclo de sync inunda la red y
   // el log con "Token refrescado exitosamente". Basta revalidar cada
   // [_authValidityTtl]: el token sigue vigente entre validaciones y, si expirara
   // antes, el interceptor de ApiClient lo refresca on-demand ante un 401.
@@ -77,8 +78,11 @@ class SyncService {
   // Callbacks
   void Function(ConnectionStatus)? onConnectionChanged;
   void Function(String message)? onSyncEvent;
-  /// Llamado tras fullSync al reconectar para refrescar la UI (sin volver a sincronizar).
-  Future<void> Function()? onDataRefreshed;
+  /// Llamado al terminar un ciclo de sync para que la UI se repinte **desde la
+  /// base local**, sin volver a pedir nada al servidor: cuando esto se dispara,
+  /// lo que había que traer ya está escrito en SQLite. El [SyncRefreshInfo] dice
+  /// qué cambió, para que la UI no relea del servidor lo que no se movió.
+  Future<void> Function(SyncRefreshInfo info)? onDataRefreshed;
   void Function(bool needsLogin)? onAuthRequired;
   /// Llamado cuando se refresca el token al reconectar (para actualizar AuthProvider).
   void Function()? onTokenRefreshed;
@@ -160,10 +164,20 @@ class SyncService {
     // Sincronización periódica cada hora si hay conexión.
     // Igual que en el reconnect, se valida/renueva la sesión ANTES de
     // sincronizar: si el token no se puede refrescar, el sync no se intenta.
+    //
+    // Es un fullSync y no solo el drenaje de ventas porque, desde que el
+    // repintado dejó de ir a la red, esta es la única cadencia predecible que
+    // refresca período, monedas y tasas en un POS que lleva horas abierto.
+    // fullSync ya incluye el drenaje como paso 2, así que no se pierde nada.
     _syncTimer = Timer.periodic(const Duration(hours: 1), (_) async {
       if (isOnline && !_isSyncing && !_isFullSyncRunning) {
         if (await _ensureAuthenticated()) {
-          await _syncPendingVentas();
+          final ctx = await _resolveSyncContext();
+          if (ctx != null) {
+            await fullSync(ctx.tiendaId, negocioId: ctx.negocioId);
+          } else {
+            await _syncPendingVentas();
+          }
         }
       }
     });
@@ -371,13 +385,20 @@ class SyncService {
   // PERÍODO - Network-First Cache
   // ==========================================
 
-  /// Carga período actual: intenta API primero, fallback a cache
+  /// Carga período actual: intenta API primero, fallback a cache.
+  ///
+  /// El cache es **espejo del servidor**: si el servidor responde que no hay
+  /// período abierto, la fila local se borra. El borrado va dentro del `try` a
+  /// propósito — un fallo de red nunca debe vaciar el período, o el POS se
+  /// bloquearía sin conexión.
   Future<PeriodoModel?> loadPeriodoActual(String tiendaId) async {
     if (await _isServerReachable()) {
       try {
         final periodo = await periodosRemote.getPeriodoActual(tiendaId);
         if (periodo != null) {
           await periodosLocal.replacePeriodo(tiendaId, periodo);
+        } else {
+          await periodosLocal.deletePeriodo(tiendaId);
         }
         return periodo;
       } catch (e) {
@@ -387,6 +408,11 @@ class SyncService {
 
     return await periodosLocal.getPeriodo(tiendaId);
   }
+
+  /// Solo lectura desde disco (sin red). El cache es autoritativo: si no hay
+  /// fila, es que el servidor dijo que no hay período abierto.
+  Future<PeriodoModel?> getPeriodoLocal(String tiendaId) =>
+      periodosLocal.getPeriodo(tiendaId);
 
   /// Abre un nuevo período (requiere conexión)
   Future<PeriodoModel> abrirPeriodo(String tiendaId) async {
@@ -430,8 +456,9 @@ class SyncService {
       // La venta ya está en "syncing" y el stock actualizado: no esperar al
       // servidor.
       unawaited(() async {
-        await _syncSingleVenta(ventaToSave);
-        await _refreshInventarioFromServer(venta.tiendaId);
+        final ok = await _syncSingleVenta(ventaToSave);
+        await _pullInventario(venta.tiendaId);
+        await _notifyDataRefreshed(SyncRefreshInfo(ventasCambiaron: ok));
       }());
     } else {
       onSyncEvent?.call('Venta guardada offline - se sincronizará al conectarse');
@@ -440,8 +467,15 @@ class SyncService {
     return ventaToSave;
   }
 
-  /// Sincroniza una venta individual
-  Future<bool> _syncSingleVenta(VentaLocalModel venta) async {
+  /// Sincroniza una venta individual.
+  ///
+  /// [reintentarSiCambioPeriodo] acota la auto-recuperación a un solo intento:
+  /// el reintento se llama a sí mismo con `false` para que un servidor que
+  /// insista en rechazar la venta no genere un bucle.
+  Future<bool> _syncSingleVenta(
+    VentaLocalModel venta, {
+    bool reintentarSiCambioPeriodo = true,
+  }) async {
     // Estado más reciente en BD (puede diferir del parámetro): se mantiene fuera
     // del try para que el catch incremente syncAttempts sobre el valor releído,
     // no sobre el desactualizado del parámetro.
@@ -493,6 +527,17 @@ class SyncService {
       final errorMessage = e is SyncVentaException ? e.message : e.toString();
       logDebug('❌ Error sincronizando venta ${toSync.syncId}: $errorMessage');
 
+      // El servidor la rechazó porque su período ya no es el vigente (lo
+      // cerraron y abrieron otro mientras la venta esperaba en la cola). Se
+      // busca el período actual, se mueve la venta y se reintenta una vez.
+      if (reintentarSiCambioPeriodo &&
+          SyncErrorMessages.isPeriodConflict(errorMessage)) {
+        final movida = await _moverAlPeriodoActual(toSync);
+        if (movida != null) {
+          return _syncSingleVenta(movida, reintentarSiCambioPeriodo: false);
+        }
+      }
+
       await ventasLocal.updateSyncState(
         toSync.syncId,
         syncState: SyncState.error,
@@ -503,6 +548,29 @@ class SyncService {
       onSyncEvent?.call('Error sincronizando venta');
       return false;
     }
+  }
+
+  /// Mueve una venta rechazada por conflicto de período al período abierto
+  /// actual. Devuelve la venta ya actualizada, o `null` si no hay recuperación
+  /// posible — no hay período abierto, o el servidor sigue dando el mismo—, en
+  /// cuyo caso la venta queda en `error` y la resuelve el cajero desde la lista
+  /// con "Actualizar período".
+  ///
+  /// Es el único punto que pide `/periodo` fuera de `fullSync`, y solo cuando
+  /// de verdad hubo conflicto.
+  Future<VentaLocalModel?> _moverAlPeriodoActual(VentaLocalModel venta) async {
+    final periodo = await loadPeriodoActual(venta.tiendaId);
+    if (periodo == null || !periodo.estaAbierto || periodo.id.isEmpty) {
+      logDebug('⚠️ Conflicto de período sin período abierto: ${venta.syncId} queda en error');
+      return null;
+    }
+    if (periodo.id == venta.periodoId) return null;
+
+    await ventasLocal.updateVentaPeriodo(venta.syncId, periodo.id);
+    // Que no sea silencioso: mover la venta cambia en qué cuadre se contabiliza.
+    onSyncEvent?.call('Venta movida al período actual');
+    logDebug('🔀 Venta ${venta.syncId} movida al período ${periodo.id}, reintentando');
+    return await ventasLocal.getVentaBySyncId(venta.syncId);
   }
 
   /// Parchea ventas pendientes con payload incompleto y persiste los cambios localmente.
@@ -547,6 +615,7 @@ class SyncService {
     _isSyncing = true;
     int synced = 0;
     int failed = 0;
+    int canceladas = 0;
     String? tiendaId = inventarioTiendaId;
 
     try {
@@ -578,6 +647,7 @@ class SyncService {
       // en el mismo ciclo, y su anulación necesita el serverId que acaba de
       // asignarle el POST. Va aquí y no antes por eso.
       final cancelaciones = await _syncPendingCancelaciones();
+      canceladas = cancelaciones.anuladas;
       tiendaId ??= cancelaciones.tiendaId;
 
       // Sin ventas ni anulaciones no hay nada que reconciliar: no se molesta al
@@ -586,25 +656,44 @@ class SyncService {
           (pendientes.isNotEmpty || cancelaciones.anuladas > 0) &&
           tiendaId != null &&
           tiendaId.isNotEmpty) {
-        await _refreshInventarioFromServer(tiendaId);
+        await _pullInventario(tiendaId);
+        await _notifyDataRefreshed(
+          SyncRefreshInfo(ventasCambiaron: synced > 0 || canceladas > 0),
+        );
       }
     } finally {
       _isSyncing = false;
     }
 
     final remaining = await ventasLocal.countPendientes();
-    return SyncResult(synced: synced, failed: failed, pending: remaining);
+    return SyncResult(
+      synced: synced,
+      failed: failed,
+      pending: remaining,
+      canceladas: canceladas,
+    );
   }
 
-  /// Inventario del servidor → BD local. Siempre el último paso tras sync de ventas.
-  Future<void> _refreshInventarioFromServer(String tiendaId) async {
+  /// Inventario del servidor → BD local. Siempre el último paso tras sync de
+  /// ventas. **Solo red**: no avisa a la UI.
+  ///
+  /// Va separado de [_notifyDataRefreshed] a propósito. Cuando ambas cosas
+  /// vivían en el mismo método, su salida temprana (sin conexión, sin tienda)
+  /// se llevaba por delante el aviso a la UI, y había flujos que terminaban un
+  /// ciclo de sync sin repintar nada.
+  Future<void> _pullInventario(String tiendaId) async {
     if (!isOnline || tiendaId.isEmpty) return;
     onSyncEvent?.call('Actualizando inventario...');
     await loadProductos(tiendaId);
+  }
+
+  /// Único punto que dispara el repintado de la UI. Nunca propaga una excepción
+  /// de la UI hacia el ciclo de sincronización.
+  Future<void> _notifyDataRefreshed(SyncRefreshInfo info) async {
     try {
-      await onDataRefreshed?.call();
+      await onDataRefreshed?.call(info);
     } catch (e) {
-      logDebug('⚠️ Error refrescando UI tras sync de venta: $e');
+      logDebug('⚠️ Error refrescando UI tras sync: $e');
     }
   }
 
@@ -663,7 +752,11 @@ class SyncService {
       return true;
     }
     final ok = await _syncSingleVenta(venta);
-    await _refreshInventarioFromServer(venta.tiendaId);
+    // El refresco corre aunque el POST haya fallado: la venta queda entonces en
+    // `error`, que sí entra en getVentasPendientes(), y la reconciliación
+    // recalcula el stock desde el valor autoritativo del servidor.
+    await _pullInventario(venta.tiendaId);
+    await _notifyDataRefreshed(SyncRefreshInfo(ventasCambiaron: ok));
     return ok;
   }
 
@@ -708,8 +801,11 @@ class SyncService {
         if (isOnline) {
           // Igual que `crearVenta`: no se bloquea la UI esperando al servidor.
           unawaited(() async {
-            await _syncPendingCancelaciones();
-            await _refreshInventarioFromServer(venta.tiendaId);
+            final r = await _syncPendingCancelaciones();
+            await _pullInventario(venta.tiendaId);
+            await _notifyDataRefreshed(
+              SyncRefreshInfo(ventasCambiaron: r.anuladas > 0),
+            );
           }());
         } else {
           onSyncEvent?.call('Anulación pendiente - se aplicará al reconectar');
@@ -733,8 +829,11 @@ class SyncService {
 
     if (isOnline) {
       unawaited(() async {
-        await _syncPendingCancelaciones();
-        await _refreshInventarioFromServer(venta.tiendaId);
+        final r = await _syncPendingCancelaciones();
+        await _pullInventario(venta.tiendaId);
+        await _notifyDataRefreshed(
+          SyncRefreshInfo(ventasCambiaron: r.anuladas > 0),
+        );
       }());
     }
   }
@@ -776,7 +875,7 @@ class SyncService {
   /// el inventario del servidor.
   Future<({int anuladas, String? tiendaId})> _syncPendingCancelaciones() async {
     // El drenaje se dispara desde varios sitios a la vez (el fire-and-forget de
-    // `anularVenta`, el timer de 30s, la reconexión). Sin este guard, dos
+    // `anularVenta`, el timer horario, la reconexión). Sin este guard, dos
     // pasadas podrían leer la misma fila `cancelPending` antes de que ninguna la
     // marque `cancelling` y mandar el DELETE dos veces.
     if (_isCancelling) return (anuladas: 0, tiendaId: null);
@@ -837,7 +936,7 @@ class SyncService {
   /// vuelve a la lista marcada, con el motivo real a la vista.
   ///
   /// No se reintenta sola: los motivos habituales (403 sin permiso, 400 período
-  /// cerrado) son permanentes, y reintentar cada 30s solo generaría ruido. El
+  /// cerrado) son permanentes, y reintentarla en cada ciclo solo generaría ruido. El
   /// cajero decide desde la lista si reintentar o descartar.
   Future<void> _marcarAnulacionFallida(VentaLocalModel venta, Object e) async {
     final motivo = _mensajeDeErrorDeAnulacion(e);
@@ -956,9 +1055,17 @@ class SyncService {
   // ==========================================
 
   /// Sincronización completa: período/destinos/monedas → ventas pendientes → inventario.
+  ///
+  /// Invariante: toda llamada que no sea un duplicado descartado termina
+  /// avisando a la UI **exactamente una vez**, incluso sin conexión y aunque un
+  /// paso intermedio lance. De eso depende que la pantalla no tenga que
+  /// recargar por su cuenta "por si acaso".
   Future<void> fullSync(String tiendaId, {String? negocioId}) async {
     if (!isOnline) {
       onSyncEvent?.call('Sin conexión - usando datos locales');
+      // Sin red no hay nada que traer, pero la UI sí debe repintarse desde
+      // SQLite: es el único aviso que recibe un arranque sin conexión.
+      await _notifyDataRefreshed(const SyncRefreshInfo());
       return;
     }
 
@@ -968,11 +1075,13 @@ class SyncService {
     }
 
     if (_isFullSyncRunning) {
+      // El que está en vuelo avisará por los dos.
       logDebug('⏳ fullSync ya en curso, omitiendo duplicado');
       return;
     }
 
     _isFullSyncRunning = true;
+    var info = const SyncRefreshInfo();
     try {
       onSyncEvent?.call('Sincronizando...');
 
@@ -993,15 +1102,21 @@ class SyncService {
       }
 
       // 2. Ventas pendientes (sin refrescar inventario aquí)
-      await _syncPendingVentas(
+      final r = await _syncPendingVentas(
         inventarioTiendaId: tiendaId,
         refreshInventarioAfter: false,
       );
+      info = SyncRefreshInfo(
+        ventasCambiaron: r.synced > 0 || r.canceladas > 0,
+      );
 
       // 3. Inventario del servidor — último paso para reflejar cantidades reales
-      await _refreshInventarioFromServer(tiendaId);
+      await _pullInventario(tiendaId);
     } finally {
+      // Se limpia antes de avisar: para cuando la UI reaccione, este fullSync
+      // ya no está en curso y una sincronización nueva no se descartaría.
       _isFullSyncRunning = false;
+      await _notifyDataRefreshed(info);
     }
   }
 
@@ -1020,10 +1135,27 @@ class SyncResult {
   final int synced;
   final int failed;
   final int pending;
+  final int canceladas;
 
   SyncResult({
     required this.synced,
     required this.failed,
     required this.pending,
+    this.canceladas = 0,
   });
+}
+
+/// Qué cambió en el ciclo de sincronización que acaba de terminar, para que la
+/// UI decida qué le basta repintar desde SQLite y qué sí necesita releer del
+/// servidor.
+class SyncRefreshInfo {
+  /// Hubo ventas subidas o anulaciones confirmadas: el listado del servidor
+  /// cambió y hay que releerlo. Si es `false`, releerlo devolvería lo mismo.
+  final bool ventasCambiaron;
+
+  const SyncRefreshInfo({this.ventasCambiaron = false});
+
+  SyncRefreshInfo merge(SyncRefreshInfo other) => SyncRefreshInfo(
+        ventasCambiaron: ventasCambiaron || other.ventasCambiaron,
+      );
 }
