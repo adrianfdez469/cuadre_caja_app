@@ -259,9 +259,17 @@ Si `periodo == null` → app interpreta "sin período".
 
 ### DELETE `/venta/{tiendaId}/{periodoId}/{ventaId}`
 
-**Espera:** 200 sin validar body específico.
+**Espera:** 200 sin validar body específico. Un **404** se trata como éxito (la
+venta ya no está en el servidor, que era el objetivo de la anulación).
 
-**Archivos:** `ventas_remote_datasource.dart`, `sync_service.dart` (restaura stock local tras borrar)
+**No es una llamada directa:** la app encola la anulación (`cancelPending`) y la
+drena junto al resto del sync, así que el DELETE puede salir bastante después de
+que el cajero lo pida. Sin conexión queda pendiente hasta reconectar. Si el
+servidor responde 400/403, la app revierte el stock que ya había devuelto y deja
+la venta en `cancelError` con el `error` del body a la vista del cajero.
+
+**Archivos:** `ventas_remote_datasource.dart`, `sync_service.dart`
+(`anularVenta`, `_syncPendingCancelaciones`), `venta_cancel_policy.dart`
 
 ---
 

@@ -2,8 +2,48 @@ import 'dart:convert';
 
 import 'pago_multimoneda_model.dart';
 
-/// Estado de sincronización de una venta local
-enum SyncState { pending, syncing, synced, error }
+/// Estado de sincronización de una venta local.
+///
+/// Dos ciclos de vida en el mismo campo:
+/// - **Subida**: `pending` → `syncing` → `synced` (o `error`).
+/// - **Anulación** (solo para ventas que ya llegaron al servidor, es decir con
+///   `serverId`): `cancelPending` → `cancelling` → la fila se borra (o
+///   `cancelError` si el servidor la rechaza).
+///
+/// Las dos colas se drenan por separado a propósito: `getVentasPendientes()`
+/// (pending/error) alimenta el POST de ventas y `getCancelacionesPendientes()`
+/// (cancelPending) el DELETE. Mezclarlas re-postearía como venta nueva una
+/// venta que se está anulando.
+enum SyncState {
+  pending,
+  syncing,
+  synced,
+  error,
+
+  /// Anulación pedida por el cajero, aún no confirmada por el servidor. El
+  /// stock ya se restauró de forma optimista.
+  cancelPending,
+
+  /// DELETE en vuelo.
+  cancelling,
+
+  /// El servidor rechazó la anulación (sin permiso, período cerrado…). El
+  /// stock restaurado ya se revirtió y la venta sigue viva en el servidor.
+  /// No se reintenta solo: el motivo suele ser permanente.
+  cancelError,
+}
+
+/// Estados en los que hay una anulación en curso o fallida.
+const _estadosDeAnulacion = {
+  SyncState.cancelPending,
+  SyncState.cancelling,
+  SyncState.cancelError,
+};
+
+extension SyncStateX on SyncState {
+  /// La venta tiene una anulación pedida (pendiente, en vuelo o fallida).
+  bool get esAnulacion => _estadosDeAnulacion.contains(this);
+}
 
 /// Producto dentro de una venta (para enviar al API)
 class VentaProducto {
@@ -435,6 +475,18 @@ class VentaUnificadaModel {
   /// Nombre del destino (resuelto desde API o destinos cargados).
   final String? transferDestinationNombre;
 
+  /// ¿Existe fila en `ventas_pendientes` para esta venta?
+  ///
+  /// Solo se puede anular desde este dispositivo lo que tiene fila local: es
+  /// donde vive el estado de la anulación y el detalle de productos con el que
+  /// se restaura el stock. Las ventas de otro cajero o de otro dispositivo
+  /// llegan solo por la rama del servidor y no ofrecen el botón de eliminar.
+  ///
+  /// No se puede deducir de `fromLocal` vs `fromServer`: el dedupe de
+  /// `loadVentasUnificado` hace que una venta propia ya sincronizada llegue por
+  /// la rama del servidor aunque sí conserve su fila local.
+  final bool hasLocalRow;
+
   VentaUnificadaModel({
     required this.identifier,
     this.dbId,
@@ -455,9 +507,19 @@ class VentaUnificadaModel {
     required this.productos,
     this.transferDestinationId,
     this.transferDestinationNombre,
+    this.hasLocalRow = false,
   });
 
   int get itemCount => productos.length;
+
+  /// Hay una anulación pedida sobre esta venta (pendiente, en vuelo o fallida).
+  bool get enAnulacion => syncState.esAnulacion;
+
+  /// Se puede pedir la anulación desde este dispositivo. Mientras el POST de la
+  /// venta está en vuelo no se ofrece: aún no se sabe con qué `serverId` la
+  /// registrará el servidor.
+  bool get puedeAnularse =>
+      hasLocalRow && !enAnulacion && syncState != SyncState.syncing;
 
   static VentaUnificadaModel fromLocal(VentaLocalModel v) => VentaUnificadaModel(
         identifier: v.syncId,
@@ -479,9 +541,21 @@ class VentaUnificadaModel {
         productos: v.productos,
         transferDestinationId: v.transferDestinationId,
         transferDestinationNombre: null,
+        hasLocalRow: true,
       );
 
-  static VentaUnificadaModel fromServer(VentaServerModel v) => VentaUnificadaModel(
+  /// [local]: fila de `ventas_pendientes` de la misma venta, si la hay.
+  ///
+  /// El servidor trae los datos más ricos (usuario, descuentos, nombre del
+  /// destino), pero no sabe nada de una anulación que aún no le hemos pedido:
+  /// por eso el estado lo pone la fila local cuando existe. Sin esto, una venta
+  /// en `cancelPending` se listaría como "Sincronizada" y volvería a ofrecer el
+  /// botón de anular.
+  static VentaUnificadaModel fromServer(
+    VentaServerModel v, {
+    VentaLocalModel? local,
+  }) =>
+      VentaUnificadaModel(
         identifier: v.syncId ?? v.id,
         dbId: v.id,
         tiendaId: v.tiendaId,
@@ -491,14 +565,18 @@ class VentaUnificadaModel {
         totaltransfer: v.totaltransfer,
         discountTotal: v.discountTotal,
         createdAtMs: (v.frontendCreatedAt ?? v.createdAt).millisecondsSinceEpoch,
+        // Está en el servidor: nunca hay que ofrecer "sincronizar", ni siquiera
+        // mientras se anula.
         synced: true,
-        syncState: SyncState.synced,
+        syncState: local?.syncState ?? SyncState.synced,
         wasOffline: v.wasOffline,
-        syncAttempts: 0,
+        syncAttempts: local?.syncAttempts ?? 0,
+        errorMessage: local?.errorMessage,
         usuarioId: v.usuarioId,
         usuarioNombre: v.usuarioNombre,
         productos: v.productos,
         transferDestinationId: v.transferDestinationId,
+        hasLocalRow: local != null,
         transferDestinationNombre: v.transferDestinationNombre,
       );
 }

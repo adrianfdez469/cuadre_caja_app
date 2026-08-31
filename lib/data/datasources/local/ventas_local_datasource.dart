@@ -29,14 +29,62 @@ class VentasLocalDataSource {
   /// Llamar al iniciar el proceso, cuando no hay ningún sync en vuelo todavía:
   /// cualquier `syncing` en ese momento es necesariamente un remanente. Devuelve
   /// cuántas ventas se recuperaron.
+  ///
+  /// Cubre las dos colas: `syncing` → `pending` (subida) y `cancelling` →
+  /// `cancelPending` (anulación). Una anulación atascada en `cancelling` sería
+  /// peor que una venta atascada: el stock ya se devolvió localmente y el
+  /// servidor nunca recibiría el DELETE.
   Future<int> resetStaleSyncing() async {
     final db = await dbHelper.database;
-    return db.update(
+    final ventas = await db.update(
       'ventas_pendientes',
       {'syncState': SyncState.pending.name},
       where: 'syncState = ?',
       whereArgs: [SyncState.syncing.name],
     );
+    final anulaciones = await db.update(
+      'ventas_pendientes',
+      {'syncState': SyncState.cancelPending.name},
+      where: 'syncState = ?',
+      whereArgs: [SyncState.cancelling.name],
+    );
+    return ventas + anulaciones;
+  }
+
+  /// Anulaciones pedidas y aún no confirmadas por el servidor.
+  ///
+  /// Deliberadamente **separado** de [getVentasPendientes]: esa lista alimenta
+  /// el POST de ventas, y colar aquí una venta que se está anulando la
+  /// re-postearía como venta nueva.
+  ///
+  /// `cancelError` no entra: el servidor ya la rechazó por un motivo que casi
+  /// siempre es permanente (sin permiso, período cerrado), así que se reintenta
+  /// a mano desde la lista de ventas, no en cada ciclo de sync.
+  Future<List<VentaLocalModel>> getCancelacionesPendientes() async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_pendientes',
+      where: 'syncState = ?',
+      whereArgs: [SyncState.cancelPending.name],
+      orderBy: 'createdAt ASC',
+    );
+    return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
+  }
+
+  /// Anulaciones de [tiendaId] que el servidor aún no confirmó. Se usa para
+  /// reconciliar el inventario: su stock ya se devolvió localmente, pero el
+  /// snapshot del servidor todavía las da por vendidas.
+  Future<List<VentaLocalModel>> getCancelacionesPendientesByTienda(
+    String tiendaId,
+  ) async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      'ventas_pendientes',
+      where: 'tiendaId = ? AND syncState = ?',
+      whereArgs: [tiendaId, SyncState.cancelPending.name],
+      orderBy: 'createdAt ASC',
+    );
+    return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
   }
 
   /// Obtiene todas las ventas pendientes de sincronización
@@ -171,6 +219,16 @@ class VentasLocalDataSource {
     final db = await dbHelper.database;
     final result = await db.rawQuery(
       "SELECT COUNT(*) as count FROM ventas_pendientes WHERE syncState IN ('pending', 'error')",
+    );
+    return result.first['count'] as int;
+  }
+
+  /// Cuenta anulaciones pedidas y no confirmadas todavía por el servidor.
+  Future<int> countCancelacionesPendientes() async {
+    final db = await dbHelper.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM ventas_pendientes WHERE syncState = ?',
+      [SyncState.cancelPending.name],
     );
     return result.first['count'] as int;
   }

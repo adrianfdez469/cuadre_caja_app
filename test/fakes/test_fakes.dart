@@ -56,11 +56,35 @@ class FakeProductosLocalDataSource extends Fake
   }
 }
 
-/// Local de ventas pendientes falso: siempre vacío, alcanza para que
-/// `VentasProvider.refreshPendientes()` no lance tras `crearVenta`.
+/// Local de ventas falso. Por defecto ambas colas están vacías, que es lo que
+/// `VentasProvider.refreshPendientes()` consulta tras `crearVenta`; los tests
+/// que ejercitan el listado unificado pueblan [delPeriodo].
 class FakeVentasLocalDataSource extends Fake implements VentasLocalDataSource {
+  FakeVentasLocalDataSource({
+    this.pendientes = const [],
+    this.delPeriodo = const [],
+    this.enErrorDeLaTienda = const [],
+    this.cancelacionesPendientes = 0,
+  });
+
+  final List<VentaLocalModel> pendientes;
+  final List<VentaLocalModel> delPeriodo;
+  final List<VentaLocalModel> enErrorDeLaTienda;
+  final int cancelacionesPendientes;
+
   @override
-  Future<List<VentaLocalModel>> getVentasPendientes() async => [];
+  Future<List<VentaLocalModel>> getVentasPendientes() async => pendientes;
+
+  @override
+  Future<int> countCancelacionesPendientes() async => cancelacionesPendientes;
+
+  @override
+  Future<List<VentaLocalModel>> getVentasByPeriodo(String periodoId) async =>
+      delPeriodo;
+
+  @override
+  Future<List<VentaLocalModel>> getVentasErrorByTienda(String tiendaId) async =>
+      enErrorDeLaTienda;
 }
 
 class FakeSyncService extends Fake implements SyncService {
@@ -68,6 +92,7 @@ class FakeSyncService extends Fake implements SyncService {
     this.destinations = const [],
     this.productos = const [],
     this.categorias = const [],
+    this.ventasServidor = const [],
     this.periodoAbierto,
     ProductosLocalDataSource? productosLocal,
     VentasLocalDataSource? ventasLocal,
@@ -77,6 +102,9 @@ class FakeSyncService extends Fake implements SyncService {
   final List<TransferDestinationModel> destinations;
   final List<ProductoModel> productos;
   final List<CategoriaModel> categorias;
+
+  /// Lo que devuelve el GET de ventas del período.
+  final List<VentaServerModel> ventasServidor;
 
   /// Si se define, `loadPeriodoActual` lo devuelve — necesario para que
   /// `PaymentModal._processPayment()` encuentre un período activo en tests.
@@ -100,6 +128,13 @@ class FakeSyncService extends Fake implements SyncService {
 
   @override
   Future<VentaLocalModel> crearVenta(VentaLocalModel venta) async => venta;
+
+  @override
+  Future<List<VentaServerModel>> loadVentas(
+    String tiendaId,
+    String periodoId,
+  ) async =>
+      ventasServidor;
 
   // SyncProvider registra estos callbacks en su constructor; el fake solo
   // necesita aceptarlos para poder montarlo en widget tests.

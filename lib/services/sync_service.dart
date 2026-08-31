@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
 import '../core/network/api_client.dart';
 import '../core/network/secure_storage_service.dart';
 import '../data/datasources/local/productos_local_datasource.dart';
@@ -23,6 +24,7 @@ import '../data/models/venta_model.dart';
 import '../data/models/transfer_destination_model.dart';
 import '../data/models/categoria_model.dart';
 import '../core/utils/stock_calculator.dart';
+import '../core/utils/venta_cancel_policy.dart';
 import 'venta_sync_payload_patcher.dart';
 
 enum ConnectionStatus { online, offline }
@@ -52,6 +54,7 @@ class SyncService {
   StreamSubscription? _connectivitySubscription;
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _isCancelling = false;
   bool _isFullSyncRunning = false;
   String? _lastTiendaId;
   String? _lastNegocioId;
@@ -312,9 +315,19 @@ class SyncService {
     return cached;
   }
 
-  /// Re-aplica los decrementos de las ventas no sincronizadas de [tiendaId]
-  /// sobre el [snapshot] recién traído del servidor y persiste el resultado.
+  /// Re-aplica sobre el [snapshot] recién traído del servidor las operaciones de
+  /// [tiendaId] que el servidor todavía no conoce, y persiste el resultado.
   /// Devuelve la lista con las existencias ya ajustadas para la UI.
+  ///
+  /// ```
+  /// existencia_local = snapshot_servidor − Σ(ventas pendientes)
+  ///                                      + Σ(anulaciones pendientes)
+  /// ```
+  ///
+  /// Las anulaciones pendientes son imprescindibles en la fórmula: esas ventas
+  /// **sí** están en el snapshot del servidor (se vendieron y sincronizaron) y
+  /// **no** están en `getVentasPendientes()`, así que sin sumarlas cada refresco
+  /// de inventario revertiría en silencio el stock que la anulación ya devolvió.
   ///
   /// No clampea a 0: permitir existencias negativas offline es intencional
   /// (el POS sigue vendiendo sin stock hasta que las ventas sincronicen).
@@ -325,9 +338,15 @@ class SyncService {
     final pendientes = (await ventasLocal.getVentasPendientes())
         .where((v) => v.tiendaId == tiendaId)
         .toList();
-    if (pendientes.isEmpty) return snapshot;
+    final anulaciones =
+        await ventasLocal.getCancelacionesPendientesByTienda(tiendaId);
+    if (pendientes.isEmpty && anulaciones.isEmpty) return snapshot;
 
-    final ajustes = StockCalculator.replayVentas(snapshot, pendientes);
+    final ajustes = StockCalculator.replayVentas(
+      snapshot,
+      pendientes,
+      anulaciones: anulaciones,
+    );
     if (ajustes.isEmpty) return snapshot;
 
     await productosLocal.updateExistencias(ajustes);
@@ -532,31 +551,39 @@ class SyncService {
 
     try {
       final pendientes = await ventasLocal.getVentasPendientes();
-      if (pendientes.isEmpty) {
-        return SyncResult(synced: 0, failed: 0, pending: 0);
-      }
 
-      logDebug('🔄 Sincronizando ${pendientes.length} ventas pendientes...');
-      onSyncEvent?.call('Sincronizando ${pendientes.length} ventas...');
+      if (pendientes.isNotEmpty) {
+        logDebug('🔄 Sincronizando ${pendientes.length} ventas pendientes...');
+        onSyncEvent?.call('Sincronizando ${pendientes.length} ventas...');
 
-      for (final venta in pendientes) {
-        tiendaId ??= venta.tiendaId;
-        final ok = await _syncSingleVenta(venta);
-        if (ok) {
-          synced++;
-        } else {
-          failed++;
+        for (final venta in pendientes) {
+          tiendaId ??= venta.tiendaId;
+          final ok = await _syncSingleVenta(venta);
+          if (ok) {
+            synced++;
+          } else {
+            failed++;
+          }
+        }
+
+        if (synced > 0) {
+          onSyncEvent?.call('$synced ventas sincronizadas');
+        }
+        if (failed > 0) {
+          onSyncEvent?.call('$failed ventas con error');
         }
       }
 
-      if (synced > 0) {
-        onSyncEvent?.call('$synced ventas sincronizadas');
-      }
-      if (failed > 0) {
-        onSyncEvent?.call('$failed ventas con error');
-      }
+      // Después de subir las ventas: una venta puede haberse creado y anulado
+      // en el mismo ciclo, y su anulación necesita el serverId que acaba de
+      // asignarle el POST. Va aquí y no antes por eso.
+      final cancelaciones = await _syncPendingCancelaciones();
+      tiendaId ??= cancelaciones.tiendaId;
 
+      // Sin ventas ni anulaciones no hay nada que reconciliar: no se molesta al
+      // servidor con un refresco de inventario.
       if (refreshInventarioAfter &&
+          (pendientes.isNotEmpty || cancelaciones.anuladas > 0) &&
           tiendaId != null &&
           tiendaId.isNotEmpty) {
         await _refreshInventarioFromServer(tiendaId);
@@ -640,23 +667,205 @@ class SyncService {
     return ok;
   }
 
-  /// Elimina una venta: en servidor si está sincronizada y hay red; siempre en local y restaura stock
-  Future<void> deleteVentaAndRestoreStock(String syncId, String tiendaId) async {
+  /// Pide la anulación de una venta.
+  ///
+  /// Una venta que nunca llegó al servidor se borra en el acto. Una que sí está
+  /// en el servidor **no** se borra hasta que el servidor confirme el DELETE: se
+  /// marca `cancelPending`, se devuelve el stock de forma optimista y la
+  /// anulación entra en la cola, igual que una venta entra en la cola de subida.
+  /// Con conexión, el drenaje arranca de inmediato en segundo plano.
+  ///
+  /// Nunca informa de éxito por algo que el servidor no confirmó: ese era el
+  /// fallo que hacía divergir la caja local del servidor al anular sin conexión.
+  Future<AnulacionResultado> anularVenta(String syncId) async {
     final venta = await ventasLocal.getVentaBySyncId(syncId);
-    if (venta == null) return;
+    final plan = VentaCancelPolicy.planFor(venta);
 
-    if (venta.syncState == SyncState.synced && venta.serverId != null && isOnline) {
-      try {
-        await ventasRemote.cancelarVenta(venta.tiendaId, venta.periodoId, venta.serverId!);
-      } catch (e) {
-        logDebug('⚠️ Error eliminando venta en servidor: $e');
+    switch (plan) {
+      case AnulacionPlan.sinFilaLocal:
+        return AnulacionResultado.noPermitida;
+
+      case AnulacionPlan.yaEnCurso:
+        return AnulacionResultado.yaEnCurso;
+
+      case AnulacionPlan.subidaEnVuelo:
+        return AnulacionResultado.subidaEnVuelo;
+
+      case AnulacionPlan.borradoLocal:
+        await _devolverStock(venta!);
+        await ventasLocal.deleteBySyncId(syncId);
+        onSyncEvent?.call('Venta eliminada');
+        return AnulacionResultado.borrada;
+
+      case AnulacionPlan.encolar:
+        await ventasLocal.updateSyncState(
+          syncId,
+          syncState: SyncState.cancelPending,
+          errorMessage: '',
+        );
+        await _devolverStock(venta!);
+
+        if (isOnline) {
+          // Igual que `crearVenta`: no se bloquea la UI esperando al servidor.
+          unawaited(() async {
+            await _syncPendingCancelaciones();
+            await _refreshInventarioFromServer(venta.tiendaId);
+          }());
+        } else {
+          onSyncEvent?.call('Anulación pendiente - se aplicará al reconectar');
+        }
+        return AnulacionResultado.encolada;
+    }
+  }
+
+  /// Vuelve a pedir una anulación que el servidor rechazó: reaplica la
+  /// devolución de stock (el rechazo la revirtió) y la devuelve a la cola.
+  Future<void> reintentarAnulacion(String syncId) async {
+    final venta = await ventasLocal.getVentaBySyncId(syncId);
+    if (venta == null || venta.syncState != SyncState.cancelError) return;
+
+    await ventasLocal.updateSyncState(
+      syncId,
+      syncState: SyncState.cancelPending,
+      errorMessage: '',
+    );
+    await _devolverStock(venta);
+
+    if (isOnline) {
+      unawaited(() async {
+        await _syncPendingCancelaciones();
+        await _refreshInventarioFromServer(venta.tiendaId);
+      }());
+    }
+  }
+
+  /// Desiste de una anulación rechazada: la venta vuelve a ser una venta normal.
+  /// El stock no se toca porque el rechazo ya lo revirtió.
+  Future<void> descartarAnulacion(String syncId) async {
+    final venta = await ventasLocal.getVentaBySyncId(syncId);
+    if (venta == null || venta.syncState != SyncState.cancelError) return;
+
+    await ventasLocal.updateSyncState(
+      syncId,
+      syncState: SyncState.synced,
+      errorMessage: '',
+    );
+  }
+
+  /// Devuelve al stock local lo vendido en [venta].
+  Future<void> _devolverStock(VentaLocalModel venta) async {
+    final productos = await productosLocal.getProductos(venta.tiendaId);
+    if (productos.isEmpty) return;
+    await productosLocal.updateExistencias(
+      StockCalculator.existenciasTrasRestauracion(venta, productos),
+    );
+  }
+
+  /// Inverso de [_devolverStock]: la anulación no prosperó, la venta sigue viva.
+  Future<void> _revertirDevolucionDeStock(VentaLocalModel venta) async {
+    final productos = await productosLocal.getProductos(venta.tiendaId);
+    if (productos.isEmpty) return;
+    await productosLocal.updateExistencias(
+      StockCalculator.existenciasTrasRollbackDeAnulacion(venta, productos),
+    );
+  }
+
+  /// Drena la cola de anulaciones: pide al servidor el DELETE de cada venta que
+  /// el cajero anuló. Se ejecuta **después** de subir las ventas pendientes (una
+  /// venta puede crearse y anularse en el mismo ciclo) y **antes** de refrescar
+  /// el inventario del servidor.
+  Future<({int anuladas, String? tiendaId})> _syncPendingCancelaciones() async {
+    // El drenaje se dispara desde varios sitios a la vez (el fire-and-forget de
+    // `anularVenta`, el timer de 30s, la reconexión). Sin este guard, dos
+    // pasadas podrían leer la misma fila `cancelPending` antes de que ninguna la
+    // marque `cancelling` y mandar el DELETE dos veces.
+    if (_isCancelling) return (anuladas: 0, tiendaId: null);
+    _isCancelling = true;
+
+    try {
+      final pendientes = await ventasLocal.getCancelacionesPendientes();
+      if (pendientes.isEmpty) return (anuladas: 0, tiendaId: null);
+
+      logDebug('🔄 Anulando ${pendientes.length} ventas...');
+      onSyncEvent?.call('Anulando ${pendientes.length} ventas...');
+
+      var anuladas = 0;
+      for (final venta in pendientes) {
+        final serverId = venta.serverId;
+        if (serverId == null || serverId.isEmpty) {
+          // No debería ocurrir (solo se encola con serverId), pero si pasa la
+          // venta no existe en el servidor: la anulación ya está cumplida.
+          await ventasLocal.deleteBySyncId(venta.syncId);
+          anuladas++;
+          continue;
+        }
+
+        await ventasLocal.updateSyncState(
+          venta.syncId,
+          syncState: SyncState.cancelling,
+        );
+
+        try {
+          await ventasRemote.cancelarVenta(
+            venta.tiendaId,
+            venta.periodoId,
+            serverId,
+          );
+          await ventasLocal.deleteBySyncId(venta.syncId);
+          anuladas++;
+        } catch (e) {
+          if (_esVentaInexistente(e)) {
+            // Ya no está en el servidor: la anulación está cumplida.
+            await ventasLocal.deleteBySyncId(venta.syncId);
+            anuladas++;
+          } else {
+            await _marcarAnulacionFallida(venta, e);
+          }
+        }
       }
-    }
 
-    for (final p in venta.productos) {
-      await productosLocal.incrementExistencia(p.productoTiendaId, p.cantidad);
+      if (anuladas > 0) {
+        onSyncEvent?.call('$anuladas ventas anuladas ✓');
+      }
+      return (anuladas: anuladas, tiendaId: pendientes.first.tiendaId);
+    } finally {
+      _isCancelling = false;
     }
-    await ventasLocal.deleteBySyncId(syncId);
+  }
+
+  /// El servidor rechazó la anulación: se revierte el stock devuelto y la venta
+  /// vuelve a la lista marcada, con el motivo real a la vista.
+  ///
+  /// No se reintenta sola: los motivos habituales (403 sin permiso, 400 período
+  /// cerrado) son permanentes, y reintentar cada 30s solo generaría ruido. El
+  /// cajero decide desde la lista si reintentar o descartar.
+  Future<void> _marcarAnulacionFallida(VentaLocalModel venta, Object e) async {
+    final motivo = _mensajeDeErrorDeAnulacion(e);
+    logDebug('❌ Anulación de ${venta.syncId} rechazada: $motivo');
+
+    await _revertirDevolucionDeStock(venta);
+    await ventasLocal.updateSyncState(
+      venta.syncId,
+      syncState: SyncState.cancelError,
+      syncAttempts: venta.syncAttempts + 1,
+      errorMessage: motivo,
+    );
+    onSyncEvent?.call('No se pudo anular una venta');
+  }
+
+  /// Un 404 significa que la venta ya no está en el servidor: el objetivo de la
+  /// anulación ya se cumplió, así que no es un fallo.
+  bool _esVentaInexistente(Object e) =>
+      e is DioException && e.response?.statusCode == 404;
+
+  String _mensajeDeErrorDeAnulacion(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map && data['error'] is String) return data['error'] as String;
+      final code = e.response?.statusCode;
+      if (code != null) return 'El servidor rechazó la anulación (HTTP $code)';
+    }
+    return e.toString();
   }
 
   // ==========================================

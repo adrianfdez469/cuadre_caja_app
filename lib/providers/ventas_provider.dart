@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import 'package:uuid/uuid.dart';
 import '../core/utils/currency.dart';
+import '../core/utils/venta_cancel_policy.dart';
 import '../data/models/venta_model.dart';
 import '../data/models/cart_model.dart';
 import '../data/models/pago_multimoneda_model.dart';
@@ -17,6 +18,7 @@ class VentasProvider extends ChangeNotifier {
   List<VentaUnificadaModel> _ventasUnificado = [];
   bool _isLoading = false;
   bool _isLoadingVentas = false;
+  int _cancelacionesPendientes = 0;
 
   VentasProvider(this._syncService);
 
@@ -25,7 +27,11 @@ class VentasProvider extends ChangeNotifier {
   List<VentaUnificadaModel> get ventasUnificado => _ventasUnificado;
   bool get isLoading => _isLoading;
   bool get isLoadingVentas => _isLoadingVentas;
-  int get pendingCount => _ventasPendientes.length;
+
+  /// Operaciones que aún no llegaron al servidor: ventas por subir **y**
+  /// anulaciones por confirmar. Las dos se pierden al cerrar sesión y las dos
+  /// deben contar en el "N sin subir" de la barra superior.
+  int get pendingCount => _ventasPendientes.length + _cancelacionesPendientes;
 
   /// Crea una venta desde el carrito activo
   Future<VentaLocalModel> crearVenta({
@@ -111,9 +117,11 @@ class VentasProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Refresca lista de ventas pendientes
+  /// Refresca lista de ventas pendientes (y el contador de anulaciones en cola)
   Future<void> refreshPendientes() async {
     _ventasPendientes = await _syncService.ventasLocal.getVentasPendientes();
+    _cancelacionesPendientes =
+        await _syncService.ventasLocal.countCancelacionesPendientes();
     notifyListeners();
   }
 
@@ -144,8 +152,16 @@ class VentasProvider extends ChangeNotifier {
           .toList();
 
       final serverIds = serverList.map((v) => v.syncId ?? v.id).toSet();
+      // Las ventas propias ya sincronizadas llegan por la rama del servidor
+      // (gana en el dedupe de abajo) pero conservan su fila local: hay que
+      // superponerla o se perdería el estado de una anulación en curso y se
+      // volvería a ofrecer el botón de anular.
+      final localBySyncId = {for (final v in localList) v.syncId: v};
       _ventasUnificado = [
-        ...serverList.map((v) => VentaUnificadaModel.fromServer(v)),
+        ...serverList.map((v) => VentaUnificadaModel.fromServer(
+              v,
+              local: localBySyncId[v.syncId ?? v.id],
+            )),
         ...localList
             .where((v) => !serverIds.contains(v.syncId))
             .map((v) => VentaUnificadaModel.fromLocal(v)),
@@ -170,9 +186,26 @@ class VentasProvider extends ChangeNotifier {
     return ok;
   }
 
-  /// Elimina una venta (servidor si synced y hay red; siempre local y restaura stock)
-  Future<void> deleteVenta(String syncId, String tiendaId) async {
-    await _syncService.deleteVentaAndRestoreStock(syncId, tiendaId);
+  /// Pide la anulación de una venta. Si nunca llegó al servidor se borra en el
+  /// acto; si está en el servidor, la anulación se encola y solo se completa
+  /// cuando el servidor la confirma.
+  Future<AnulacionResultado> anularVenta(String syncId) async {
+    final resultado = await _syncService.anularVenta(syncId);
+    await refreshPendientes();
+    notifyListeners();
+    return resultado;
+  }
+
+  /// Vuelve a poner en cola una anulación que el servidor rechazó.
+  Future<void> reintentarAnulacion(String syncId) async {
+    await _syncService.reintentarAnulacion(syncId);
+    await refreshPendientes();
+    notifyListeners();
+  }
+
+  /// Desiste de una anulación rechazada: la venta vuelve a ser normal.
+  Future<void> descartarAnulacion(String syncId) async {
+    await _syncService.descartarAnulacion(syncId);
     await refreshPendientes();
     notifyListeners();
   }

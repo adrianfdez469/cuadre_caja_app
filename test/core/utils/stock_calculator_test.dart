@@ -205,5 +205,101 @@ void main() {
 
       expect(result, isEmpty);
     });
+
+    test('suma las anulaciones pendientes sobre el snapshot del servidor', () {
+      // El snapshot del servidor ya da la venta por hecha (A=97). La anulación
+      // pedida todavía no llegó al servidor, así que hay que devolver las 3
+      // unidades o el refresco de inventario revertiría la devolución local.
+      final snapshot = [
+        _producto(id: 'A', productoId: 'pA', existencia: 97),
+      ];
+      final anulada = _venta([_item('A', 3)], syncId: 'anulada');
+
+      final result = StockCalculator.replayVentas(
+        snapshot,
+        const [],
+        anulaciones: [anulada],
+      );
+
+      expect(result['A'], 100);
+    });
+
+    test('combina ventas pendientes y anulaciones pendientes', () {
+      // servidor 100 − venta pendiente de 4 + anulación pendiente de 3 = 99.
+      final snapshot = [
+        _producto(id: 'A', productoId: 'pA', existencia: 100),
+      ];
+
+      final result = StockCalculator.replayVentas(
+        snapshot,
+        [_venta([_item('A', 4)], syncId: 'pendiente')],
+        anulaciones: [_venta([_item('A', 3)], syncId: 'anulada')],
+      );
+
+      expect(result['A'], 99);
+    });
+  });
+
+  group('StockCalculator — devolución y rollback de una anulación', () {
+    test('la restauración devuelve al stock lo vendido', () {
+      final productos = [
+        _producto(id: 'A', productoId: 'pA', existencia: 97),
+        _producto(id: 'B', productoId: 'pB', existencia: 50),
+      ];
+      final venta = _venta([_item('A', 3)]);
+
+      final result =
+          StockCalculator.existenciasTrasRestauracion(venta, productos);
+
+      expect(result.keys, ['A'], reason: 'solo toca los productos de la venta');
+      expect(result['A'], 100);
+    });
+
+    test('el rollback es el inverso exacto de la restauración', () {
+      final productos = [
+        _producto(id: 'A', productoId: 'pA', existencia: 97),
+        _producto(id: 'B', productoId: 'pB', existencia: 20),
+      ];
+      final venta = _venta([_item('A', 3), _item('B', 2)]);
+
+      final devuelto =
+          StockCalculator.existenciasTrasRestauracion(venta, productos);
+      // Estado tras devolver: es sobre ese estado sobre el que se hace rollback
+      // cuando el servidor rechaza la anulación.
+      final trasDevolver = productos
+          .map((p) => devuelto.containsKey(p.id)
+              ? p.copyWith(existencia: devuelto[p.id])
+              : p)
+          .toList();
+
+      final revertido = StockCalculator.existenciasTrasRollbackDeAnulacion(
+        venta,
+        trasDevolver,
+      );
+
+      expect(revertido['A'], 97);
+      expect(revertido['B'], 20);
+    });
+
+    test(
+        'la devolución no intenta deshacer la desagregación de fracción '
+        '(no es invertible; la verdad del padre la pone el servidor)', () {
+      final padre = _producto(id: 'PADRE', productoId: 'pPadre', existencia: 3);
+      final hijo = _producto(
+        id: 'HIJO',
+        productoId: 'pHijo',
+        existencia: 3,
+        fraccionDe: FraccionDeModel(id: 'pPadre', nombre: 'Padre'),
+        unidadesPorFraccion: 6,
+      );
+      final venta = _venta([_item('HIJO', 5)]);
+
+      final result =
+          StockCalculator.existenciasTrasRestauracion(venta, [padre, hijo]);
+
+      expect(result['HIJO'], 8, reason: 'solo se devuelve lo vendido');
+      expect(result.containsKey('PADRE'), isFalse,
+          reason: 'el padre no se re-empaqueta');
+    });
   });
 }

@@ -4,6 +4,7 @@ import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/sync_error_messages.dart';
+import '../../core/utils/venta_cancel_policy.dart';
 import '../../data/models/venta_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/periodo_provider.dart';
@@ -210,17 +211,35 @@ class _VentasListScreenState extends State<VentasListScreen> {
                           if (mounted) await _load();
                         },
                         currentPeriodoId: periodo.periodoId,
-                        onViewError: v.syncState == SyncState.error && (v.errorMessage?.isNotEmpty ?? false)
-                            ? () => VentasListScreen.showErrorLog(
+                        onViewError: switch (v.syncState) {
+                          SyncState.error
+                              when v.errorMessage?.isNotEmpty ?? false =>
+                            () => VentasListScreen.showErrorLog(
                                   context,
                                   v,
                                   currentPeriodoId: periodo.periodoId,
                                   onPeriodoUpdated: () async {
                                     if (mounted) await _load();
                                   },
-                                )
+                                ),
+                          // Una anulación rechazada se resuelve con su propio
+                          // diálogo: reintentar o descartar.
+                          SyncState.cancelError => () =>
+                              _resolverAnulacionFallida(
+                                context,
+                                v,
+                                auth.tiendaId,
+                                periodo.periodoId,
+                                ventasProvider,
+                              ),
+                          _ => null,
+                        },
+                        // Solo se anula lo que tiene fila local y no está ya en
+                        // proceso de anulación.
+                        onDelete: v.puedeAnularse
+                            ? () => _confirmDelete(context, v, auth.tiendaId,
+                                periodo.periodoId, ventasProvider)
                             : null,
-                        onDelete: () => _confirmDelete(context, v, auth.tiendaId, periodo.periodoId, ventasProvider),
                       );
                     },
                   ),
@@ -245,7 +264,13 @@ class _VentasListScreenState extends State<VentasListScreen> {
     );
   }
 
-  /// Muestra el diálogo con el log de error de sincronización (compartido con detalle de venta).
+  /// Pide confirmación y anula la venta.
+  ///
+  /// El texto del diálogo dice lo que va a pasar de verdad en cada caso: una
+  /// venta que nunca llegó al servidor se borra en el acto, y una que ya está en
+  /// el servidor necesita su confirmación — sin conexión, la anulación queda en
+  /// cola. Antes el diálogo prometía lo mismo siempre y el resultado se anunciaba
+  /// como "eliminada" aunque el servidor no se hubiera enterado.
   Future<void> _confirmDelete(
     BuildContext context,
     VentaUnificadaModel venta,
@@ -255,16 +280,32 @@ class _VentasListScreenState extends State<VentasListScreen> {
   ) async {
     final negative = context.colors.negative;
     final positive = context.colors.positive;
+    final caution = context.colors.caution;
+    final isOnline = context.read<SyncProvider>().isOnline;
     // Se capturan antes del diálogo: al volver, el elemento puede estar
     // desactivado y `mounted` no basta para que `context.read` sea seguro.
     final productosProvider = context.read<ProductosProvider>();
     final messenger = ScaffoldMessenger.of(context);
+
+    // Sin serverId la venta no existe en el servidor: se borra sin hablar con él.
+    final soloLocal = venta.dbId == null || venta.dbId!.isEmpty;
+    final quedaraPendiente = !soloLocal && !isOnline;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar venta'),
-        content: const Text(
-          '¿Está seguro que desea eliminar la venta seleccionada? Se restaurará el stock local.',
+        title: Text(soloLocal ? 'Eliminar venta' : 'Anular venta'),
+        content: Text(
+          soloLocal
+              ? '¿Eliminar esta venta? Todavía no se ha subido, así que se '
+                  'borra del dispositivo y se devuelve el stock.'
+              : quedaraPendiente
+                  ? '¿Anular esta venta? Ya está registrada en el servidor y '
+                      'ahora no hay conexión: el stock se devuelve al instante y '
+                      'la anulación quedará pendiente hasta que el servidor la '
+                      'confirme.'
+                  : '¿Anular esta venta? Se pedirá al servidor que la cancele y '
+                      'se devolverá el stock.',
         ),
         actions: [
           TextButton(
@@ -273,24 +314,109 @@ class _VentasListScreenState extends State<VentasListScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Eliminar', style: TextStyle(color: negative)),
+            child: Text(
+              soloLocal ? 'Eliminar' : 'Anular',
+              style: TextStyle(color: negative),
+            ),
           ),
         ],
       ),
     );
     if (ok != true || !mounted) return;
-    await ventasProvider.deleteVenta(venta.identifier, tiendaId);
+
+    final resultado = await ventasProvider.anularVenta(venta.identifier);
     if (mounted && periodoId != null) {
       await ventasProvider.loadVentasUnificado(tiendaId, periodoId);
     }
     if (mounted) {
       await productosProvider.loadProductos(tiendaId);
     }
+
+    final (mensaje, color) = switch (resultado) {
+      AnulacionResultado.borrada => ('Venta eliminada', positive),
+      AnulacionResultado.encolada when quedaraPendiente => (
+          'Anulación pendiente — se aplicará al reconectar',
+          caution,
+        ),
+      AnulacionResultado.encolada => ('Anulando la venta…', positive),
+      AnulacionResultado.yaEnCurso => (
+          'Esta venta ya tiene una anulación pedida',
+          caution,
+        ),
+      AnulacionResultado.subidaEnVuelo => (
+          'La venta se está subiendo — inténtalo en unos segundos',
+          caution,
+        ),
+      AnulacionResultado.noPermitida => (
+          'Esta venta no se puede anular desde este dispositivo',
+          caution,
+        ),
+    };
+
     AppSnackBar.showOn(
       messenger,
-      content: const Text('Venta eliminada'),
-      backgroundColor: positive,
+      content: Text(mensaje),
+      backgroundColor: color,
     );
+  }
+
+  /// Acciones sobre una anulación que el servidor rechazó. Sin esto la venta se
+  /// quedaría en `cancelError` para siempre.
+  Future<void> _resolverAnulacionFallida(
+    BuildContext context,
+    VentaUnificadaModel venta,
+    String tiendaId,
+    String? periodoId,
+    VentasProvider ventasProvider,
+  ) async {
+    final productosProvider = context.read<ProductosProvider>();
+    final colors = context.colors;
+
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Anulación rechazada'),
+        content: Text(
+          venta.errorMessage?.isNotEmpty == true
+              ? '${venta.errorMessage}\n\nLa venta sigue registrada en el '
+                  'servidor y su stock ya se volvió a descontar.'
+              : 'El servidor rechazó la anulación. La venta sigue registrada y '
+                  'su stock ya se volvió a descontar.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cerrar'),
+            child: const Text('Cerrar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'descartar'),
+            child: const Text('Descartar anulación'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'reintentar'),
+            child: Text(
+              'Reintentar',
+              style: TextStyle(color: colors.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (accion == null || accion == 'cerrar' || !mounted) return;
+
+    if (accion == 'reintentar') {
+      await ventasProvider.reintentarAnulacion(venta.identifier);
+    } else {
+      await ventasProvider.descartarAnulacion(venta.identifier);
+    }
+
+    if (mounted && periodoId != null) {
+      await ventasProvider.loadVentasUnificado(tiendaId, periodoId);
+    }
+    if (mounted) {
+      await productosProvider.loadProductos(tiendaId);
+    }
   }
 }
 
@@ -301,7 +427,10 @@ class _VentaListItem extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onSync;
   final VoidCallback? onViewError;
-  final VoidCallback onDelete;
+
+  /// `null` cuando la venta no se puede anular desde este dispositivo (no tiene
+  /// fila local) o ya tiene una anulación pedida.
+  final VoidCallback? onDelete;
 
   const _VentaListItem({
     required this.venta,
@@ -425,7 +554,9 @@ class _VentaListItem extends StatelessWidget {
                       onPressed: onViewError,
                       icon: Icon(Icons.info_outline, size: 18, color: colors.negative),
                       label: Text(
-                        'Ver detalle del error',
+                        venta.syncState == SyncState.cancelError
+                            ? 'Resolver la anulación'
+                            : 'Ver detalle del error',
                         style: TextStyle(color: colors.negative, fontSize: 13),
                       ),
                     ),
@@ -436,12 +567,15 @@ class _VentaListItem extends StatelessWidget {
                       color: colors.accent,
                       tooltip: 'Sincronizar',
                     ),
-                  IconButton(
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline),
-                    color: colors.negative,
-                    tooltip: 'Eliminar',
-                  ),
+                  if (onDelete != null)
+                    IconButton(
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline),
+                      color: colors.negative,
+                      tooltip: venta.dbId == null || venta.dbId!.isEmpty
+                          ? 'Eliminar'
+                          : 'Anular',
+                    ),
                 ],
               ),
             ],
@@ -461,6 +595,12 @@ class _VentaListItem extends StatelessWidget {
         return 'Pendiente';
       case SyncState.error:
         return 'Error';
+      case SyncState.cancelPending:
+        return 'Anulación pendiente';
+      case SyncState.cancelling:
+        return 'Anulando';
+      case SyncState.cancelError:
+        return 'Anulación fallida';
     }
   }
 
@@ -473,6 +613,12 @@ class _VentaListItem extends StatelessWidget {
       case SyncState.pending:
         return colors.caution;
       case SyncState.error:
+        return colors.negative;
+      case SyncState.cancelPending:
+        return colors.caution;
+      case SyncState.cancelling:
+        return colors.info;
+      case SyncState.cancelError:
         return colors.negative;
     }
   }
