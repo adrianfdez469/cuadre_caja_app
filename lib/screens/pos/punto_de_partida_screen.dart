@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_tokens.dart';
 import '../../core/di/injection.dart';
+import '../../core/utils/search_text.dart';
 import '../../data/datasources/remote/resumen_dia_remote_datasource.dart';
 import '../../data/models/resumen_dia_model.dart';
 import '../../providers/auth_provider.dart';
@@ -128,23 +129,12 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
     final resumen = _resumenActual;
     if (resumen == null) return [];
 
-    final query = _normalizar(_searchQuery);
+    final query = SearchText.normalize(_searchQuery);
     if (query.isEmpty) return resumen.productos;
 
     return resumen.productos
-        .where((p) => _normalizar(p.nombre).contains(query))
+        .where((p) => SearchText.normalize(p.nombre).contains(query))
         .toList();
-  }
-
-  String _normalizar(String texto) {
-    const withAccents = 'áéíóúàèìòùâêîôûäëïöüÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÄËÏÖÜñÑ';
-    const withoutAccents = 'aeiouaeiouaeiouaeiouAEIOUAEIOUAEIOUAEIOUnn';
-
-    var result = texto.toLowerCase();
-    for (var i = 0; i < withAccents.length; i++) {
-      result = result.replaceAll(withAccents[i], withoutAccents[i]);
-    }
-    return result;
   }
 
   Map<String, List<ResumenDiaProducto>> _agruparPorCategoria(
@@ -327,31 +317,32 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
       child: Row(
         children: [
           Expanded(
-            child: SizedBox(
-              height: 40,
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Buscar producto...',
-                  hintStyle: const TextStyle(fontSize: 13),
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 0,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    borderSide: BorderSide(color: context.colors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    borderSide: BorderSide(color: context.colors.border),
-                  ),
-                  filled: true,
-                  fillColor: context.colors.raised,
+            // Sin alto fijo: con la letra del sistema ampliada, un SizedBox de
+            // 40 recortaba el texto del propio buscador. El `isDense` +
+            // padding deja la misma altura a escala 1.
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Buscar producto...',
+                hintStyle: const TextStyle(fontSize: 13),
+                prefixIcon: const Icon(Icons.search, size: 18),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
                 ),
-                onChanged: (v) => setState(() => _searchQuery = v),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  borderSide: BorderSide(color: context.colors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  borderSide: BorderSide(color: context.colors.border),
+                ),
+                filled: true,
+                fillColor: context.colors.raised,
               ),
+              onChanged: (v) => setState(() => _searchQuery = v),
             ),
           ),
           IconButton(
@@ -383,7 +374,10 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
             const SizedBox(height: 12),
             Text(
               'No hay productos para mostrar',
-              style: TextStyle(color: context.colors.textSecondary, fontSize: 13),
+              style: TextStyle(
+                color: context.colors.textSecondary,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -430,11 +424,13 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
                 ],
               ),
             ),
-            ...items.map((p) => _ProductoCard(
-                  producto: p,
-                  colorExistencia: _colorExistencia(p.cantidadFinal),
-                  formatNum: _formatNum,
-                )),
+            ...items.map(
+              (p) => _ProductoCard(
+                producto: p,
+                colorExistencia: _colorExistencia(p.cantidadFinal),
+                formatNum: _formatNum,
+              ),
+            ),
           ],
         );
       },
@@ -444,9 +440,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   Widget _buildLoadingOverlay() {
     return Container(
       color: context.colors.raised.withValues(alpha: 0.6),
-      child: const Center(
-        child: CircularProgressIndicator(),
-      ),
+      child: const Center(child: CircularProgressIndicator()),
     );
   }
 
@@ -510,11 +504,16 @@ class _TotalCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: TextStyle(fontSize: 11.5, color: context.colors.textSecondary),
+            style: TextStyle(
+              fontSize: 11.5,
+              color: context.colors.textSecondary,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
-            valor % 1 == 0 ? valor.toInt().toString() : valor.toStringAsFixed(1),
+            valor % 1 == 0
+                ? valor.toInt().toString()
+                : valor.toStringAsFixed(1),
             style: TextStyle(
               fontWeight: FontWeight.bold,
               fontSize: 15,
@@ -659,7 +658,10 @@ class _InfoBox extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: 11.5, color: textColor.withValues(alpha: 0.7)),
+            style: TextStyle(
+              fontSize: 11.5,
+              color: textColor.withValues(alpha: 0.7),
+            ),
           ),
           const SizedBox(height: 2),
           Text(

@@ -1,9 +1,27 @@
 import 'package:flutter/foundation.dart';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 import '../core/utils/producto_pos_rules.dart';
+import '../core/utils/search_text.dart';
 import '../data/models/producto_model.dart';
 import '../data/models/categoria_model.dart';
 import '../services/sync_service.dart';
+
+/// Texto buscable de un producto, ya normalizado.
+///
+/// Se precalcula al cargar el catálogo en vez de en cada pulsación: normalizar
+/// N productos por cada tecla es justo lo que vuelve lenta una búsqueda
+/// incremental.
+class _SearchEntry {
+  /// Nombre tal como se muestra en el catálogo ("nombre - proveedor"),
+  /// normalizado. Es sobre este texto sobre el que se calcula la relevancia:
+  /// el cajero ordena mentalmente por lo que ve.
+  final String nombre;
+
+  /// Todo lo buscable junto: nombre, proveedor, descripción y códigos.
+  final String haystack;
+
+  const _SearchEntry({required this.nombre, required this.haystack});
+}
 
 class ProductosProvider extends ChangeNotifier {
   final SyncService _syncService;
@@ -16,6 +34,15 @@ class ProductosProvider extends ChangeNotifier {
   String? _selectedCategoriaId;
   bool _permitirSinStock = false;
 
+  /// Consulta activa del buscador. Vive en el provider (y no solo en el
+  /// `TextField`) para que categoría y búsqueda se apliquen **siempre juntas**:
+  /// antes, tocar una categoría descartaba la búsqueda pero dejaba el texto
+  /// escrito en pantalla.
+  String _query = '';
+
+  /// Índice de búsqueda por `producto.id`.
+  Map<String, _SearchEntry> _searchIndex = {};
+
   ProductosProvider(this._syncService);
 
   List<ProductoModel> get productos => _filteredProductos;
@@ -24,6 +51,7 @@ class ProductosProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get selectedCategoriaId => _selectedCategoriaId;
   bool get permitirSinStock => _permitirSinStock;
+  String get query => _query;
 
   /// Re-aplica el filtro de catálogo según si se permite vender sin existencias
   /// (sin conexión, o con el ajuste "Vender sin existencias" activo): los
@@ -40,13 +68,76 @@ class ProductosProvider extends ChangeNotifier {
       _rawProductos,
       permitirSinStock: _permitirSinStock,
     );
-    if (_selectedCategoriaId != null) {
-      _filteredProductos = _allProductos
-          .where((p) => p.categoriaId == _selectedCategoriaId)
-          .toList();
-    } else {
-      _filteredProductos = List.from(_allProductos);
+    // Conserva la búsqueda activa: antes, cualquier reconstrucción (una venta,
+    // un cambio de stock) devolvía la lista completa por debajo del cajero.
+    _applyFilters();
+  }
+
+  /// Recalcula el texto buscable de cada producto. Solo hace falta donde cambia
+  /// el **contenido** del catálogo (carga y asociación de códigos), no donde
+  /// solo cambian existencias: `updateExistenciaLocal` y `applyStockFilter`
+  /// crean modelos nuevos pero con el mismo `id` y los mismos campos buscables.
+  void _rebuildSearchIndex() {
+    _searchIndex = {
+      for (final p in _rawProductos)
+        p.id: _SearchEntry(
+          nombre: SearchText.normalize(ProductoPosRules.nombreParaMostrar(p)),
+          haystack: SearchText.normalize([
+            // nombreParaMostrar ya incluye el proveedor, que se ve en la fila
+            // del catálogo y hasta ahora no se podía buscar.
+            ProductoPosRules.nombreParaMostrar(p),
+            p.descripcion ?? '',
+            ...p.codigos.map((c) => c.codigo),
+          ].join(' ')),
+        ),
+    };
+  }
+
+  /// Aplica a la vez los dos criterios de filtrado: categoría y búsqueda.
+  ///
+  /// Es el único sitio que escribe `_filteredProductos`. Tenerlo centralizado
+  /// es lo que impide que vuelvan a divergir (antes `filterByCategoria`
+  /// ignoraba la consulta activa y `searchProductos` sí respetaba la categoría).
+  void _applyFilters() {
+    var resultado = _selectedCategoriaId == null
+        ? List<ProductoModel>.from(_allProductos)
+        : _allProductos
+            .where((p) => p.categoriaId == _selectedCategoriaId)
+            .toList();
+
+    final tokens = SearchText.tokens(_query);
+    if (tokens.isEmpty) {
+      // Sin búsqueda se respeta el alfabético de filtrarYOrdenarParaPos.
+      _filteredProductos = resultado;
+      return;
     }
+
+    resultado = resultado
+        .where((p) =>
+            SearchText.matchesAll(_searchIndex[p.id]?.haystack ?? '', tokens))
+        .toList();
+
+    final consulta = SearchText.normalize(_query);
+    resultado.sort((a, b) {
+      final ea = _searchIndex[a.id];
+      final eb = _searchIndex[b.id];
+      final rangoA = _rangoRelevancia(ea, consulta, tokens.first);
+      final rangoB = _rangoRelevancia(eb, consulta, tokens.first);
+      if (rangoA != rangoB) return rangoA.compareTo(rangoB);
+      // `List.sort` no es estable: sin este desempate el orden dentro de un
+      // mismo rango sería impredecible.
+      return (ea?.nombre ?? '').compareTo(eb?.nombre ?? '');
+    });
+
+    _filteredProductos = resultado;
+  }
+
+  /// Menor es más relevante: primero lo que empieza por lo tecleado.
+  int _rangoRelevancia(_SearchEntry? entry, String consulta, String primero) {
+    if (entry == null) return 3;
+    if (entry.nombre.startsWith(consulta)) return 0;
+    if (SearchText.algunaPalabraEmpiezaPor(entry.nombre, primero)) return 1;
+    return 2;
   }
 
   /// Carga productos y categorías (network-first).
@@ -60,6 +151,7 @@ class ProductosProvider extends ChangeNotifier {
     try {
       final raw = await _syncService.loadProductos(tiendaId);
       _rawProductos = raw;
+      _rebuildSearchIndex();
       _rebuildProductLists();
       _categorias = await _syncService.loadCategorias(tiendaId);
     } catch (e) {
@@ -77,6 +169,7 @@ class ProductosProvider extends ChangeNotifier {
     try {
       final raw = await _syncService.loadProductosLocalOnly(tiendaId);
       _rawProductos = raw;
+      _rebuildSearchIndex();
       _rebuildProductLists();
       _categorias = await _syncService.loadCategorias(tiendaId);
       notifyListeners();
@@ -85,17 +178,10 @@ class ProductosProvider extends ChangeNotifier {
     }
   }
 
-  /// Filtra productos por categoría
+  /// Filtra productos por categoría, **sin descartar la búsqueda activa**.
   void filterByCategoria(String? categoriaId) {
     _selectedCategoriaId = categoriaId;
-
-    if (categoriaId == null) {
-      _filteredProductos = List.from(_allProductos);
-    } else {
-      _filteredProductos = _allProductos
-          .where((p) => p.categoriaId == categoriaId)
-          .toList();
-    }
+    _applyFilters();
     notifyListeners();
   }
 
@@ -119,34 +205,12 @@ class ProductosProvider extends ChangeNotifier {
     return candidatos.first;
   }
 
-  /// Búsqueda global por nombre (case-insensitive), para POS. No modifica categoría.
-  List<ProductoModel> searchByName(String query, {int limit = 10}) {
-    if (query.trim().isEmpty) return [];
-    final q = query.trim().toLowerCase();
-    final list = _allProductos
-        .where((p) => p.nombre.toLowerCase().contains(q))
-        .take(limit)
-        .toList();
-    return list;
-  }
-
-  /// Busca productos por nombre
+  /// Busca en nombre, proveedor, descripción y códigos, ignorando tildes y
+  /// admitiendo las palabras en cualquier orden ("coca 2" encuentra
+  /// "Coca Cola 2L"). Respeta la categoría seleccionada.
   void searchProductos(String query) {
-    if (query.isEmpty) {
-      filterByCategoria(_selectedCategoriaId);
-      return;
-    }
-
-    final lowQuery = query.toLowerCase();
-    _filteredProductos = _allProductos.where((p) {
-      final matchName = p.nombre.toLowerCase().contains(lowQuery);
-      final matchDesc = p.descripcion?.toLowerCase().contains(lowQuery) ?? false;
-      final matchCode = p.codigos.any((c) => c.codigo.contains(query));
-      final matchCategoria = _selectedCategoriaId == null ||
-          p.categoriaId == _selectedCategoriaId;
-      return (matchName || matchDesc || matchCode) && matchCategoria;
-    }).toList();
-
+    _query = query;
+    _applyFilters();
     notifyListeners();
   }
 
@@ -166,6 +230,9 @@ class ProductosProvider extends ChangeNotifier {
 
     final nuevosCodigos = [..._rawProductos[idx].codigos, nuevoCodigo];
     _rawProductos[idx] = _rawProductos[idx].copyWith(codigos: nuevosCodigos);
+    // Cambia contenido buscable: hay que reindexar para poder buscar por el
+    // código recién asociado.
+    _rebuildSearchIndex();
     _rebuildProductLists();
     notifyListeners();
 

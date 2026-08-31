@@ -50,18 +50,6 @@ class ProductosLocalDataSource {
     return maps.map((m) => ProductoModel.fromMap(m)).toList();
   }
 
-  /// Busca productos por nombre
-  Future<List<ProductoModel>> searchProductos(String tiendaId, String query) async {
-    final db = await dbHelper.database;
-    final maps = await db.query(
-      'productos',
-      where: 'tiendaId = ? AND nombre LIKE ?',
-      whereArgs: [tiendaId, '%$query%'],
-      orderBy: 'nombre ASC',
-    );
-    return maps.map((m) => ProductoModel.fromMap(m)).toList();
-  }
-
   /// Obtiene las categorías únicas de los productos cacheados
   Future<List<CategoriaModel>> getCategorias(String tiendaId) async {
     final db = await dbHelper.database;

@@ -2,20 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../core/utils/search_text.dart';
 import '../../data/datasources/remote/productos_remote_datasource.dart';
 import '../../data/models/producto_model.dart';
 import '../../providers/productos_provider.dart';
-
-/// Normaliza un string para búsqueda: minúsculas, sin tildes ni diéresis.
-String _normalize(String s) {
-  const src = 'áéíóúüñÁÉÍÓÚÜÑàèìòùÀÈÌÒÙ';
-  const dst = 'aeiouunaeioounaeiouaeiou';
-  var r = s.toLowerCase();
-  for (int i = 0; i < src.length; i++) {
-    r = r.replaceAll(src[i], dst[i]);
-  }
-  return r;
-}
 
 /// Bottom sheet que permite asociar un código de barras desconocido
 /// a un producto existente en la tienda.
@@ -73,7 +63,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
   }
 
   void _onSearchChanged() {
-    final query = _normalize(_searchController.text.trim());
+    final query = SearchText.normalize(_searchController.text);
     if (query.isEmpty) {
       setState(() {
         _searchResults = [];
@@ -83,7 +73,7 @@ class _AsociarCodigoSheetState extends State<AsociarCodigoSheet> {
     }
     final allProductos = context.read<ProductosProvider>().allProductos;
     final results = allProductos
-        .where((p) => _normalize(p.nombre).contains(query))
+        .where((p) => SearchText.normalize(p.nombre).contains(query))
         .take(8)
         .toList();
     setState(() {
