@@ -103,7 +103,7 @@ estable, el desempate por nombre es explícito).
 ---
 
 ### UX-05 · Enter en el buscador no hace nada
-**Prioridad:** media · **Estado:** PENDIENTE · `pos_home_screen.dart:667`
+**Prioridad:** media · **Estado:** DESCARTADO · `pos_home_screen.dart:667`
 
 Si se escanea con la pistola teniendo el buscador enfocado, el código entra
 como texto y filtra bien (`searchProductos` sí matchea códigos), pero el Enter
@@ -133,7 +133,7 @@ reconsiderarlo entonces con una medición delante.
 ## C. Carrito
 
 ### UX-07 · Bajar de 1 borra la línea sin confirmar ni poder deshacer
-**Prioridad:** alta · **Estado:** PENDIENTE · `cart_items_screen.dart:476`
+**Prioridad:** alta · **Estado:** DESCARTADO · `cart_items_screen.dart:476`
 
 `onDecrement` llama a `removeItemById` en silencio. Todo lo demás destructivo
 (vaciar carrito, cerrar cuenta, eliminar venta) tiene diálogo de confirmación;
@@ -333,7 +333,7 @@ Estas no son fallas de implementación: son cosas que el POS no hace. Requieren
 decidir antes de estimar.
 
 ### UX-16 · No existe la devolución / anulación como concepto
-**Prioridad:** a decidir · **Estado:** PENDIENTE
+**Prioridad:** a decidir · **Estado:** DESCARTADO
 
 Lo más cercano es "Eliminar venta" en `ventas_list_screen.dart`, que es una
 operación de sincronización disfrazada de anulación: sin motivo, sin registro y
@@ -342,7 +342,7 @@ con el problema de UX-01. Una devolución de verdad necesita soporte del backend
 ---
 
 ### UX-17 · No hay comprobante para el cliente
-**Prioridad:** a decidir · **Estado:** PENDIENTE
+**Prioridad:** a decidir · **Estado:** DESCARTADO
 
 Ni impresión térmica, ni compartir el detalle, ni QR. La pantalla de éxito del
 cobro (`cobrar_screen.dart:_buildExito`) ya tiene toda la información: el
@@ -351,7 +351,7 @@ camino más barato es un botón "Compartir" que arme el texto.
 ---
 
 ### UX-18 · No se puede cerrar el período desde la app
-**Prioridad:** a decidir · **Estado:** PENDIENTE
+**Prioridad:** a decidir · **Estado:** DESCARTADO
 
 `pos_home_screen.dart:_buildNoPeriodoView` solo abre período. El cierre de caja
 queda en la web.
@@ -367,6 +367,207 @@ forma de aplicar uno al cobrar.
 
 ---
 
+## F. Vistas de consulta del período
+
+Hallazgos de la revisión de diseño de `ventas_list_screen.dart`,
+`productos_vendidos_screen.dart` y `punto_de_partida_screen.dart` hecha el
+2026-08-31 sobre la v2.3.1. Las tres cuelgan de la hoja *Acciones del POS* y
+forman el bloque de consulta del período; se leían como tres productos distintos
+(una sin `AppBar`, dos con pull-to-refresh, tres formatos numéricos, dos
+vocabularios para el estado de sincronización).
+
+### UX-21 · Componentes duplicados entre las tres vistas de consulta
+**Prioridad:** alta · **Estado:** HECHO
+
+Cinco componentes copiados entre las tres pantallas y `ventas_detail_screen`:
+chip de filtro (`productos_vendidos_screen.dart:866` ≡
+`ventas_detail_screen.dart:454`), estado de sincronización (chips de texto con
+7 estados en `ventas_list_screen.dart:596` vs iconos de nube con 4 en
+`productos_vendidos_screen.dart:763`), estado vacío (cuatro variantes con
+iconos 40/56/64 y una sin icono), tarjeta-tabla (anchos 64/80 vs 52/92) y
+tarjeta de métrica. Más `decimals: x == x.round() ? 0 : 1` repetido cuatro veces.
+
+**Arreglo:** extraer a `lib/widgets/` — `sync_state_chip.dart`, `empty_state.dart`,
+`app_filter_chip.dart`, `data_table_card.dart`, `stat_tile.dart` — y
+`Formatters.formatCantidad`.
+
+**Cómo quedó:** cinco widgets en `lib/widgets/` — `sync_state_chip.dart`
+(`SyncStateChip` + `SyncStateLabels`, los **siete** estados, fondo con los
+tokens `*Wash` y radio `pill`), `empty_state.dart`, `app_filter_chip.dart`
+(`AppFilterChip` con contador + `AppChoiceChip`), `data_table_card.dart`
+(`TableColumn`/`DataTableHeader`/`DataTableRow`/`DataTableCard`, con `title`
+para el nombre del producto y `ClipRRect` en la cabecera) y `stat_tile.dart`
+(`StatTile` + `StatTone`). Más `Formatters.formatCantidad` y
+`Formatters.formatDiaRelativo`.
+
+El detalle de venta también pasa por ellos: perdió su `_FilterChip` y su
+`_proveedorByProducto`, que ahora vive en
+`lib/core/utils/productos_vendidos_agregacion.dart`.
+
+La etiqueta se unificó en **"Productos propios"**.
+---
+
+### UX-22 · "Ventas y sincronizaciones" no dice qué se está mirando ni deja filtrar
+**Prioridad:** alta · **Estado:** HECHO · `ventas_list_screen.dart:162`
+
+Sin resumen (nº de ventas, total, reparto por estado) y sin filtros, pese a que
+la pantalla existe para resolver ventas rechazadas: con 80 ventas del día hay que
+encontrarlas por scroll. Además: fecha completa repetida en cada tarjeta cuando
+todas son del mismo día (`:498`); `Divider` y fila de acciones vacíos en la venta
+sincronizada del servidor, que es el caso más común (`:556`); "Efectivo: $x"
+visible aunque el 100% sea efectivo (`:543`); "3 ítems" son líneas, no unidades,
+y no pluralizan (`venta_model.dart:513`); importe en `accent`, que el token
+reserva para acción/selección (`:534`); chip de estado con
+`withValues(alpha:0.16)` en vez de los `*Wash` y radio `sm` en vez de `pill`
+(`:507`); "Sincronizar todos" desaparece sin explicación sin conexión (`:166`) y
+se deshabilita con `isLoading` mientras el body usa `isLoadingVentas`; estado
+vacío no scrollable, que se come el pull-to-refresh (`:250`); sin `Semantics`
+de tarjeta.
+
+**Cómo quedó:** `CustomScrollView` con tarjeta de resumen (nº de ventas, total
+y reparto por estado, contados sobre la lista que se muestra para que los chips
+cuadren con las filas), barra de filtros pegajosa —*Todas · Sin subir · Con
+error*, y sólo aparece si hay algo pendiente— y encabezados de día con
+`formatDiaRelativo`, dejando la hora en la fila.
+
+La fila de acciones y su separador se construyen **sólo si hay alguna acción**:
+en una venta ya sincronizada del servidor las tres son `null` y antes se pintaba
+el hueco igual. El desglose de pago aparece sólo con dos formas de pago. El
+importe pasa de `accent` a `textPrimary`. Chip de estado por `SyncStateChip`.
+"Sincronizar" ya no desaparece sin conexión: queda deshabilitado con un banner
+`caution` que explica por qué, y ambos —botón y cuerpo— miran `isLoadingVentas`.
+El estado vacío es scrollable (`AlwaysScrollableScrollPhysics`), distingue "no
+hay ventas" de "el filtro no deja nada" y ofrece "Ver todas". `Semantics` por
+tarjeta con hora, estado, líneas e importe.
+
+Tests: `vistas_consulta_test.dart` (acciones ausentes, resumen, filtro) y
+`textscale_test.dart`.
+---
+
+### UX-23 · "Productos vendidos" oculta su propio alcance
+**Prioridad:** alta · **Estado:** HECHO · `productos_vendidos_screen.dart:243`
+
+El filtro de vendedor arranca en el usuario actual y el título solo avisa del
+filtro de **proveedor** (`:371`): "Total vendido $X" se lee como el total de la
+tienda cuando es solo el propio. Es el hallazgo más grave de las tres pantallas.
+
+Además: los datos empiezan bajo el pliegue, con ~300px de filtros antes de la
+primera fila (`:332`); importes alineados a la izquierda, con lo que `tabularNums`
+no sirve de nada (`:654`); "Precio" es `Expanded` y "Total" tiene 92px fijos
+(`:591`); la columna Precio de la vista agrupada se sobrescribe con el último
+precio procesado, así que `Precio × Cant. ≠ Total` si hubo dos precios (`:186`);
+orden por defecto por última venta y no configurable (`:208`); la agrupada no
+avisa de que sus totales incluyen ventas sin subir (`:574`); la histórica usa
+iconos de nube y cubre 4 de 7 estados, pintando "Anulación pendiente" como
+"Sincronizando" (`:763`); "Total vendido" (por ítem) y "Total en transferencia"
+(por venta) no son comparables y falta efectivo/unidades para cerrar el cuadro
+(`:213`); vacío ambiguo sin CTA (`:575`); cabecera de tabla sin `ClipRRect`
+dentro de un `Card` redondeado (`:591`); toda la tabla materializada con
+`shrinkWrap` (`:633`).
+
+**Cómo quedó:** los filtros de vendedor y proveedor salen a una hoja "Filtros"
+(`showModalBottomSheet` + `Aplicar`/`Limpiar`), con `BadgedIcon` en el AppBar
+contando los activos; en su lugar hay una **barra de alcance pegajosa** que dice
+en texto plano qué se está mirando ("Tus ventas · todos los proveedores") con un
+botón "Cambiar". Eso resuelve a la vez el alcance invisible y los ~300px de
+chips que empujaban los datos bajo el pliegue.
+
+Tabla por `DataTableCard`: las tres columnas numéricas a la derecha, "Total" la
+más ancha y la única en `titleMedium`, y el nombre del producto en su propia
+línea con el proveedor debajo. El precio agrupado pasa a `total / cantidad` y la
+columna se rotula "P. medio" cuando algún producto tuvo más de un precio. Orden
+configurable (importe por defecto, unidades, A–Z, reciente). `SyncStateChip` en
+la histórica y aviso en el resumen de la agrupada cuando los totales incluyen
+ventas sin subir o con error. El resumen cierra el cuadro —vendido, unidades,
+productos, efectivo, transferencia, descuentos y destinos— y dice explícitamente
+por qué no reparte el pago con un filtro de proveedor activo. Estados vacíos
+distintos con "Quitar filtros". `SliverList` en vez de `shrinkWrap`.
+
+La agregación salió del `State` a `lib/core/utils/productos_vendidos_agregacion.dart`,
+con `productos_vendidos_agregacion_test.dart` (12 casos) — el de los dos precios
+distintos es el que fija el fallo del precio unitario.
+---
+
+### UX-24 · "Punto de partida" no sigue ninguna convención de la app
+**Prioridad:** media · **Estado:** HECHO · `punto_de_partida_screen.dart:188`
+
+Única pantalla empujada con `MaterialPageRoute` sin `AppBar`: cabecera propia con
+"✕" y sin flecha de retroceso, y con un título ("Punto de partida y
+comportamiento") que no coincide con el del menú. Sin pull-to-refresh (`:390`).
+
+El control más importante —cambiar entre "solo con movimientos" y "todos"— es un
+icono de ojo ambiguo cuyo estado solo se descubre con el tooltip (`:348`).
+Contraste por debajo del umbral en `_MovimientoBox`: texto al `alpha 0.8` sobre
+fondo del mismo color al `0.08` (`:694`), y lo mismo en `_InfoBox` (`:659`) —
+afecta justo a las cifras que la pantalla existe para mostrar. Tres radios
+distintos en la misma tarjeta (`sm`, literal 8, literal 6). No usa `Card`: cuatro
+`Container` + `BoxDecoration` que replican `CardTheme`. Dos formatos numéricos
+incompatibles en la misma pantalla y **ningún** `tabularNums` (`:181`, `:513`).
+Cada producto ocupa ~150px para cinco cifras: con 200 productos, comparar dos
+exige memorizar (`:529`). El color de categoría viene del servidor sin control de
+contraste y se usa como color de **texto** (`:415`). El buscador reinventa su
+`InputDecoration` en vez de heredar el tema y no tiene botón de limpiar (`:323`).
+
+**Lo que esta pantalla hace mejor y hay que propagar:** el banner de error no
+bloqueante que conserva los datos previos cuando falla el refresh (`:116`, `:244`).
+
+**Cómo quedó:** `AppBar` estándar con flecha de retroceso, título "Punto de
+partida" y `⟳` en `actions`; `RefreshIndicator` sobre un `CustomScrollView`. El
+ojo se sustituye por dos `AppChoiceChip` con texto ("Con movimientos" / "Todos").
+`StatTile` sustituye a `_TotalCard`, `_InfoBox` y `_MovimientoBox`: fondo con el
+`*Wash` del tono y texto con el `ink` a plena opacidad, un solo radio
+(`AppRadius.md`) y `Card` del tema. Todas las cifras por
+`Formatters.formatCantidad` + `tabularNums`.
+
+La tarjeta de ~150px pasa a fila compacta: nombre, proveedor, una línea con
+inicial y **sólo los movimientos que existen**, y la existencia actual como
+`StatTile` a la derecha; tocarla despliega las cuatro cajas completas. El color
+de categoría va en un punto, no en el texto del rótulo, que usa `textSecondary`
+y siempre se lee. El buscador hereda `inputDecorationTheme` y gana ✕.
+Estados vacíos distintos para búsqueda sin resultados, período sin movimientos
+(con CTA "Ver todos los productos") e inventario vacío. `Semantics` por fila.
+
+`_parseError` pasa a mirar el tipo real de `DioException` en vez de buscar
+subcadenas en `e.toString()`. Se añadió un parámetro `datasource` opcional al
+widget, sólo para poder montarlo en un widget test.
+---
+
+### UX-25 · Los tonos semánticos están mal asignados en las vistas de consulta
+**Prioridad:** media · **Estado:** HECHO
+
+`app_tokens.dart:53-61` fija un significado por tono y estas pantallas lo
+contradicen. "Ventas" se pinta en `negative` en la fila de totales
+(`punto_de_partida_screen.dart:288`) y en cada tarjeta de producto (`:606`):
+vender no es "falta / se agotó / falló", y el cajero ve su mejor dato del día en
+rojo de alarma. "Salidas" en `caution` tiene el mismo problema. En paralelo, los
+fondos tenues se calculan con `withValues(alpha:)` en vez de usar los `*Wash`.
+
+**Decisión:** en un resumen de movimientos el eje no es bueno/malo sino de dónde
+vino el movimiento. Ventas y Salidas → `info`; Entradas se queda en `positive`;
+`negative` queda libre para lo que sí exige atención (existencia en cero, que
+`_colorExistencia` ya resuelve bien). Los importes de la lista de ventas pasan a
+`textPrimary`.
+
+**Cómo quedó:** aplicado. Ventas y Salidas en `info`, Entradas en `positive`,
+`negative` sólo para la existencia en cero. Los importes de la lista de ventas
+en `textPrimary`. Ya no queda ningún `withValues(alpha:)` calculando fondos en
+estas pantallas: `SyncStateChip` y `StatTile` usan los `*Wash`.
+---
+
+### UX-26 · "Punto de partida" es la única pantalla no offline-first
+**Prioridad:** a decidir · **Estado:** PENDIENTE · `punto_de_partida_screen.dart:37`
+
+Pega directo a `ResumenDiaRemoteDataSource` sin caché local ni cola: sin conexión
+queda inservible, mientras el POS entero está construido para seguir vendiendo.
+Darle caché exige tocar `sync_service` y `database_helper` (ver `SYNC.md`): es un
+cambio de arquitectura, no de diseño, y por eso va aparte de UX-24.
+
+De UX-24 sí sale el paliativo: conservar el banner de degradación y sustituir el
+*string matching* de `_parseError` (`:85`) por las excepciones tipadas de
+`lib/core/errors/exceptions.dart`.
+
+---
+
 ## Orden sugerido
 
 1. ~~**UX-01**~~ — hecho.
@@ -375,5 +576,8 @@ forma de aplicar uno al cobrar.
    queda junto a UX-05.
 4. El resto por prioridad.
 
-Cerradas por completo las secciones A, B (salvo UX-05) y D. Pendientes: UX-05,
-UX-07 y toda la sección E (decisiones de producto).
+Cerradas por completo las secciones A, B (salvo UX-05), D y F (salvo UX-26).
+Pendientes: UX-05, UX-07, toda la sección E (decisiones de producto) y UX-26.
+
+La sección F está cerrada salvo **UX-26**, que espera a que se decida darle
+caché offline a "Punto de partida".

@@ -1,81 +1,58 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../core/theme/app_tokens.dart';
 import '../../core/utils/formatters.dart';
-import '../../data/models/producto_model.dart';
+import '../../core/utils/productos_vendidos_agregacion.dart';
 import '../../data/models/venta_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/periodo_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../providers/ventas_provider.dart';
 import '../../services/sync_service.dart';
-
-const _kFilterTodos = '_todos_';
-const _kFilterPropios = '_propios_';
+import '../../widgets/app_filter_chip.dart';
+import '../../widgets/data_table_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/sync_badge.dart';
+import '../../widgets/sync_state_chip.dart';
 
 enum VistaProductosVendidos { agrupada, historica }
-
-/// Un ítem "vendido" para lista histórica (una línea por venta).
-class ProductoVendidoItem {
-  final String productoTiendaId;
-  final String nombre;
-  final double cantidad;
-  final double precio;
-  final double total;
-  final int ventaCreatedAtMs;
-  final SyncState syncState;
-  final String? proveedorKey; // null o vacío = propios
-
-  ProductoVendidoItem({
-    required this.productoTiendaId,
-    required this.nombre,
-    required this.cantidad,
-    required this.precio,
-    required this.total,
-    required this.ventaCreatedAtMs,
-    required this.syncState,
-    this.proveedorKey,
-  });
-}
-
-/// Un ítem agrupado por producto (suma de cantidades y totales).
-class ProductoVendidoAgrupado {
-  final String productoTiendaId;
-  final String nombre;
-  final double cantidad;
-  final double precioUnitario; // precio representativo (ej. el más reciente)
-  final double total;
-  final int ultimaVentaMs; // para ordenar: más reciente primero
-
-  ProductoVendidoAgrupado({
-    required this.productoTiendaId,
-    required this.nombre,
-    required this.cantidad,
-    required this.precioUnitario,
-    required this.total,
-    required this.ultimaVentaMs,
-  });
-}
 
 class ProductosVendidosScreen extends StatefulWidget {
   const ProductosVendidosScreen({super.key});
 
   @override
-  State<ProductosVendidosScreen> createState() => _ProductosVendidosScreenState();
+  State<ProductosVendidosScreen> createState() =>
+      _ProductosVendidosScreenState();
 }
 
 class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
-  Set<String> _selectedVendedores = {};
-  Set<String> _selectedProveedores = {_kFilterTodos};
+  Set<String> _vendedores = {};
+  Set<String> _proveedores = {kFiltroTodos};
   VistaProductosVendidos _vista = VistaProductosVendidos.agrupada;
-  Map<String, String> _transferDestinationNames = {};
+  OrdenProductosVendidos _orden = OrdenProductosVendidos.importe;
+  Map<String, String> _destinos = {};
+  bool _vendedorInicializado = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _inicializarVendedor();
       _load();
       _resolveTransferNames();
+    });
+  }
+
+  /// Por defecto se muestran las ventas propias. Es una decisión deliberada
+  /// —el cajero suele venir a ver lo suyo— pero **tiene que verse**: por eso la
+  /// barra de alcance dice siempre qué subconjunto se está mirando.
+  void _inicializarVendedor() {
+    if (_vendedorInicializado) return;
+    final id = context.read<AuthProvider>().usuario?.id;
+    setState(() {
+      _vendedorInicializado = true;
+      _vendedores = id != null ? {id} : {kFiltroTodos};
     });
   }
 
@@ -84,9 +61,9 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
     final periodo = context.read<PeriodoProvider>();
     if (auth.tiendaId.isEmpty || periodo.periodoId == null) return;
     await context.read<VentasProvider>().loadVentasUnificado(
-          auth.tiendaId,
-          periodo.periodoId!,
-        );
+      auth.tiendaId,
+      periodo.periodoId!,
+    );
   }
 
   Future<void> _resolveTransferNames() async {
@@ -96,766 +73,670 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
     final destinos = await sync.getTransferDestinationsLocal(tiendaId);
     if (!mounted) return;
     setState(() {
-      _transferDestinationNames = {
-        for (final d in destinos) d.id: d.nombre,
-      };
+      _destinos = {for (final d in destinos) d.id: d.nombre};
     });
   }
 
-  Map<String, String?> _proveedorByProducto(List<ProductoModel> allProductos) {
-    final map = <String, String?>{};
-    for (final p in allProductos) {
-      final prov = p.proveedor?.trim();
-      map[p.id] = (prov == null || prov.isEmpty) ? null : prov;
+  // ── Opciones de filtro ─────────────────────────────────────────────────────
+
+  Map<String, String> _opcionesVendedor(List<VentaUnificadaModel> ventas) {
+    final auth = context.read<AuthProvider>();
+    final opciones = <String, String>{};
+    final yo = auth.usuario;
+    if (yo?.id != null) opciones[yo!.id] = yo.nombre;
+    for (final v in ventas) {
+      final id = v.usuarioId;
+      if (id != null && id.isNotEmpty) {
+        opciones[id] = v.usuarioNombre ?? 'Sin nombre';
+      }
     }
-    return map;
+    return opciones;
   }
 
-  bool _ventaPasaFiltroVendedor(
-    VentaUnificadaModel venta,
-    String? currentUserId,
-  ) {
-    if (_selectedVendedores.isEmpty || _selectedVendedores.contains(_kFilterTodos)) {
-      return true;
-    }
-    final id = venta.usuarioId ?? currentUserId;
-    if (id == null) return _selectedVendedores.contains(currentUserId);
-    return _selectedVendedores.contains(id);
-  }
-
-  bool _productoPasaFiltroProveedor(
-    String? proveedorKey,
-  ) {
-    if (_selectedProveedores.contains(_kFilterTodos)) return true;
-    final esPropio = proveedorKey == null || proveedorKey.isEmpty;
-    if (esPropio && _selectedProveedores.contains(_kFilterPropios)) return true;
-    if (!esPropio && _selectedProveedores.contains(proveedorKey)) return true;
-    return false;
-  }
-
-  List<VentaUnificadaModel> _ventasFiltradas(
+  List<String> _opcionesProveedor(
     List<VentaUnificadaModel> ventas,
-    String? currentUserId,
+    Map<String, String?> proveedorPorProducto,
   ) {
-    return ventas
-        .where((v) => _ventaPasaFiltroVendedor(v, currentUserId))
-        .toList();
-  }
-
-  List<ProductoVendidoItem> _itemsHistoricos(
-    List<VentaUnificadaModel> ventasFiltradas,
-    Map<String, String?> proveedorByProducto,
-  ) {
-    final list = <ProductoVendidoItem>[];
-    for (final v in ventasFiltradas) {
+    final set = <String>{};
+    for (final v in ventas) {
       for (final p in v.productos) {
-        final prov = proveedorByProducto[p.productoTiendaId];
-        final provKey = (prov == null || prov.isEmpty) ? null : prov;
-        if (!_productoPasaFiltroProveedor(provKey)) continue;
-        list.add(ProductoVendidoItem(
-          productoTiendaId: p.productoTiendaId,
-          nombre: p.name ?? 'Producto',
-          cantidad: p.cantidad,
-          precio: p.precio,
-          total: p.precio * p.cantidad,
-          ventaCreatedAtMs: v.createdAtMs,
-          syncState: v.syncState,
-          proveedorKey: provKey,
-        ));
+        final prov = proveedorPorProducto[p.productoTiendaId];
+        if (prov != null && prov.isNotEmpty) set.add(prov);
       }
     }
-    list.sort((a, b) => b.ventaCreatedAtMs.compareTo(a.ventaCreatedAtMs));
-    return list;
+    final list = set.toList()..sort();
+    return [kFiltroTodos, kFiltroPropios, ...list];
   }
 
-  List<ProductoVendidoAgrupado> _itemsAgrupados(
-    List<VentaUnificadaModel> ventasFiltradas,
-    Map<String, String?> proveedorByProducto,
-  ) {
-    final map = <String, ProductoVendidoAgrupado>{};
-    for (final v in ventasFiltradas) {
-      for (final p in v.productos) {
-        final prov = proveedorByProducto[p.productoTiendaId];
-        final provKey = (prov == null || prov.isEmpty) ? null : prov;
-        if (!_productoPasaFiltroProveedor(provKey)) continue;
-        final id = p.productoTiendaId;
-        final total = p.precio * p.cantidad;
-        if (map.containsKey(id)) {
-          final existing = map[id]!;
-          map[id] = ProductoVendidoAgrupado(
-            productoTiendaId: id,
-            nombre: existing.nombre,
-            cantidad: existing.cantidad + p.cantidad,
-            precioUnitario: p.precio,
-            total: existing.total + total,
-            ultimaVentaMs: existing.ultimaVentaMs > v.createdAtMs
-                ? existing.ultimaVentaMs
-                : v.createdAtMs,
-          );
-        } else {
-          map[id] = ProductoVendidoAgrupado(
-            productoTiendaId: id,
-            nombre: p.name ?? 'Producto',
-            cantidad: p.cantidad,
-            precioUnitario: p.precio,
-            total: total,
-            ultimaVentaMs: v.createdAtMs,
-          );
-        }
-      }
+  /// Cuántos filtros están acotando la vista. Alimenta el badge del botón de
+  /// filtros: sin él, un filtro activo escondido en una hoja es invisible.
+  int get _filtrosActivos {
+    var n = 0;
+    if (!(_vendedores.isEmpty || _vendedores.contains(kFiltroTodos))) n++;
+    if (!(_proveedores.isEmpty || _proveedores.contains(kFiltroTodos))) n++;
+    return n;
+  }
+
+  String _textoAlcance(Map<String, String> opcionesVendedor) {
+    final miId = context.read<AuthProvider>().usuario?.id;
+
+    String vendedor;
+    if (_vendedores.isEmpty || _vendedores.contains(kFiltroTodos)) {
+      vendedor = 'Todas las ventas';
+    } else if (_vendedores.length == 1) {
+      final id = _vendedores.first;
+      vendedor = id == miId
+          ? 'Tus ventas'
+          : (opcionesVendedor[id] ?? 'Un vendedor');
+    } else {
+      vendedor = '${_vendedores.length} vendedores';
     }
-    final list = map.values.toList();
-    list.sort((a, b) => b.ultimaVentaMs.compareTo(a.ultimaVentaMs));
-    return list;
-  }
 
-  /// Total vendido solo de ítems que pasan el filtro de proveedor.
-  double _totalVendido(
-    List<VentaUnificadaModel> ventasFiltradas,
-    Map<String, String?> proveedorByProducto,
-  ) {
-    var total = 0.0;
-    for (final v in ventasFiltradas) {
-      for (final p in v.productos) {
-        if (!_productoPasaFiltroProveedor(proveedorByProducto[p.productoTiendaId])) continue;
-        total += p.precio * p.cantidad;
-      }
+    String proveedor;
+    if (_proveedores.isEmpty || _proveedores.contains(kFiltroTodos)) {
+      proveedor = 'todos los proveedores';
+    } else if (_proveedores.length == 1) {
+      final k = _proveedores.first;
+      proveedor = k == kFiltroPropios ? 'productos propios' : k;
+    } else {
+      proveedor = '${_proveedores.length} proveedores';
     }
-    return total;
+
+    return '$vendedor · $proveedor';
   }
 
-  /// Transferencias por destino: solo ventas que tienen al menos un ítem que pasa el filtro de proveedor.
-  Map<String, double> _transferenciasPorDestino(
-    List<VentaUnificadaModel> ventasFiltradas,
-    Map<String, String?> proveedorByProducto,
-  ) {
-    final map = <String, double>{};
-    for (final v in ventasFiltradas) {
-      final tieneAlguno = v.productos.any((p) =>
-          _productoPasaFiltroProveedor(proveedorByProducto[p.productoTiendaId]));
-      if (!tieneAlguno || v.totaltransfer <= 0) continue;
-      final id = v.transferDestinationId ?? '_sin_destino_';
-      map[id] = (map[id] ?? 0) + v.totaltransfer;
-    }
-    return map;
-  }
-
-  void _initDefaultVendedor(List<VentaUnificadaModel> ventas, String? currentUserId) {
-    if (_selectedVendedores.isNotEmpty) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        if (currentUserId != null) {
-          _selectedVendedores = {currentUserId};
-        } else {
-          _selectedVendedores = {_kFilterTodos};
-        }
-      });
-    });
-  }
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final colors = context.colors;
     final ventasProvider = context.watch<VentasProvider>();
     final productosProvider = context.watch<ProductosProvider>();
+
     final ventas = ventasProvider.ventasUnificado;
-    final currentUser = auth.usuario;
-    final currentUserId = currentUser?.id;
-    final currentUserNombre = currentUser?.nombre ?? 'Yo';
+    final miId = context.read<AuthProvider>().usuario?.id;
+    final proveedorPorProducto =
+        ProductosVendidosAgregacion.proveedorPorProducto(
+          productosProvider.allProductos,
+        );
 
-    if (_selectedVendedores.isEmpty && ventas.isNotEmpty) {
-      _initDefaultVendedor(ventas, currentUserId);
-    }
+    final filtradas = ProductosVendidosAgregacion.ventasFiltradas(
+      ventas,
+      _vendedores,
+      miId,
+    );
+    final resumen = ProductosVendidosAgregacion.resumen(
+      filtradas,
+      proveedorPorProducto,
+      _proveedores,
+    );
 
-    final ventasFiltradas = _ventasFiltradas(ventas, currentUserId);
-    final proveedorByProducto = _proveedorByProducto(productosProvider.allProductos);
+    final agrupados = _vista == VistaProductosVendidos.agrupada
+        ? ProductosVendidosAgregacion.agrupados(
+            filtradas,
+            proveedorPorProducto,
+            _proveedores,
+            orden: _orden,
+          )
+        : const <ProductoVendidoAgrupado>[];
+    final historicos = _vista == VistaProductosVendidos.historica
+        ? ProductosVendidosAgregacion.historicos(
+            filtradas,
+            proveedorPorProducto,
+            _proveedores,
+          )
+        : const <ProductoVendidoItem>[];
 
-    final totalVendido = _totalVendido(ventasFiltradas, proveedorByProducto);
-    final transferPorDestino = _transferenciasPorDestino(ventasFiltradas, proveedorByProducto);
-    final totalTransferencia = transferPorDestino.values.fold<double>(0, (s, v) => s + v);
-
-    final vendedoresOptions = <String, String>{};
-    if (currentUserId != null) {
-      vendedoresOptions[currentUserId] = currentUserNombre;
-    }
-    for (final v in ventas) {
-      final id = v.usuarioId;
-      final name = v.usuarioNombre ?? 'Sin nombre';
-      if (id != null && id.isNotEmpty) {
-        vendedoresOptions[id] = name;
-      }
-    }
-
-    final proveedoresOptions = <String>{_kFilterTodos, _kFilterPropios};
-    for (final v in ventasFiltradas) {
-      for (final p in v.productos) {
-        final prov = proveedorByProducto[p.productoTiendaId];
-        if (prov != null && prov.isNotEmpty) proveedoresOptions.add(prov);
-      }
-    }
-    final proveedoresList = proveedoresOptions.toList()..sort((a, b) {
-      if (a == _kFilterTodos) return -1;
-      if (b == _kFilterTodos) return 1;
-      if (a == _kFilterPropios) return -1;
-      if (b == _kFilterPropios) return 1;
-      return a.compareTo(b);
-    });
-
-    // Ocultar total transferencia y por destino solo cuando el filtro de proveedor
-    // es restrictivo (no "Todos" ni todos los proveedores seleccionados uno por uno).
-    final opcionesProveedorSinTodos = proveedoresList.where((x) => x != _kFilterTodos).toList();
-    final todosProveedoresSeleccionadosUnoPorUno = opcionesProveedorSinTodos.isNotEmpty &&
-        opcionesProveedorSinTodos.every((k) => _selectedProveedores.contains(k));
-    final mostrarTransferenciaYDestinos = _selectedProveedores.contains(_kFilterTodos) ||
-        todosProveedoresSeleccionadosUnoPorUno;
-    final filtroProveedorRestrictivo = !mostrarTransferenciaYDestinos;
-
-    final itemsHistoricos = _vista == VistaProductosVendidos.historica
-        ? _itemsHistoricos(ventasFiltradas, proveedorByProducto)
-        : <ProductoVendidoItem>[];
-    final itemsAgrupados = _vista == VistaProductosVendidos.agrupada
-        ? _itemsAgrupados(ventasFiltradas, proveedorByProducto)
-        : <ProductoVendidoAgrupado>[];
+    final vacia = _vista == VistaProductosVendidos.agrupada
+        ? agrupados.isEmpty
+        : historicos.isEmpty;
+    final precioMedio =
+        _vista == VistaProductosVendidos.agrupada &&
+        agrupados.any((p) => p.preciosDistintos);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Productos Vendidos'),
+        title: const Text('Productos vendidos'),
+        actions: [
+          IconButton(
+            onPressed: () => _abrirFiltros(ventas, proveedorPorProducto),
+            tooltip: 'Filtros',
+            icon: BadgedIcon(
+              pendingCount: _filtrosActivos,
+              semanticsLabel: _filtrosActivos > 0
+                  ? '$_filtrosActivos filtro${_filtrosActivos == 1 ? '' : 's'} activo${_filtrosActivos == 1 ? '' : 's'}'
+                  : null,
+              child: const Icon(Icons.filter_list),
+            ),
+          ),
+        ],
       ),
-      body: ventasProvider.isLoadingVentas
+      body: ventasProvider.isLoadingVentas && ventas.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () async {
                 await _load();
                 await _resolveTransferNames();
               },
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildTotales(
-                    totalVendido,
-                    totalTransferencia,
-                    transferPorDestino,
-                    filtroProveedorRestrictivo,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _AlcanceHeader(
+                      background: colors.page,
+                      extent:
+                          MediaQuery.textScalerOf(context).scale(13) * 2.4 + 20,
+                      child: _buildAlcance(
+                        _opcionesVendedor(ventas),
+                        () => _abrirFiltros(ventas, proveedorPorProducto),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  _buildFiltroVendedor(vendedoresOptions, currentUserId),
-                  const SizedBox(height: 12),
-                  _buildFiltroProveedor(proveedoresList),
-                  const SizedBox(height: 12),
-                  _buildFiltroVista(),
-                  const SizedBox(height: 16),
-                  if (_vista == VistaProductosVendidos.agrupada)
-                    _buildTablaAgrupada(itemsAgrupados)
-                  else
-                    _buildTablaHistorica(itemsHistoricos),
+                  SliverToBoxAdapter(child: _buildResumen(resumen)),
+                  SliverToBoxAdapter(child: _buildControles()),
+                  if (vacia)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _buildEmpty(ventas.isEmpty),
+                    )
+                  else ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(AppRadius.md),
+                          ),
+                          child: DataTableHeader(
+                            columns: _columnas(precioMedio: precioMedio),
+                          ),
+                        ),
+                      ),
+                    ),
+                    _vista == VistaProductosVendidos.agrupada
+                        ? _buildFilasAgrupadas(agrupados, precioMedio)
+                        : _buildFilasHistoricas(historicos),
+                    const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                  ],
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildTotales(
-    double totalVendido,
-    double totalTransferencia,
-    Map<String, double> transferPorDestino,
-    bool filtroProveedorRestrictivo,
-  ) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              filtroProveedorRestrictivo ? 'Totales (según filtro proveedor)' : 'Totales',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
+  /// La columna de precio se rotula "P. medio" en cuanto algún producto de la
+  /// lista se vendió a más de un precio: llamarla "Precio" ahí invitaría a
+  /// multiplicarla por la cantidad y no cuadraría con el total.
+  List<TableColumn> _columnas({bool precioMedio = false}) {
+    return [
+      const TableColumn('Cant.', width: 56, align: TableAlign.end),
+      TableColumn(
+        precioMedio ? 'P. medio' : 'Precio',
+        flex: 1,
+        align: TableAlign.end,
+      ),
+      const TableColumn('Total', width: 104, align: TableAlign.end),
+    ];
+  }
+
+  // ── Alcance ────────────────────────────────────────────────────────────────
+
+  Widget _buildAlcance(Map<String, String> opciones, VoidCallback onCambiar) {
+    final colors = context.colors;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 4, 0),
+      child: Row(
+        children: [
+          Icon(Icons.tune, size: 16, color: colors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _textoAlcance(opciones),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodyMedium!.copyWith(color: colors.textSecondary),
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Total vendido:', style: TextStyle(fontSize: 15)),
-                Text(
-                  Formatters.formatCurrency(totalVendido),
-                  style: tabularNums(TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: context.colors.accent,
-                  )),
-                ),
-              ],
-            ),
-            if (!filtroProveedorRestrictivo) ...[
-              const SizedBox(height: 8),
+          ),
+          TextButton(onPressed: onCambiar, child: const Text('Cambiar')),
+        ],
+      ),
+    );
+  }
+
+  // ── Resumen ────────────────────────────────────────────────────────────────
+
+  Widget _buildResumen(ResumenVendido r) {
+    final colors = context.colors;
+    final text = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text('Total en transferencia:', style: TextStyle(fontSize: 15)),
-                  Text(
-                    Formatters.formatCurrency(totalTransferencia),
-                    style: tabularNums(const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    )),
+                  Text('Total vendido', style: text.bodyLarge),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        Formatters.formatCurrency(r.totalVendido),
+                        style: tabularNums(
+                          text.titleLarge!.copyWith(color: colors.accent),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
+              const SizedBox(height: 4),
+              Text(
+                '${Formatters.formatCantidad(r.unidades)} '
+                '${r.unidades == 1 ? 'unidad' : 'unidades'} · '
+                '${r.productosDistintos} '
+                '${r.productosDistintos == 1 ? 'producto' : 'productos'}',
+                style: text.bodySmall!.copyWith(color: colors.textSecondary),
+              ),
+              if (r.desglosePagoDisponible) ...[
+                const Divider(height: 20),
+                _FilaTotal(label: 'Efectivo', valor: r.efectivo),
+                _FilaTotal(label: 'Transferencia', valor: r.transferencia),
+                if (r.descuentos > 0)
+                  _FilaTotal(label: 'Descuentos', valor: -r.descuentos),
+                ...r.transferenciaPorDestino.entries.map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 2),
+                    child: _FilaTotal(
+                      label: e.key == kSinDestino
+                          ? '· Sin destino'
+                          : '· ${_destinos[e.key] ?? e.key}',
+                      valor: e.value,
+                      secundaria: true,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                _Nota(
+                  icon: Icons.info_outline,
+                  tone: colors.textSecondary,
+                  texto:
+                      'Con un filtro de proveedor activo no se puede repartir '
+                      'el pago: cada venta puede mezclar proveedores.',
+                ),
+              ],
+              if (r.ventasConError > 0 || r.ventasSinSubir > 0) ...[
+                const SizedBox(height: 10),
+                _Nota(
+                  icon: Icons.cloud_off,
+                  tone: r.ventasConError > 0 ? colors.negative : colors.caution,
+                  texto:
+                      '${[if (r.ventasConError > 0) '${r.ventasConError} venta${r.ventasConError == 1 ? '' : 's'} con error', if (r.ventasSinSubir > 0) '${r.ventasSinSubir} venta${r.ventasSinSubir == 1 ? '' : 's'} sin subir'].join(' · ')} están incluidas en estos totales.',
+                ),
+              ],
             ],
-            if (!filtroProveedorRestrictivo && transferPorDestino.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              const Text(
-                'Transferencias por destino',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Controles de vista y orden ─────────────────────────────────────────────
+
+  Widget _buildControles() {
+    // `Wrap` y no `Row`: con la letra del sistema ampliada los dos chips y el
+    // selector de orden no caben en una línea, y pasar a dos es mejor que
+    // esconder la mitad en un scroll horizontal.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          AppChoiceChip(
+            label: 'Agrupada',
+            selected: _vista == VistaProductosVendidos.agrupada,
+            onTap: () =>
+                setState(() => _vista = VistaProductosVendidos.agrupada),
+          ),
+          AppChoiceChip(
+            label: 'Histórica',
+            selected: _vista == VistaProductosVendidos.historica,
+            onTap: () =>
+                setState(() => _vista = VistaProductosVendidos.historica),
+          ),
+          if (_vista == VistaProductosVendidos.agrupada)
+            PopupMenuButton<OrdenProductosVendidos>(
+              tooltip: 'Ordenar',
+              initialValue: _orden,
+              onSelected: (o) => setState(() => _orden = o),
+              itemBuilder: (_) => [
+                for (final o in OrdenProductosVendidos.values)
+                  PopupMenuItem(value: o, child: Text(o.label)),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 12,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _orden.label,
+                      style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                        color: context.colors.accent,
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_drop_down,
+                      size: 20,
+                      color: context.colors.accent,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
-              ...transferPorDestino.entries.map((e) {
-                final nombre = e.key == '_sin_destino_'
-                    ? 'Sin destino'
-                    : (_transferDestinationNames[e.key] ?? e.key);
-                return Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(nombre, style: TextStyle(fontSize: 13, color: context.colors.textSecondary)),
-                      Text(
-                        Formatters.formatCurrency(e.value),
-                        style: tabularNums(const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        )),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildFiltroVendedor(
-    Map<String, String> vendedoresOptions,
-    String? currentUserId,
+  // ── Filas ──────────────────────────────────────────────────────────────────
+
+  Widget _buildFilasAgrupadas(
+    List<ProductoVendidoAgrupado> items,
+    bool precioMedio,
   ) {
-    final isTodos = _selectedVendedores.isEmpty || _selectedVendedores.contains(_kFilterTodos);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Vendido por',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _FilterChip(
-              label: 'Todos',
-              selected: isTodos,
-              onTap: () => setState(() => _selectedVendedores = {_kFilterTodos}),
-            ),
-            ...vendedoresOptions.entries.map((e) {
-              final selected = _selectedVendedores.contains(e.key);
-              return _FilterChip(
-                label: e.value,
-                selected: selected,
-                onTap: () => setState(() {
-                  if (selected) {
-                    _selectedVendedores = _selectedVendedores.difference({e.key});
-                    if (_selectedVendedores.isEmpty) _selectedVendedores = {_kFilterTodos};
-                  } else {
-                    _selectedVendedores = _selectedVendedores.difference({_kFilterTodos});
-                    _selectedVendedores = {..._selectedVendedores, e.key};
-                  }
-                }),
-              );
-            }),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFiltroProveedor(List<String> proveedoresList) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Proveedor',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: proveedoresList.map((key) {
-            final label = key == _kFilterTodos
-                ? 'Todos'
-                : key == _kFilterPropios
-                    ? 'Propios'
-                    : key;
-            final selected = _selectedProveedores.contains(key);
-            return _FilterChip(
-              label: label,
-              selected: selected,
-              onTap: () => setState(() {
-                if (key == _kFilterTodos) {
-                  if (selected) {
-                    _selectedProveedores = _selectedProveedores.difference({key});
-                    if (_selectedProveedores.isEmpty) _selectedProveedores = {_kFilterTodos};
-                  } else {
-                    _selectedProveedores = {_kFilterTodos};
-                  }
-                } else {
-                  _selectedProveedores = _selectedProveedores.difference({_kFilterTodos});
-                  if (selected) {
-                    _selectedProveedores = _selectedProveedores.difference({key});
-                    if (_selectedProveedores.isEmpty) _selectedProveedores = {_kFilterTodos};
-                  } else {
-                    _selectedProveedores = {..._selectedProveedores, key};
-                  }
-                }
-              }),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFiltroVista() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Vista',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            _VistaChip(
-              label: 'Agrupada',
-              selected: _vista == VistaProductosVendidos.agrupada,
-              onTap: () => setState(() => _vista = VistaProductosVendidos.agrupada),
-            ),
-            const SizedBox(width: 8),
-            _VistaChip(
-              label: 'Histórica',
-              selected: _vista == VistaProductosVendidos.historica,
-              onTap: () => setState(() => _vista = VistaProductosVendidos.historica),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTablaAgrupada(List<ProductoVendidoAgrupado> items) {
-    if (items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            'No hay productos que coincidan con los filtros',
-            style: TextStyle(color: context.colors.textSecondary),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-    return Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: context.colors.accentWash,
-            child: Row(
-              children: [
-                const SizedBox(width: 4),
-                SizedBox(
-                  width: 52,
-                  child: Text(
-                    'Cant.',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
+    final columnas = _columnas(precioMedio: precioMedio);
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      sliver: SliverList.builder(
+        itemCount: items.length,
+        itemBuilder: (context, i) {
+          final p = items[i];
+          final cantidad = Formatters.formatCantidad(p.cantidad);
+          return _EnvoltorioFila(
+            primera: i == 0,
+            ultima: i == items.length - 1,
+            child: DataTableRow(
+              columns: columnas,
+              title: _NombreProducto(nombre: p.nombre, proveedor: p.proveedor),
+              semanticsLabel:
+                  '${p.nombre}. $cantidad unidades. '
+                  'Total ${Formatters.formatCurrency(p.total)}.',
+              cells: [
+                _Cifra(cantidad),
+                _Cifra(
+                  Formatters.formatCurrency(p.precioUnitario),
+                  // Cuando el producto se vendió a varios precios, este es un
+                  // promedio: decirlo evita que el cajero lo lea como "el
+                  // precio" y no le cuadre con el total.
+                  sufijo: p.preciosDistintos ? 'medio' : null,
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Precio',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 92,
-                  child: Text(
-                    'Total',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
-                ),
+                _Cifra(Formatters.formatCurrency(p.total), destacada: true),
               ],
             ),
-          ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = items[index];
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      p.nombre,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const SizedBox(width: 4),
-                        SizedBox(
-                          width: 52,
-                          child: Text(
-                            Formatters.formatNumber(
-                              p.cantidad,
-                              decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
-                            ),
-                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            Formatters.formatCurrency(p.precioUnitario),
-                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 92,
-                          child: Text(
-                            Formatters.formatCurrency(p.total),
-                            style: tabularNums(const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            )),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildTablaHistorica(List<ProductoVendidoItem> items) {
-    if (items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            'No hay productos que coincidan con los filtros',
-            style: TextStyle(color: context.colors.textSecondary),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-    return Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: context.colors.accentWash,
-            child: Row(
-              children: [
-                const SizedBox(width: 4),
-                SizedBox(
-                  width: 52,
-                  child: Text(
-                    'Cant.',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Precio',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 92,
-                  child: Text(
-                    'Total',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: context.colors.accent,
-                    ),
-                  ),
-                ),
+  Widget _buildFilasHistoricas(List<ProductoVendidoItem> items) {
+    final columnas = _columnas();
+    final colors = context.colors;
+    final text = Theme.of(context).textTheme;
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      sliver: SliverList.builder(
+        itemCount: items.length,
+        itemBuilder: (context, i) {
+          final p = items[i];
+          final fecha = DateTime.fromMillisecondsSinceEpoch(p.ventaCreatedAtMs);
+          final cantidad = Formatters.formatCantidad(p.cantidad);
+          return _EnvoltorioFila(
+            primera: i == 0,
+            ultima: i == items.length - 1,
+            child: DataTableRow(
+              columns: columnas,
+              title: _NombreProducto(nombre: p.nombre, proveedor: p.proveedor),
+              semanticsLabel:
+                  '${p.nombre}. $cantidad unidades. '
+                  'Total ${Formatters.formatCurrency(p.total)}. '
+                  '${Formatters.formatDateTime(fecha)}. '
+                  '${SyncStateLabels.label(p.syncState)}.',
+              cells: [
+                _Cifra(cantidad),
+                _Cifra(Formatters.formatCurrency(p.precio)),
+                _Cifra(Formatters.formatCurrency(p.total), destacada: true),
               ],
-            ),
-          ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = items[index];
-              final date = DateTime.fromMillisecondsSinceEpoch(p.ventaCreatedAtMs);
-              final syncIcon = p.syncState == SyncState.synced
-                  ? Icons.cloud_done
-                  : p.syncState == SyncState.error
-                      ? Icons.cloud_off
-                      : p.syncState == SyncState.syncing
-                          ? Icons.cloud_sync
-                          : Icons.cloud_queue;
-              final syncColor = p.syncState == SyncState.synced
-                  ? context.colors.positive
-                  : p.syncState == SyncState.error
-                      ? context.colors.negative
-                      : context.colors.info;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      p.nombre,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 15,
+              footer: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Text(
+                      Formatters.formatDateTime(fecha),
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodySmall!.copyWith(
+                        color: colors.textSecondary,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const SizedBox(width: 4),
-                        SizedBox(
-                          width: 52,
-                          child: Text(
-                            Formatters.formatNumber(
-                              p.cantidad,
-                              decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
-                            ),
-                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            Formatters.formatCurrency(p.precio),
-                            style: tabularNums(TextStyle(fontSize: 13, color: context.colors.textSecondary)),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 92,
-                          child: Text(
-                            Formatters.formatCurrency(p.total),
-                            style: tabularNums(const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            )),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          Formatters.formatDateTime(date),
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: context.colors.textSecondary,
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(syncIcon, size: 18, color: syncColor),
-                            const SizedBox(width: 4),
-                            Text(
-                              p.syncState == SyncState.synced
-                                  ? 'Sincronizado'
-                                  : p.syncState == SyncState.pending
-                                      ? 'Pendiente'
-                                      : p.syncState == SyncState.error
-                                          ? 'Error'
-                                          : 'Sincronizando',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: syncColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
+                  const SizedBox(width: 8),
+                  SyncStateChip(p.syncState, showIcon: true),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmpty(bool periodoVacio) {
+    if (periodoVacio) {
+      return const EmptyState(
+        icon: Icons.shopping_bag_outlined,
+        title: 'Todavía no hay ventas en este período',
+        message: 'Lo que vendas aparecerá aquí, agrupado por producto.',
+      );
+    }
+    return EmptyState(
+      icon: Icons.filter_alt_off_outlined,
+      title: 'Ningún producto con estos filtros',
+      message: _textoAlcance(const {}),
+      action: OutlinedButton(
+        onPressed: () => setState(() {
+          _vendedores = {kFiltroTodos};
+          _proveedores = {kFiltroTodos};
+        }),
+        child: const Text('Quitar filtros'),
+      ),
+    );
+  }
+
+  // ── Hoja de filtros ────────────────────────────────────────────────────────
+
+  Future<void> _abrirFiltros(
+    List<VentaUnificadaModel> ventas,
+    Map<String, String?> proveedorPorProducto,
+  ) async {
+    final resultado = await showModalBottomSheet<(Set<String>, Set<String>)>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _FiltrosSheet(
+        vendedores: _vendedores,
+        proveedores: _proveedores,
+        opcionesVendedor: _opcionesVendedor(ventas),
+        opcionesProveedor: _opcionesProveedor(ventas, proveedorPorProducto),
+      ),
+    );
+    if (resultado == null || !mounted) return;
+    setState(() {
+      _vendedores = resultado.$1;
+      _proveedores = resultado.$2;
+    });
+  }
+}
+
+// ── Widgets de apoyo ─────────────────────────────────────────────────────────
+
+/// Da a las filas el marco que antes ponía la `Card`: fondo, borde y esquinas
+/// redondeadas sólo en los extremos. Va fila a fila porque la lista es un
+/// `SliverList` —una tabla de cientos de filas no puede construirse entera
+/// dentro de una tarjeta.
+class _EnvoltorioFila extends StatelessWidget {
+  final bool primera;
+  final bool ultima;
+  final Widget child;
+
+  const _EnvoltorioFila({
+    required this.primera,
+    required this.ultima,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final radio = Radius.circular(AppRadius.md);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.raised,
+        border: Border(
+          left: BorderSide(color: colors.border),
+          right: BorderSide(color: colors.border),
+          bottom: BorderSide(color: colors.border),
+        ),
+        borderRadius: BorderRadius.vertical(
+          bottom: ultima ? radio : Radius.zero,
+        ),
+      ),
+      child: Column(children: [if (!primera) const Divider(height: 1), child]),
+    );
+  }
+}
+
+class _NombreProducto extends StatelessWidget {
+  final String nombre;
+  final String? proveedor;
+
+  const _NombreProducto({required this.nombre, this.proveedor});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          nombre,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: text.titleMedium,
+        ),
+        if (proveedor != null && proveedor!.isNotEmpty)
+          Text(
+            proveedor!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodySmall!.copyWith(color: colors.textSecondary),
+          ),
+      ],
+    );
+  }
+}
+
+/// Una cifra de tabla: `tabularNums` y encogible, para que un importe largo se
+/// achique en vez de desbordar cuando la letra del sistema está ampliada.
+class _Cifra extends StatelessWidget {
+  final String valor;
+  final bool destacada;
+  final String? sufijo;
+
+  const _Cifra(this.valor, {this.destacada = false, this.sufijo});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final colors = context.colors;
+    final estilo = destacada
+        ? text.titleMedium!
+        : text.bodyMedium!.copyWith(color: colors.textSecondary);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: Text(valor, style: tabularNums(estilo)),
+        ),
+        if (sufijo != null)
+          Text(
+            sufijo!,
+            style: text.labelSmall!.copyWith(color: colors.textSecondary),
+          ),
+      ],
+    );
+  }
+}
+
+class _FilaTotal extends StatelessWidget {
+  final String label;
+  final double valor;
+  final bool secundaria;
+
+  const _FilaTotal({
+    required this.label,
+    required this.valor,
+    this.secundaria = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final colors = context.colors;
+    final estilo = secundaria
+        ? text.bodyMedium!.copyWith(color: colors.textSecondary)
+        : text.bodyLarge!;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Flexible(
+            child: Text(label, overflow: TextOverflow.ellipsis, style: estilo),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                Formatters.formatCurrency(valor),
+                style: tabularNums(
+                  estilo.copyWith(
+                    fontWeight: secundaria ? FontWeight.w500 : FontWeight.w600,
+                  ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ],
       ),
@@ -863,66 +744,212 @@ class _ProductosVendidosScreenState extends State<ProductosVendidosScreen> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+class _Nota extends StatelessWidget {
+  final IconData icon;
+  final Color tone;
+  final String texto;
 
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
+  const _Nota({required this.icon, required this.tone, required this.texto});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-      // El chip seleccionado va relleno con `accent` y etiqueta `onAccent`: el
-      // `accentWash` es casi blanco en el tema claro y dejaba la etiqueta
-      // (blanca por `secondaryLabelStyle` del tema) ilegible.
-      backgroundColor: colors.sunken,
-      selectedColor: colors.accent,
-      checkmarkColor: colors.onAccent,
-      labelStyle: TextStyle(
-        fontSize: 13,
-        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-        color: selected ? colors.onAccent : colors.textPrimary,
-      ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(icon, size: 14, color: tone),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            texto,
+            style: Theme.of(context).textTheme.bodySmall!.copyWith(color: tone),
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// Selector de vista (Agrupada / Histórica). Mismo criterio de contraste que
-/// [_FilterChip]: seleccionado = relleno `accent` + etiqueta `onAccent`.
-class _VistaChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// Cabecera pegajosa con el alcance de los datos.
+///
+/// Es la respuesta al problema de fondo de esta pantalla: el filtro de vendedor
+/// arranca acotado a las ventas propias y antes no había forma de saberlo, así
+/// que "Total vendido" se leía como el total de la tienda.
+class _AlcanceHeader extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final double extent;
+  final Color background;
 
-  const _VistaChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
+  const _AlcanceHeader({
+    required this.child,
+    required this.extent,
+    required this.background,
   });
 
   @override
+  double get minExtent => extent;
+
+  @override
+  double get maxExtent => extent;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      color: background,
+      height: extent,
+      alignment: Alignment.centerLeft,
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_AlcanceHeader old) =>
+      old.child != child ||
+      old.extent != extent ||
+      old.background != background;
+}
+
+/// Hoja de filtros. Saca del cuerpo de la pantalla los ~300px de chips que
+/// dejaban la primera fila de datos por debajo del pliegue.
+class _FiltrosSheet extends StatefulWidget {
+  final Set<String> vendedores;
+  final Set<String> proveedores;
+  final Map<String, String> opcionesVendedor;
+  final List<String> opcionesProveedor;
+
+  const _FiltrosSheet({
+    required this.vendedores,
+    required this.proveedores,
+    required this.opcionesVendedor,
+    required this.opcionesProveedor,
+  });
+
+  @override
+  State<_FiltrosSheet> createState() => _FiltrosSheetState();
+}
+
+class _FiltrosSheetState extends State<_FiltrosSheet> {
+  late Set<String> _vendedores = {...widget.vendedores};
+  late Set<String> _proveedores = {...widget.proveedores};
+
+  /// Alterna una opción dentro de un filtro que tiene un "Todos" exclusivo:
+  /// elegir cualquier otra lo apaga, y quedarse sin ninguna vuelve a "Todos".
+  Set<String> _alternar(Set<String> actual, String key) {
+    if (key == kFiltroTodos) return {kFiltroTodos};
+    final next = {...actual}..remove(kFiltroTodos);
+    if (next.contains(key)) {
+      next.remove(key);
+    } else {
+      next.add(key);
+    }
+    return next.isEmpty ? {kFiltroTodos} : next;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-      showCheckmark: false,
-      backgroundColor: colors.sunken,
-      selectedColor: colors.accent,
-      labelStyle: TextStyle(
-        fontSize: 13,
-        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-        color: selected ? colors.onAccent : colors.textPrimary,
+    final text = Theme.of(context).textTheme;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(child: Text('Filtros', style: text.titleLarge)),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _vendedores = {kFiltroTodos};
+                      _proveedores = {kFiltroTodos};
+                    }),
+                    child: const Text('Limpiar'),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Vendido por', style: text.titleMedium),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        AppFilterChip(
+                          label: 'Todos',
+                          selected:
+                              _vendedores.contains(kFiltroTodos) ||
+                              _vendedores.isEmpty,
+                          onTap: () =>
+                              setState(() => _vendedores = {kFiltroTodos}),
+                        ),
+                        ...widget.opcionesVendedor.entries.map(
+                          (e) => AppFilterChip(
+                            label: e.value,
+                            selected: _vendedores.contains(e.key),
+                            onTap: () => setState(
+                              () => _vendedores = _alternar(_vendedores, e.key),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text('Proveedor', style: text.titleMedium),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: widget.opcionesProveedor.map((key) {
+                        final label = switch (key) {
+                          kFiltroTodos => 'Todos',
+                          kFiltroPropios => 'Productos propios',
+                          _ => key,
+                        };
+                        return AppFilterChip(
+                          label: label,
+                          selected: _proveedores.contains(key),
+                          onTap: () => setState(
+                            () => _proveedores = _alternar(_proveedores, key),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(AppTapTarget.min),
+                  ),
+                  onPressed: () =>
+                      Navigator.pop(context, (_vendedores, _proveedores)),
+                  child: const Text('Aplicar'),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

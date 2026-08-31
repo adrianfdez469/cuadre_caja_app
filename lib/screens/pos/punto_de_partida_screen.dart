@@ -1,16 +1,26 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_tokens.dart';
 import '../../core/di/injection.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/utils/search_text.dart';
 import '../../data/datasources/remote/resumen_dia_remote_datasource.dart';
 import '../../data/models/resumen_dia_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/periodo_provider.dart';
+import '../../widgets/app_filter_chip.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/stat_tile.dart';
 
 class PuntoDePartidaScreen extends StatefulWidget {
-  const PuntoDePartidaScreen({super.key});
+  /// Sólo para tests: en la app real se construye sobre `injection.apiClient`.
+  /// Sin esta costura la pantalla no se puede montar en un widget test, porque
+  /// pediría el resumen a la red en su `initState`.
+  final ResumenDiaRemoteDataSource? datasource;
+
+  const PuntoDePartidaScreen({super.key, this.datasource});
 
   @override
   State<PuntoDePartidaScreen> createState() => _PuntoDePartidaScreenState();
@@ -34,7 +44,8 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   @override
   void initState() {
     super.initState();
-    _datasource = ResumenDiaRemoteDataSource(injection.apiClient);
+    _datasource =
+        widget.datasource ?? ResumenDiaRemoteDataSource(injection.apiClient);
     WidgetsBinding.instance.addPostFrameCallback((_) => _fetchData());
   }
 
@@ -65,7 +76,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
         cierreId: periodo.periodoId!,
         soloConMovimientos: !fetchTodos,
       );
-
+      if (!mounted) return;
       setState(() {
         if (fetchTodos) {
           _resumenTodos = result;
@@ -75,51 +86,56 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _error = _parseError(e);
+        _error = _mensajeDeError(e);
       });
     }
   }
 
-  String _parseError(Object e) {
-    final msg = e.toString().toLowerCase();
-    if (msg.contains('socketexception') ||
-        msg.contains('failed host lookup') ||
-        msg.contains('connection') ||
-        msg.contains('network') ||
-        msg.contains('handshake') ||
-        msg.contains('timeout')) {
-      return 'Sin conexión a internet. Revisa tu WiFi o datos móviles.';
+  /// Traduce el fallo a algo accionable.
+  ///
+  /// Antes se adivinaba buscando subcadenas dentro de `e.toString()`, que
+  /// dependía del texto de la excepción: aquí se mira el tipo real que lanza
+  /// el cliente HTTP.
+  String _mensajeDeError(Object e) {
+    if (e is! DioException) return 'Error al cargar datos. Inténtalo de nuevo.';
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'La conexión tardó demasiado. Inténtalo de nuevo.';
+      case DioExceptionType.connectionError:
+      case DioExceptionType.unknown:
+        return 'Sin conexión a internet. Revisa tu WiFi o datos móviles.';
+      case DioExceptionType.badCertificate:
+        return 'No se pudo verificar la conexión con el servidor.';
+      case DioExceptionType.cancel:
+        return 'La consulta se canceló.';
+      case DioExceptionType.badResponse:
+        return switch (e.response?.statusCode) {
+          400 => 'El período activo no está disponible.',
+          401 => 'Sesión expirada. Reinicia la app.',
+          403 => 'No tienes permiso para ver este resumen.',
+          404 => 'No se encontró el período de caja.',
+          final code => 'El servidor respondió con un error ($code).',
+        };
     }
-    if (msg.contains('400')) return 'El período activo no está disponible.';
-    if (msg.contains('401')) return 'Sesión expirada. Reinicia la app.';
-    if (msg.contains('404')) return 'No se encontró el período de caja.';
-    return 'Error al cargar datos. Intenta de nuevo.';
   }
 
-  Future<void> _onToggleVisibilidad() async {
-    if (!_mostrarTodos) {
-      // Abriendo ojo: necesitamos datos completos
-      if (_resumenTodos == null) {
-        setState(() => _mostrarTodos = true);
-        await _fetchData(soloConMovimientos: false);
-      } else {
-        setState(() => _mostrarTodos = true);
-      }
-    } else {
-      setState(() => _mostrarTodos = false);
-    }
+  Future<void> _setMostrarTodos(bool todos) async {
+    // Los dos universos de datos son consultas distintas al servidor: al abrir
+    // "Todos" por primera vez hay que pedirlo, después ya está en memoria.
+    final hayQuePedir = todos && _resumenTodos == null;
+    setState(() => _mostrarTodos = todos);
+    if (hayQuePedir) await _fetchData(soloConMovimientos: false);
   }
 
   Future<void> _onRefresh() async {
-    // No limpiamos los datos previos antes del fetch para que, si falla
-    // (p.ej. sin conexión), el usuario siga viendo el contenido anterior.
-    if (_mostrarTodos) {
-      await _fetchData(soloConMovimientos: false);
-    } else {
-      await _fetchData(soloConMovimientos: true);
-    }
+    // No se limpian los datos previos antes del fetch: si falla (p.ej. sin
+    // conexión) el usuario sigue viendo el contenido anterior con un aviso.
+    await _fetchData(soloConMovimientos: !_mostrarTodos);
   }
 
   ResumenDiaModel? get _resumenActual =>
@@ -127,7 +143,7 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
 
   List<ResumenDiaProducto> get _productosFiltrados {
     final resumen = _resumenActual;
-    if (resumen == null) return [];
+    if (resumen == null) return const [];
 
     final query = SearchText.normalize(_searchQuery);
     if (query.isEmpty) return resumen.productos;
@@ -140,13 +156,10 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
   Map<String, List<ResumenDiaProducto>> _agruparPorCategoria(
     List<ResumenDiaProducto> productos,
   ) {
-    final Map<String, List<ResumenDiaProducto>> grupos = {};
+    final grupos = <String, List<ResumenDiaProducto>>{};
     for (final p in productos) {
-      final cat = p.categoriaNombre ?? 'Sin categoría';
-      grupos.putIfAbsent(cat, () => []).add(p);
+      grupos.putIfAbsent(p.categoriaNombre ?? 'Sin categoría', () => []).add(p);
     }
-
-    // Ordenar productos dentro de cada grupo por ultimaModificacion desc
     for (final key in grupos.keys) {
       grupos[key]!.sort((a, b) {
         if (a.ultimaModificacion == null && b.ultimaModificacion == null) {
@@ -157,13 +170,11 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
         return b.ultimaModificacion!.compareTo(a.ultimaModificacion!);
       });
     }
-
-    // Retornar ordenado por nombre de categoría
     final sortedKeys = grupos.keys.toList()..sort();
     return {for (final k in sortedKeys) k: grupos[k]!};
   }
 
-  Color _parseCategoriaColor(String? hex) {
+  Color _colorCategoria(String? hex) {
     if (hex == null || hex.isEmpty) return context.colors.accent;
     try {
       return Color(int.parse(hex.replaceAll('#', '0xFF')));
@@ -172,138 +183,124 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
     }
   }
 
-  Color _colorExistencia(double cantidad) {
-    if (cantidad <= 0) return context.colors.negative;
-    if (cantidad <= 5) return context.colors.caution;
-    return context.colors.positive;
-  }
-
-  String _formatNum(double value, bool permiteDecimal) {
-    if (permiteDecimal) return value.toStringAsFixed(2);
-    return value.toInt().toString();
+  /// Tono de la existencia final. Es la única cifra de la pantalla que sí es
+  /// buena o mala: cero es un problema, poco es un aviso.
+  StatTone _tonoExistencia(double cantidad) {
+    if (cantidad <= 0) return StatTone.negative;
+    if (cantidad <= 5) return StatTone.caution;
+    return StatTone.positive;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.colors.page,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: Stack(
-                children: [
-                  _buildContent(),
-                  if (_isLoading) _buildLoadingOverlay(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    final resumen = _resumenActual;
+    final productos = _productosFiltrados;
 
-  Widget _buildHeader() {
-    return Container(
-      color: context.colors.raised,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
-        children: [
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Punto de partida y comportamiento',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Punto de partida'),
+        actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Actualizar',
             onPressed: _isLoading ? null : _onRefresh,
           ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: 'Cerrar',
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          if (_error != null && resumen == null)
+            _buildError()
+          else
+            RefreshIndicator(
+              onRefresh: _onRefresh,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  if (_error != null)
+                    SliverToBoxAdapter(child: _buildBannerError(_error!)),
+                  if (resumen != null)
+                    SliverToBoxAdapter(child: _buildTotales(resumen.totales)),
+                  SliverToBoxAdapter(child: _buildControles()),
+                  if (productos.isEmpty && !_isLoading)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _buildEmpty(),
+                    )
+                  else
+                    _buildLista(productos),
+                ],
+              ),
+            ),
+          if (_isLoading) _buildLoadingOverlay(),
         ],
       ),
     );
   }
 
-  Widget _buildContent() {
-    if (_error != null && _resumenActual == null) {
-      return _buildError();
-    }
-
-    return Column(
-      children: [
-        // Banner de error cuando hay datos previos pero el refresh falló
-        if (_error != null && _resumenActual != null)
-          _buildErrorBanner(_error!),
-        if (_resumenActual != null) _buildTotalesRow(_resumenActual!.totales),
-        _buildFiltrosRow(),
-        Expanded(child: _buildLista()),
-      ],
-    );
-  }
-
-  Widget _buildErrorBanner(String message) {
-    final caution = context.colors.caution;
+  Widget _buildBannerError(String message) {
+    final colors = context.colors;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: context.colors.cautionWash,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: colors.cautionWash,
       child: Row(
         children: [
-          Icon(Icons.wifi_off, size: 16, color: caution),
+          Icon(Icons.wifi_off, size: 16, color: colors.caution),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              message,
-              style: TextStyle(fontSize: 11.5, color: caution),
+              '$message Se muestran los últimos datos cargados.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall!.copyWith(color: colors.caution),
             ),
           ),
-          GestureDetector(
-            onTap: () => setState(() => _error = null),
-            child: Icon(Icons.close, size: 16, color: caution),
+          IconButton(
+            icon: const Icon(Icons.close, size: 16),
+            color: colors.caution,
+            tooltip: 'Descartar aviso',
+            onPressed: () => setState(() => _error = null),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTotalesRow(ResumenDiaTotales totales) {
+  Widget _buildTotales(ResumenDiaTotales totales) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       child: Row(
         children: [
           Expanded(
-            child: _TotalCard(
-              icono: Icons.shopping_cart,
+            child: StatTile(
+              icon: Icons.shopping_cart_outlined,
               label: 'Ventas',
-              valor: totales.ventas,
-              color: context.colors.negative,
+              // Vender no es negativo: el rojo se reserva para lo que exige
+              // atención. Ventas y salidas son movimiento de stock, no pérdida.
+              tone: StatTone.info,
+              centered: true,
+              value: Formatters.formatCantidad(totales.ventas),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _TotalCard(
-              icono: Icons.trending_up,
+            child: StatTile(
+              icon: Icons.trending_up,
               label: 'Entradas',
-              valor: totales.entradas,
-              color: context.colors.positive,
+              tone: StatTone.positive,
+              centered: true,
+              value: Formatters.formatCantidad(totales.entradas),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: _TotalCard(
-              icono: Icons.trending_down,
+            child: StatTile(
+              icon: Icons.trending_down,
               label: 'Salidas',
-              valor: totales.salidas,
-              color: context.colors.caution,
+              tone: StatTone.info,
+              centered: true,
+              value: Formatters.formatCantidad(totales.salidas),
             ),
           ),
         ],
@@ -311,161 +308,141 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
     );
   }
 
-  Widget _buildFiltrosRow() {
+  Widget _buildControles() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            // Sin alto fijo: con la letra del sistema ampliada, un SizedBox de
-            // 40 recortaba el texto del propio buscador. El `isDense` +
-            // padding deja la misma altura a escala 1.
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Buscar producto...',
-                hintStyle: const TextStyle(fontSize: 13),
-                prefixIcon: const Icon(Icons.search, size: 18),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  borderSide: BorderSide(color: context.colors.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  borderSide: BorderSide(color: context.colors.border),
-                ),
-                filled: true,
-                fillColor: context.colors.raised,
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Buscar producto…',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    ),
             ),
+            onChanged: (v) => setState(() => _searchQuery = v),
           ),
-          IconButton(
-            icon: Icon(
-              _mostrarTodos ? Icons.visibility : Icons.visibility_off,
-              color: _mostrarTodos
-                  ? context.colors.accent
-                  : context.colors.textSecondary,
-            ),
-            tooltip: _mostrarTodos
-                ? 'Mostrando todos los productos'
-                : 'Mostrando solo con movimientos',
-            onPressed: _isLoading ? null : _onToggleVisibilidad,
+          const SizedBox(height: 10),
+          // Antes esto era un icono de ojo: el control que decide qué universo
+          // de productos se está viendo, sin más pista que su tooltip.
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              AppChoiceChip(
+                label: 'Con movimientos',
+                selected: !_mostrarTodos,
+                onTap: _isLoading ? () {} : () => _setMostrarTodos(false),
+              ),
+              AppChoiceChip(
+                label: 'Todos',
+                selected: _mostrarTodos,
+                onTap: _isLoading ? () {} : () => _setMostrarTodos(true),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLista() {
-    final productos = _productosFiltrados;
-
-    if (productos.isEmpty && !_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.bar_chart, size: 56, color: context.colors.textDisabled),
-            const SizedBox(height: 12),
-            Text(
-              'No hay productos para mostrar',
-              style: TextStyle(
-                color: context.colors.textSecondary,
-                fontSize: 13,
-              ),
-            ),
-          ],
+  Widget _buildEmpty() {
+    if (_searchQuery.isNotEmpty) {
+      return EmptyState(
+        icon: Icons.search_off,
+        title: 'Sin coincidencias',
+        message: 'Ningún producto contiene "$_searchQuery".',
+        action: OutlinedButton(
+          onPressed: () {
+            _searchController.clear();
+            setState(() => _searchQuery = '');
+          },
+          child: const Text('Limpiar búsqueda'),
         ),
       );
     }
+    if (!_mostrarTodos) {
+      return EmptyState(
+        icon: Icons.bar_chart,
+        title: 'Todavía no hay movimientos',
+        message: 'Ningún producto se movió en este período.',
+        action: OutlinedButton(
+          onPressed: () => _setMostrarTodos(true),
+          child: const Text('Ver todos los productos'),
+        ),
+      );
+    }
+    return const EmptyState(
+      icon: Icons.inventory_2_outlined,
+      title: 'No hay productos para mostrar',
+    );
+  }
 
+  Widget _buildLista(List<ResumenDiaProducto> productos) {
     final grupos = _agruparPorCategoria(productos);
-    final categorias = grupos.keys.toList();
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
-      itemCount: categorias.length,
-      itemBuilder: (context, i) {
-        final cat = categorias[i];
-        final items = grupos[cat]!;
-        final colorHex = items.first.categoriaColor;
-        final catColor = _parseCategoriaColor(colorHex);
+    // Se aplana en encabezados y productos para que el `SliverList` siga
+    // construyendo sólo lo visible: con "Todos" activo esto es el inventario
+    // entero.
+    final filas = <Object>[];
+    grupos.forEach((categoria, items) {
+      filas.add(
+        _Categoria(
+          nombre: categoria,
+          color: _colorCategoria(items.first.categoriaColor),
+        ),
+      );
+      filas.addAll(items);
+    });
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 14, bottom: 6),
-              child: Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: catColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    cat.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.bold,
-                      color: catColor,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            ...items.map(
-              (p) => _ProductoCard(
-                producto: p,
-                colorExistencia: _colorExistencia(p.cantidadFinal),
-                formatNum: _formatNum,
-              ),
-            ),
-          ],
-        );
-      },
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      sliver: SliverList.builder(
+        itemCount: filas.length,
+        itemBuilder: (context, i) {
+          final fila = filas[i];
+          if (fila is _Categoria) return _EncabezadoCategoria(categoria: fila);
+          final p = fila as ResumenDiaProducto;
+          return _ProductoFila(
+            producto: p,
+            tonoExistencia: _tonoExistencia(p.cantidadFinal),
+          );
+        },
+      ),
     );
   }
 
   Widget _buildLoadingOverlay() {
-    return Container(
-      color: context.colors.raised.withValues(alpha: 0.6),
-      child: const Center(child: CircularProgressIndicator()),
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Container(
+          color: context.colors.raised.withValues(alpha: 0.6),
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+      ),
     );
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: context.colors.negative),
-            const SizedBox(height: 12),
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-              onPressed: _onRefresh,
-            ),
-          ],
-        ),
+    return EmptyState(
+      icon: Icons.error_outline,
+      title: 'No se pudo cargar el resumen',
+      message: _error,
+      action: ElevatedButton.icon(
+        icon: const Icon(Icons.refresh),
+        label: const Text('Reintentar'),
+        onPressed: _onRefresh,
       ),
     );
   }
@@ -475,49 +452,43 @@ class _PuntoDePartidaScreenState extends State<PuntoDePartidaScreen> {
 // Widgets internos
 // ──────────────────────────────────────────────────────────────────────────────
 
-class _TotalCard extends StatelessWidget {
-  final IconData icono;
-  final String label;
-  final double valor;
+class _Categoria {
+  final String nombre;
   final Color color;
 
-  const _TotalCard({
-    required this.icono,
-    required this.label,
-    required this.valor,
-    required this.color,
-  });
+  const _Categoria({required this.nombre, required this.color});
+}
+
+class _EncabezadoCategoria extends StatelessWidget {
+  final _Categoria categoria;
+
+  const _EncabezadoCategoria({required this.categoria});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        color: context.colors.raised,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 6),
+      child: Row(
         children: [
-          Icon(icono, color: color, size: 20),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: context.colors.textSecondary,
+          // El color viene del servidor y no hay forma de garantizar su
+          // contraste, así que va en un punto y no en el texto: el rótulo usa
+          // un color del tema y siempre se lee.
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: categoria.color,
+              shape: BoxShape.circle,
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            valor % 1 == 0
-                ? valor.toInt().toString()
-                : valor.toStringAsFixed(1),
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-              color: color,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              categoria.nombre.toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall!.copyWith(
+                color: context.colors.textSecondary,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
         ],
@@ -526,198 +497,153 @@ class _TotalCard extends StatelessWidget {
   }
 }
 
-class _ProductoCard extends StatelessWidget {
+/// Una fila de producto: nombre, resumen de movimientos y existencia actual.
+///
+/// Antes cada producto era una tarjeta de unos 150px con cinco cifras en cajas.
+/// Con el inventario completo eso hacía imposible comparar dos productos sin
+/// memorizar, así que la fila se queda con lo que se compara —la existencia— y
+/// el desglose completo aparece al tocarla.
+class _ProductoFila extends StatefulWidget {
   final ResumenDiaProducto producto;
-  final Color colorExistencia;
-  final String Function(double, bool) formatNum;
+  final StatTone tonoExistencia;
 
-  const _ProductoCard({
-    required this.producto,
-    required this.colorExistencia,
-    required this.formatNum,
-  });
+  const _ProductoFila({required this.producto, required this.tonoExistencia});
 
   @override
-  Widget build(BuildContext context) {
-    final p = producto;
-    final fmt = formatNum;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.colors.raised,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: context.colors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            p.nombre,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoBox(
-                  label: 'Inicial',
-                  valor: fmt(p.cantidadInicial, p.permiteDecimal),
-                  backgroundColor: context.colors.sunken,
-                  textColor: context.colors.textPrimary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoBox(
-                  label: 'Existencia actual',
-                  valor: fmt(p.cantidadFinal, p.permiteDecimal),
-                  backgroundColor: colorExistencia.withValues(alpha: 0.12),
-                  textColor: colorExistencia,
-                  bold: true,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                'MOVIMIENTOS',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
-                  color: context.colors.textSecondary,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: _MovimientoBox(
-                  label: 'Ventas',
-                  valor: fmt(p.ventas, p.permiteDecimal),
-                  color: context.colors.negative,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _MovimientoBox(
-                  label: 'Entradas',
-                  valor: fmt(p.entradas, p.permiteDecimal),
-                  color: context.colors.positive,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _MovimientoBox(
-                  label: 'Salidas',
-                  valor: fmt(p.salidas, p.permiteDecimal),
-                  color: context.colors.caution,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  State<_ProductoFila> createState() => _ProductoFilaState();
 }
 
-class _InfoBox extends StatelessWidget {
-  final String label;
-  final String valor;
-  final Color backgroundColor;
-  final Color textColor;
-  final bool bold;
+class _ProductoFilaState extends State<_ProductoFila> {
+  bool _abierta = false;
 
-  const _InfoBox({
-    required this.label,
-    required this.valor,
-    required this.backgroundColor,
-    required this.textColor,
-    this.bold = false,
-  });
+  String _num(double v) => Formatters.formatCantidad(
+    v,
+    permiteDecimal: widget.producto.permiteDecimal,
+  );
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: textColor.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            valor,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-              color: textColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+    final p = widget.producto;
+    final colors = context.colors;
+    final text = Theme.of(context).textTheme;
 
-class _MovimientoBox extends StatelessWidget {
-  final String label;
-  final String valor;
-  final Color color;
+    // Sólo se nombran los movimientos que existen: un "Entradas 0" no dice
+    // nada y empuja fuera de la línea lo que sí importa.
+    final partes = [
+      'Inicial ${_num(p.cantidadInicial)}',
+      if (p.ventas != 0) 'Ventas ${_num(p.ventas)}',
+      if (p.entradas != 0) 'Entradas ${_num(p.entradas)}',
+      if (p.salidas != 0) 'Salidas ${_num(p.salidas)}',
+    ].join(' · ');
 
-  const _MovimientoBox({
-    required this.label,
-    required this.valor,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: color.withValues(alpha: 0.8),
+    return Semantics(
+      button: true,
+      label:
+          '${p.nombre}. Existencia actual ${_num(p.cantidadFinal)}. $partes.',
+      container: true,
+      excludeSemantics: true,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: InkWell(
+          onTap: () => setState(() => _abierta = !_abierta),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            p.nombre,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.titleMedium,
+                          ),
+                          if (p.proveedorNombre != null &&
+                              p.proveedorNombre!.isNotEmpty)
+                            Text(
+                              p.proveedorNombre!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall!.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          const SizedBox(height: 4),
+                          Text(
+                            partes,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: tabularNums(
+                              text.bodySmall!.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 92,
+                      child: StatTile(
+                        label: 'Actual',
+                        value: _num(p.cantidadFinal),
+                        tone: widget.tonoExistencia,
+                        centered: true,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_abierta) ...[
+                  const Divider(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: StatTile(
+                          label: 'Inicial',
+                          value: _num(p.cantidadInicial),
+                          tone: StatTone.neutral,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: StatTile(
+                          label: 'Ventas',
+                          value: _num(p.ventas),
+                          tone: StatTone.info,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: StatTile(
+                          label: 'Entradas',
+                          value: _num(p.entradas),
+                          tone: StatTone.positive,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: StatTile(
+                          label: 'Salidas',
+                          value: _num(p.salidas),
+                          tone: StatTone.info,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            valor,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -2,17 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/productos_vendidos_agregacion.dart';
 import '../../core/utils/sync_error_messages.dart';
-import '../../data/models/producto_model.dart';
 import '../../data/models/transfer_destination_model.dart';
 import '../../data/models/venta_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/productos_provider.dart';
 import '../../services/sync_service.dart';
+import '../../widgets/app_filter_chip.dart';
+import '../../widgets/data_table_card.dart';
 import 'ventas_list_screen.dart';
-
-const _kFilterAll = '_todos_';
-const _kFilterOwn = '_propios_';
 
 class VentasDetailScreen extends StatefulWidget {
   final VentaUnificadaModel venta;
@@ -25,7 +24,7 @@ class VentasDetailScreen extends StatefulWidget {
 
 class _VentasDetailScreenState extends State<VentasDetailScreen> {
   String? _transferDestinationNombre;
-  Set<String> _selectedFilters = {_kFilterAll};
+  Set<String> _selectedFilters = {kFiltroTodos};
 
   @override
   void initState() {
@@ -58,16 +57,6 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
     });
   }
 
-  /// Mapa productoTiendaId -> proveedor (null o vacío = productos propios)
-  Map<String, String?> _proveedorByProducto(List<ProductoModel> allProductos) {
-    final map = <String, String?>{};
-    for (final p in allProductos) {
-      final prov = p.proveedor?.trim();
-      map[p.id] = (prov == null || prov.isEmpty) ? null : prov;
-    }
-    return map;
-  }
-
   /// Proveedores únicos que aparecen en los productos de esta venta (excluyendo propios)
   List<String> _proveedoresEnVenta(Map<String, String?> proveedorByProducto) {
     final set = <String>{};
@@ -83,10 +72,10 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
     Map<String, String?> proveedorByProducto,
     Set<String> selected,
   ) {
-    if (selected.contains(_kFilterAll)) return true;
+    if (selected.contains(kFiltroTodos)) return true;
     final prov = proveedorByProducto[p.productoTiendaId];
     final esPropio = prov == null || prov.isEmpty;
-    if (esPropio && selected.contains(_kFilterOwn)) return true;
+    if (esPropio && selected.contains(kFiltroPropios)) return true;
     if (!esPropio && selected.contains(prov)) return true;
     return false;
   }
@@ -102,21 +91,21 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
 
   void _toggleFilter(String key) {
     setState(() {
-      if (key == _kFilterAll) {
-        if (_selectedFilters.contains(_kFilterAll)) {
-          _selectedFilters = _selectedFilters.difference({_kFilterAll});
+      if (key == kFiltroTodos) {
+        if (_selectedFilters.contains(kFiltroTodos)) {
+          _selectedFilters = _selectedFilters.difference({kFiltroTodos});
         } else {
-          _selectedFilters = {_kFilterAll};
+          _selectedFilters = {kFiltroTodos};
         }
       } else {
-        _selectedFilters = _selectedFilters.difference({_kFilterAll});
+        _selectedFilters = _selectedFilters.difference({kFiltroTodos});
         if (_selectedFilters.contains(key)) {
           _selectedFilters = _selectedFilters.difference({key});
         } else {
           _selectedFilters = {..._selectedFilters, key};
         }
       }
-      if (_selectedFilters.isEmpty) _selectedFilters = {_kFilterAll};
+      if (_selectedFilters.isEmpty) _selectedFilters = {kFiltroTodos};
     });
   }
 
@@ -127,21 +116,24 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
     final date = DateTime.fromMillisecondsSinceEpoch(venta.createdAtMs);
     final productosProvider = context.watch<ProductosProvider>();
     final allProductos = productosProvider.allProductos;
-    final proveedorByProducto = _proveedorByProducto(allProductos);
+    final proveedorByProducto =
+        ProductosVendidosAgregacion.proveedorPorProducto(allProductos);
     final proveedoresEnVenta = _proveedoresEnVenta(proveedorByProducto);
-    final filtrados = _productosFiltrados(proveedorByProducto, _selectedFilters);
+    final filtrados = _productosFiltrados(
+      proveedorByProducto,
+      _selectedFilters,
+    );
 
     final subtotalFiltrado = filtrados.fold<double>(
       0,
       (s, p) => s + p.precio * p.cantidad,
     );
 
-    final nombreDestino = _transferDestinationNombre ?? venta.transferDestinationNombre;
+    final nombreDestino =
+        _transferDestinationNombre ?? venta.transferDestinationNombre;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle de venta'),
-      ),
+      appBar: AppBar(title: const Text('Detalle de venta')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -167,11 +159,16 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                         style: TextStyle(color: colors.textSecondary),
                       ),
                     ],
-                    if (venta.transferDestinationId != null && nombreDestino != null) ...[
+                    if (venta.transferDestinationId != null &&
+                        nombreDestino != null) ...[
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(Icons.account_balance_wallet, size: 18, color: colors.textSecondary),
+                          Icon(
+                            Icons.account_balance_wallet,
+                            size: 18,
+                            color: colors.textSecondary,
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             'Destino transferencia: $nombreDestino',
@@ -188,7 +185,8 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                 ),
               ),
             ),
-            if (venta.syncState == SyncState.error && (venta.errorMessage?.isNotEmpty ?? false)) ...[
+            if (venta.syncState == SyncState.error &&
+                (venta.errorMessage?.isNotEmpty ?? false)) ...[
               const SizedBox(height: 16),
               Card(
                 color: colors.negativeWash,
@@ -199,7 +197,11 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.warning_amber_rounded, color: colors.negative, size: 24),
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: colors.negative,
+                            size: 24,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -216,11 +218,15 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                       const SizedBox(height: 8),
                       Text(
                         SyncErrorMessages.detail(venta.errorMessage),
-                        style: TextStyle(fontSize: 13, color: colors.textPrimary),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colors.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        onPressed: () => VentasListScreen.showErrorLog(context, venta),
+                        onPressed: () =>
+                            VentasListScreen.showErrorLog(context, venta),
                         icon: const Icon(Icons.info_outline, size: 18),
                         label: const Text('Ver log completo'),
                         style: OutlinedButton.styleFrom(
@@ -236,10 +242,7 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const SizedBox(height: 16),
             const Text(
               'Totales',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Card(
@@ -248,9 +251,15 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
                 child: Column(
                   children: [
                     _TotalRow(label: 'Efectivo', value: venta.totalcash),
-                    _TotalRow(label: 'Transferencia', value: venta.totaltransfer),
+                    _TotalRow(
+                      label: 'Transferencia',
+                      value: venta.totaltransfer,
+                    ),
                     if (venta.discountTotal > 0)
-                      _TotalRow(label: 'Descuentos', value: -venta.discountTotal),
+                      _TotalRow(
+                        label: 'Descuentos',
+                        value: -venta.discountTotal,
+                      ),
                     const Divider(),
                     _TotalRow(
                       label: 'Total',
@@ -264,28 +273,25 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const SizedBox(height: 16),
             const Text(
               'Filtrar por proveedor',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                _FilterChip(
+                AppFilterChip(
                   label: 'Todos',
-                  selected: _selectedFilters.contains(_kFilterAll),
-                  onTap: () => _toggleFilter(_kFilterAll),
+                  selected: _selectedFilters.contains(kFiltroTodos),
+                  onTap: () => _toggleFilter(kFiltroTodos),
                 ),
-                _FilterChip(
+                AppFilterChip(
                   label: 'Productos propios',
-                  selected: _selectedFilters.contains(_kFilterOwn),
-                  onTap: () => _toggleFilter(_kFilterOwn),
+                  selected: _selectedFilters.contains(kFiltroPropios),
+                  onTap: () => _toggleFilter(kFiltroPropios),
                 ),
                 ...proveedoresEnVenta.map(
-                  (prov) => _FilterChip(
+                  (prov) => AppFilterChip(
                     label: prov,
                     selected: _selectedFilters.contains(prov),
                     onTap: () => _toggleFilter(prov),
@@ -328,157 +334,47 @@ class _VentasDetailScreenState extends State<VentasDetailScreen> {
             const SizedBox(height: 16),
             const Text(
               'Productos',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Encabezado: Cant, Precio, Total (nombre va en cada fila a todo el ancho)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    color: colors.accentWash,
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 64,
-                          child: Text(
-                            'Cant.',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: colors.accent,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Precio',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: colors.accent,
-                            ),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 80,
-                          child: Text(
-                            'Total',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: colors.accent,
-                            ),
-                          ),
-                        ),
-                      ],
+            DataTableCard(
+              columns: const [
+                TableColumn('Cant.', width: 56, align: TableAlign.end),
+                TableColumn('Precio', flex: 1, align: TableAlign.end),
+                TableColumn('Total', width: 104, align: TableAlign.end),
+              ],
+              rows: [
+                for (final p in filtrados)
+                  DataTableRow(
+                    columns: const [
+                      TableColumn('Cant.', width: 56, align: TableAlign.end),
+                      TableColumn('Precio', flex: 1, align: TableAlign.end),
+                      TableColumn('Total', width: 104, align: TableAlign.end),
+                    ],
+                    title: Text(
+                      p.name ?? 'Producto',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    semanticsLabel:
+                        '${p.name ?? 'Producto'}. '
+                        '${Formatters.formatCantidad(p.cantidad)} unidades a '
+                        '${Formatters.formatCurrency(p.precio)}. Total '
+                        '${Formatters.formatCurrency(p.precio * p.cantidad)}.',
+                    cells: [
+                      _Cifra(Formatters.formatCantidad(p.cantidad)),
+                      _Cifra(Formatters.formatCurrency(p.precio)),
+                      _Cifra(
+                        Formatters.formatCurrency(p.precio * p.cantidad),
+                        destacada: true,
+                      ),
+                    ],
                   ),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: filtrados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final p = filtrados[index];
-                      final name = p.name ?? 'Producto';
-                      final subtotal = p.precio * p.cantidad;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 64,
-                                  child: Text(
-                                    Formatters.formatNumber(
-                                      p.cantidad,
-                                      decimals: p.cantidad == p.cantidad.round() ? 0 : 1,
-                                    ),
-                                    style: tabularNums(TextStyle(fontSize: 13, color: colors.textSecondary)),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    Formatters.formatCurrency(p.precio),
-                                    style: tabularNums(TextStyle(fontSize: 13, color: colors.textSecondary)),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 80,
-                                  child: Text(
-                                    Formatters.formatCurrency(subtotal),
-                                    style: tabularNums(const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                    )),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+              ],
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-      // Relleno `accent` + etiqueta `onAccent` al seleccionar: sobre
-      // `accentWash` (casi blanco en tema claro) la etiqueta blanca del
-      // `secondaryLabelStyle` del tema quedaba ilegible.
-      backgroundColor: colors.sunken,
-      selectedColor: colors.accent,
-      checkmarkColor: colors.onAccent,
-      labelStyle: TextStyle(
-        fontSize: 13,
-        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-        color: selected ? colors.onAccent : colors.textPrimary,
       ),
     );
   }
@@ -512,13 +408,41 @@ class _TotalRow extends StatelessWidget {
           ),
           Text(
             Formatters.formatCurrency(value),
-            style: tabularNums(TextStyle(
-              fontSize: isTotal ? 17 : 15,
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              color: isTotal ? colors.accent : null,
-            )),
+            style: tabularNums(
+              TextStyle(
+                fontSize: isTotal ? 17 : 15,
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                color: isTotal ? colors.accent : null,
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Una cifra de tabla: `tabularNums`, alineada a la derecha y encogible, para
+/// que un importe largo se achique en vez de desbordar con la letra ampliada.
+class _Cifra extends StatelessWidget {
+  final String valor;
+  final bool destacada;
+
+  const _Cifra(this.valor, {this.destacada = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerRight,
+      child: Text(
+        valor,
+        style: tabularNums(
+          destacada
+              ? text.titleMedium!
+              : text.bodyMedium!.copyWith(color: context.colors.textSecondary),
+        ),
       ),
     );
   }
