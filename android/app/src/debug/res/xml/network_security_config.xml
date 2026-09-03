@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solo aplica a builds de debug: permite HTTP en claro para poder apuntar al
+  backend local (ENV=local / API_URL con una IP LAN). Los builds de release no
+  incluyen este archivo y siguen exigiendo HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

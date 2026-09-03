@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "cuadre_caja_app (local)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=ENV=local"
+      ]
+    },
+    {
+      "name": "cuadre_caja_app (pruebas — pide la URL del preview)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=API_URL=${input:previewUrl}/api/app"
+      ]
+    },
+    {
+      "name": "cuadre_caja_app (produccion)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=ENV=produccion"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "previewUrl",
+      "type": "promptString",
+      "description": "URL del deploy preview de Vercel (sin /api/app)",
+      "default": "https://"
+    }
+  ]
+}

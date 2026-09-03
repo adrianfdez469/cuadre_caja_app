@@ -18,6 +18,27 @@ flutter test test/core/utils/payment_logic_test.dart   # run a single test file
 flutter test --name "substring of test name"           # run tests matching a name
 ```
 
+### Ambiente de la API
+
+La URL del backend se elige **en tiempo de compilación** con `--dart-define` (ver `lib/core/constants/api_constants.dart`). Sin ningún define, la app apunta a producción, así que los builds de release del `app-release` skill no cambian.
+
+```bash
+flutter run -d macos --dart-define=ENV=local        # http://localhost:3000/api/app
+flutter run --dart-define=ENV=local                 # en Android usa http://10.0.2.2:3000 (emulador)
+
+# Pruebas/staging: SIEMPRE con la URL del preview de Vercel del momento.
+# No hay URL fija en el código; pídesela al usuario antes de compilar.
+flutter run --dart-define=API_URL=https://<preview>.vercel.app/api/app
+flutter build apk --release --split-per-abi --dart-define=API_URL=https://<preview>.vercel.app/api/app
+
+# Dispositivo físico contra tu backend local: la IP LAN de tu máquina
+flutter run --dart-define=API_URL=http://192.168.1.20:3000/api/app
+```
+
+`API_URL` manda por sobre `ENV`. `ApiConstants.pruebasUrl` está vacía a propósito: la URL del preview de Vercel lleva el hash del deploy y cambia en cada despliegue, así que **`ENV=pruebas` sin `API_URL` lanza un `StateError` al arrancar** en vez de apuntar a un backend viejo.
+
+Cuando el ambiente no es producción, la pantalla de Versión muestra un aviso con el ambiente y la URL — una `API_URL` distinta de la de producción ya cuenta como no productiva, aunque no se pase `ENV`. El HTTP en claro que necesita `local` sólo está habilitado en builds de debug (`android/app/src/debug/`). En VS Code hay configuraciones de lanzamiento en `.vscode/launch.json`.
+
 For release APK builds and the full deploy/release flow (`scripts/release.py`, Drive upload, the `app-release` skill), see **`.claude/docs/DEPLOY.md`**.
 
 ## Detailed docs

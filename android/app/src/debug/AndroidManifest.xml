@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Solo en debug: habilita HTTP en claro para apuntar al backend local
+         (ENV=local o API_URL con una IP LAN). Release sigue exigiendo HTTPS. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
 </manifest>

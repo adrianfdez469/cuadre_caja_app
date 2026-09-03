@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/app_tokens.dart';
 import '../core/widgets/app_snackbar.dart';
+import '../core/constants/api_constants.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/apk_install_helper.dart';
 import '../core/utils/device_abi.dart';
@@ -659,6 +660,28 @@ class _VersionScreenState extends State<VersionScreen>
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  // Un build que no apunta a producción tiene que decirlo: es
+                  // la única forma de no confundirlo con el de un cajero real.
+                  if (ApiConstants.esAmbienteNoProductivo) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.cautionWash,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Ambiente ${ApiConstants.ambienteLabel} · ${ApiConstants.baseUrl}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
