@@ -236,7 +236,6 @@ class _CobrarScreenState extends State<CobrarScreen> {
 
   String get _monedaBase => _config.monedaBase;
   Map<String, double> get _tasas => _config.tasasConversion;
-  Map<String, double> get _tasasSnapshot => _config.tasasVigentes;
 
   Map<String, List<double>> get _denominaciones =>
       PaymentLogic.denominacionesConFallback(_config);
@@ -666,7 +665,11 @@ class _CobrarScreenState extends State<CobrarScreen> {
           .cast<String?>()
           .firstOrNull;
 
-      final tasaSnapshot = Map<String, double>.from(_tasasSnapshot);
+      // El snapshot se archiva con la venta y el backend reconstruye montos a
+      // partir de el: tiene que llevar la tasa de la propia moneda base. Sin
+      // ella `cupTasa(monedaBase)` cae a 1 y toda conversion hacia la base
+      // queda inflada por el factor de la base.
+      final tasaSnapshot = Map<String, double>.from(_tasas);
       // Snapshot tomado antes de vaciar el carrito: después ya no existe.
       final totalSnapshot = _total;
       final isOnlineSnapshot = sync.isOnline;

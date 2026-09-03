@@ -221,8 +221,4 @@ class CurrencyUtils {
     return elegida;
   }
 
-  /// Snapshot congelado para POST venta (sin monedaBase).
-  static Map<String, double> buildTasaSnapshot(Map<String, double> vigentes) {
-    return Map<String, double>.from(vigentes);
-  }
 }

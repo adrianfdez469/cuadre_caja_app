@@ -41,6 +41,10 @@ MonedaInfoModel _monedaInfo(String code) => MonedaInfoModel(
 MultimonedaConfig buildTestConfig({
   String monedaBase = 'CUP',
   Map<String, double> tasas = const {'USD': 400, 'MLC': 120},
+  /// El mapa incompleto que devuelve `vigentes` del servidor. Por defecto es
+  /// igual a [tasas]; darle un valor distinto es lo que permite demostrar cuál
+  /// de los dos mapas termina viajando en la venta.
+  Map<String, double>? tasasVigentes,
   /// Monedas alternativas activas del negocio. MLC solo admite efectivo, para
   /// poder ejercitar el camino "esta moneda no acepta transferencia".
   List<String> monedasAlternativas = const ['USD', 'MLC'],
@@ -48,7 +52,7 @@ MultimonedaConfig buildTestConfig({
   return MultimonedaConfig(
     negocioId: 'neg-1',
     monedaBase: monedaBase,
-    tasasVigentes: tasas,
+    tasasVigentes: tasasVigentes ?? tasas,
     tasasConversion: tasas,
     monedas: [
       NegocioMonedaModel(

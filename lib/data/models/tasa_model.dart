@@ -44,8 +44,10 @@ class TasasVigentesResponse {
           'actualizadoEn': actualizadoEn!.toIso8601String(),
       };
 
-  /// Objeto a enviar como `tasaSnapshot` en ventas (sin monedaBase).
-  Map<String, double> get snapshot => Map<String, double>.from(vigentes);
+  /// Objeto a enviar como `tasaSnapshot` en ventas: el mapa completo anclado
+  /// en CUP, **con** la moneda base. `vigentes` la omite, y sin ella el backend
+  /// resuelve `cupTasa(monedaBase)` como 1 e infla toda conversion a base.
+  Map<String, double> get snapshot => Map<String, double>.from(tasasCup);
 
   static const empty = TasasVigentesResponse(vigentes: {});
 }

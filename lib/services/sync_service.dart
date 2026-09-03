@@ -585,7 +585,7 @@ class SyncService {
       venta,
       productos: productos,
       monedaBase: multimoneda?.monedaBase,
-      tasaSnapshot: multimoneda?.tasasVigentes,
+      tasaSnapshot: multimoneda?.tasasConversion,
     );
 
     if (!patchResult.wasPatched) return venta;
