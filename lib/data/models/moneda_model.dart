@@ -148,18 +148,21 @@ class MonedasNegocioResponse {
 class MultimonedaConfig {
   final String negocioId;
   final String monedaBase;
-  /// Snapshot para POST venta (sin moneda base).
-  final Map<String, double> tasasVigentes;
-  /// Tasas ancladas en CUP para conversiones en UI y cobro.
-  final Map<String, double> tasasConversion;
+  /// Tasas ancladas en CUP: 1 `{monedaCode}` = `tasas[monedaCode]` CUP.
+  ///
+  /// Un unico mapa para todo — precios del carrito, `equivalenteBase` de cada
+  /// pago y el `tasaSnapshot` que se persiste con la venta. Incluye la moneda
+  /// base del negocio cuando no es CUP: sin ella toda conversion a base se
+  /// resuelve a tasa 1. Dos mapas separados es justo como se colaron snapshots
+  /// sin la base, asi que a proposito hay uno solo.
+  final Map<String, double> tasas;
   final List<NegocioMonedaModel> monedas;
   final DateTime? tasasActualizadoEn;
 
   const MultimonedaConfig({
     required this.negocioId,
     required this.monedaBase,
-    this.tasasVigentes = const {},
-    this.tasasConversion = const {},
+    this.tasas = const {},
     this.monedas = const [],
     this.tasasActualizadoEn,
   });
@@ -171,12 +174,25 @@ class MultimonedaConfig {
 
   bool _tieneTasaVigente(String monedaCode) {
     if (monedaCode == 'CUP') return true;
-    final t = tasasConversion[monedaCode];
+    final t = tasas[monedaCode];
     return t != null && t > 0;
   }
 
+  /// Si se puede convertir a la moneda base del negocio.
+  ///
+  /// Las tasas están ancladas en CUP, así que convertir a la base pasa por CUP
+  /// y necesita la tasa CUP de la propia base. Sin ella `cupTasa(monedaBase)`
+  /// cae a 1 y toda conversión queda inflada por el factor de la base — y el
+  /// backend rechaza la venta con `MISSING_EXCHANGE_RATE`. Cobrar íntegramente
+  /// en la base sí funciona: ahí la tasa se cancela.
+  bool get puedeConvertirABase => _tieneTasaVigente(monedaBase);
+
   /// Monedas alternativas activas con tasa vigente (CUP siempre convertible).
+  ///
+  /// Vacía si no hay tasa de la propia base: cobrar en otra moneda registraría
+  /// un monto equivocado, así que es mejor no ofrecerlo.
   List<NegocioMonedaModel> monedasAlternativas() {
+    if (!puedeConvertirABase) return const [];
     return monedasActivas.where((m) {
       if (m.monedaCode == monedaBase) return false;
       return _tieneTasaVigente(m.monedaCode);
@@ -184,6 +200,13 @@ class MultimonedaConfig {
   }
 
   bool get hasMonedasAlternativas => monedasAlternativas().isNotEmpty;
+
+  /// Monedas en las que se puede cobrar: la base —siempre, no necesita
+  /// conversión— más las alternativas convertibles.
+  List<String> monedasCobrables() => [
+        monedaBase,
+        for (final m in monedasAlternativas()) m.monedaCode,
+      ];
 
   /// Mapa monedaCode → valores de billetes (para desglose, Fase 2).
   Map<String, List<double>> get denominacionesPorMoneda {
@@ -198,34 +221,37 @@ class MultimonedaConfig {
   Map<String, dynamic> toCacheJson() => {
         'negocioId': negocioId,
         'monedaBase': monedaBase,
-        'tasasVigentes': tasasVigentes,
-        'tasasConversion': tasasConversion,
+        'tasas': tasas,
         'monedas': monedas.map((m) => m.toJson()).toList(),
         if (tasasActualizadoEn != null)
           'tasasActualizadoEn': tasasActualizadoEn!.toIso8601String(),
       };
 
   factory MultimonedaConfig.fromCacheJson(Map<String, dynamic> json) {
-    final tasasRaw = json['tasasVigentes'] as Map<String, dynamic>? ?? {};
-    final conversionRaw =
-        json['tasasConversion'] as Map<String, dynamic>? ?? {};
     final monedasRaw = json['monedas'] as List<dynamic>? ?? [];
     DateTime? actualizado;
     final actualizadoRaw = json['tasasActualizadoEn'] as String?;
     if (actualizadoRaw != null) {
       actualizado = DateTime.tryParse(actualizadoRaw);
     }
-    final vigentes = tasasRaw.map(
-      (k, v) => MapEntry(k, (v as num).toDouble()),
-    );
-    final conversion = conversionRaw.isNotEmpty
-        ? conversionRaw.map((k, v) => MapEntry(k, (v as num).toDouble()))
-        : vigentes;
+    // Cache escrita por versiones anteriores: guardaban `tasasConversion`
+    // (completo) y `tasasVigentes` (sin la moneda base). Se leen los tres
+    // nombres y se unen para no invalidar la cache al actualizar la app.
+    final tasas = <String, double>{};
+    for (final key in const ['tasas', 'tasasConversion', 'tasasVigentes']) {
+      final raw = json[key];
+      if (raw is! Map) continue;
+      raw.forEach((k, v) {
+        if (k == 'CUP' || v is! num) return;
+        final tasa = v.toDouble();
+        if (tasa <= 0) return;
+        tasas.putIfAbsent(k as String, () => tasa);
+      });
+    }
     return MultimonedaConfig(
       negocioId: json['negocioId'] as String? ?? '',
       monedaBase: json['monedaBase'] as String? ?? 'CUP',
-      tasasVigentes: vigentes,
-      tasasConversion: conversion,
+      tasas: tasas,
       monedas: monedasRaw
           .map((m) => NegocioMonedaModel.fromJson(m as Map<String, dynamic>))
           .toList(),

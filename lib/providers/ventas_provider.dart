@@ -66,7 +66,7 @@ class VentasProvider extends ChangeNotifier {
     String? monedaCobro,
   }) async {
     final monedaBase = monedaCobro ?? multimoneda?.monedaBase ?? 'CUP';
-    final snapshot = tasaSnapshot ?? multimoneda?.tasasConversion ?? const {};
+    final snapshot = tasaSnapshot ?? multimoneda?.tasas ?? const {};
     final totalBase = multimoneda != null
         ? cart.items.fold<double>(
             0,
@@ -75,7 +75,7 @@ class VentasProvider extends ChangeNotifier {
                 CurrencyUtils.convertToBase(
                   item.precio * item.cantidad,
                   item.monedaPrecioCode ?? multimoneda.monedaBase,
-                  multimoneda.tasasConversion,
+                  multimoneda.tasas,
                   multimoneda.monedaBase,
                 ),
           )

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:cuadre_caja_app/core/utils/app_logger.dart';
 
+import '../../../core/utils/sync_error_messages.dart';
 import '../../models/venta_model.dart';
 import 'database_helper.dart';
 
@@ -87,13 +88,24 @@ class VentasLocalDataSource {
     return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
   }
 
-  /// Obtiene todas las ventas pendientes de sincronización
+  /// Obtiene todas las ventas pendientes de sincronización.
+  ///
+  /// `error` entra junto a `pending` a propósito: casi todos los rechazos del
+  /// servidor son transitorios y se resuelven en el siguiente ciclo. Se excluyen
+  /// los que el API marca con un código permanente —hoy sólo la tasa de cambio
+  /// que falta—: reintentarlos en cada reconexión no cambia nada hasta que un
+  /// administrador registre la tasa. Esas ventas siguen visibles en la lista y
+  /// se reintentan a mano con el botón de sincronizar, que va por syncId y no
+  /// pasa por aquí.
   Future<List<VentaLocalModel>> getVentasPendientes() async {
     final db = await dbHelper.database;
+    final permanentes = SyncErrorMessages.codigosPermanentes.toList();
+    final placeholders = List.filled(permanentes.length, '?').join(', ');
     final maps = await db.query(
       'ventas_pendientes',
-      where: 'syncState IN (?, ?)',
-      whereArgs: [SyncState.pending.name, SyncState.error.name],
+      where: 'syncState IN (?, ?) '
+          'AND (errorCode IS NULL OR errorCode NOT IN ($placeholders))',
+      whereArgs: [SyncState.pending.name, SyncState.error.name, ...permanentes],
       orderBy: 'createdAt ASC',
     );
     return maps.map((m) => VentaLocalModel.fromMap(m)).toList();
@@ -188,12 +200,19 @@ class VentasLocalDataSource {
     required SyncState syncState,
     int? syncAttempts,
     String? errorMessage,
+    String? errorCode,
     String? serverId,
   }) async {
     final db = await dbHelper.database;
     final updates = <String, dynamic>{'syncState': syncState.name};
     if (syncAttempts != null) updates['syncAttempts'] = syncAttempts;
     if (errorMessage != null) updates['errorMessage'] = errorMessage;
+    // Siempre se escribe: un reintento que ya no falla por tasas tiene que
+    // limpiar el code viejo, o la venta quedaría fuera de la cola para siempre.
+    // `null` se guarda como NULL, que es lo que la query de la cola espera.
+    if (errorMessage != null || errorCode != null) {
+      updates['errorCode'] = errorCode;
+    }
     if (serverId != null) updates['serverId'] = serverId;
 
     await db.update(

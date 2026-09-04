@@ -39,7 +39,12 @@ class AuthException implements Exception {
 class SyncVentaException implements Exception {
   final String message;
 
-  SyncVentaException(this.message);
+  /// El campo `code` de la respuesta, cuando el API lo manda (por ejemplo
+  /// `MISSING_EXCHANGE_RATE`). Es el discriminante estable: el texto de
+  /// `message` es para el cajero y puede cambiar sin previo aviso.
+  final String? code;
+
+  SyncVentaException(this.message, {this.code});
 
   @override
   String toString() => message;

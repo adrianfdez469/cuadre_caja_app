@@ -19,8 +19,7 @@ class MonedasProvider extends ChangeNotifier {
   String? get error => _error;
 
   String get monedaBase => _config.monedaBase;
-  Map<String, double> get tasasVigentes => _config.tasasVigentes;
-  Map<String, double> get tasasConversion => _config.tasasConversion;
+  Map<String, double> get tasas => _config.tasas;
   List<NegocioMonedaModel> get monedasActivas => _config.monedasActivas;
   bool get hasMonedasAlternativas => _config.hasMonedasAlternativas;
 
@@ -78,7 +77,7 @@ class MonedasProvider extends ChangeNotifier {
       CurrencyUtils.convertToBase(
         monto,
         moneda,
-        _config.tasasConversion,
+        _config.tasas,
         _config.monedaBase,
       );
 
@@ -86,7 +85,7 @@ class MonedasProvider extends ChangeNotifier {
       CurrencyUtils.convertFromBase(
         montoBase,
         moneda,
-        _config.tasasConversion,
+        _config.tasas,
         _config.monedaBase,
       );
 

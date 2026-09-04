@@ -235,7 +235,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
   }
 
   String get _monedaBase => _config.monedaBase;
-  Map<String, double> get _tasas => _config.tasasConversion;
+  Map<String, double> get _tasas => _config.tasas;
 
   Map<String, List<double>> get _denominaciones =>
       PaymentLogic.denominacionesConFallback(_config);
@@ -259,13 +259,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
     return _monedaInfo(moneda)?.admiteTransferencia ?? false;
   }
 
-  List<String> get _todasMonedas {
-    final set = <String>{_monedaBase};
-    for (final m in _monedasActivas) {
-      set.add(m.monedaCode);
-    }
-    return set.toList();
-  }
+  List<String> get _todasMonedas => _config.monedasCobrables();
 
   List<String> get _monedasDisponibles =>
       _todasMonedas.where((m) => !_pagos.containsKey(m)).toList();
@@ -815,6 +809,7 @@ class _CobrarScreenState extends State<CobrarScreen> {
                   for (final moneda in _pagos.keys.toList())
                     _buildBloquePago(colors, moneda),
                   _buildAgregarFormaDePago(colors),
+                  _buildAvisoSinTasaBase(colors),
                   const SizedBox(height: 16),
                   _buildEstado(colors),
                 ],
@@ -1218,6 +1213,42 @@ class _CobrarScreenState extends State<CobrarScreen> {
           foregroundColor: colors.accent,
           minimumSize: const Size(0, AppTapTarget.min),
         ),
+      ),
+    );
+  }
+
+  /// El negocio tiene otras monedas configuradas pero no hay tasa de su propia
+  /// base, así que no se pueden ofrecer: se cobraría en la moneda equivocada y
+  /// el backend rechazaría la venta. Sin este aviso las monedas simplemente
+  /// desaparecerían de la pantalla sin explicación.
+  Widget _buildAvisoSinTasaBase(AppSemanticColors colors) {
+    if (_config.puedeConvertirABase) return const SizedBox.shrink();
+    final otras = _monedasActivas
+        .where((m) => m.monedaCode != _monedaBase)
+        .isNotEmpty;
+    if (!otras) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.cautionWash,
+        border: Border.all(color: colors.caution.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 20, color: colors.caution),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Solo se puede cobrar en $_monedaBase: falta registrar la tasa de '
+              'cambio de $_monedaBase en el sistema.',
+              style: TextStyle(fontSize: 13.5, color: colors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }

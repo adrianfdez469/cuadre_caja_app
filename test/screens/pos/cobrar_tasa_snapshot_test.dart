@@ -21,10 +21,13 @@ import '../../fakes/test_fakes.dart';
 import '../../helpers/payment_test_harness.dart';
 
 /// El `tasaSnapshot` se archiva con la venta y el backend reconstruye montos a
-/// partir de él. El servidor devuelve dos mapas: `vigentes`, que omite la
-/// moneda base, y `tasasCup`, completo. Enviar el primero deja el snapshot sin
-/// la tasa de su propia base: `cupTasa(monedaBase)` cae a 1 y toda conversión
-/// hacia la base queda inflada por el factor de la base.
+/// partir de él. Sin la tasa de la propia moneda base `cupTasa(monedaBase)` cae
+/// a 1 y toda conversión hacia la base queda inflada por el factor de la base,
+/// así que lo que se archiva tiene que ser el mapa completo de tasas.
+///
+/// De dónde sale ese mapa completo lo cubre
+/// `test/data/models/tasa_model_test.dart`; aquí se comprueba que la pantalla
+/// de cobro lo envía tal cual, sin recortarle la base.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -33,8 +36,7 @@ void main() {
   Future<FakeVentasLocalDataSource> cobrar(
     WidgetTester tester, {
     required String monedaBase,
-    required Map<String, double> tasasConversion,
-    required Map<String, double> tasasVigentes,
+    required Map<String, double> tasas,
     List<String> monedasAlternativas = const ['EUR'],
   }) async {
     final ventasLocal = FakeVentasLocalDataSource();
@@ -62,8 +64,7 @@ void main() {
               ..debugSetConfig(
                 buildTestConfig(
                   monedaBase: monedaBase,
-                  tasas: tasasConversion,
-                  tasasVigentes: tasasVigentes,
+                  tasas: tasas,
                   monedasAlternativas: monedasAlternativas,
                 ),
               ),
@@ -122,13 +123,12 @@ void main() {
   testWidgets(
       'con base distinta de CUP, la venta archiva la tasa de su propia base',
       (tester) async {
-    // Lo que devuelve hoy el servidor para un negocio con base USD: `vigentes`
-    // trae EUR pero no USD, `tasasCup` trae las dos.
+    // Negocio con base USD: la tasa de USD forma parte del mapa y tiene que
+    // viajar con la venta.
     final local = await cobrar(
       tester,
       monedaBase: 'USD',
-      tasasConversion: const {'USD': 670, 'EUR': 775},
-      tasasVigentes: const {'EUR': 775},
+      tasas: const {'USD': 670, 'EUR': 775},
     );
 
     final snapshot = local.pendientes.single.tasaSnapshot;
@@ -137,13 +137,13 @@ void main() {
   });
 
   testWidgets('con base CUP el snapshot no cambia', (tester) async {
-    // Regresión: con base CUP los dos mapas son idénticos, así que el arreglo
-    // no debe alterar nada para la gran mayoría de los negocios.
+    // Regresión: con base CUP no hay tasa de la base que añadir (CUP vale 1
+    // implícitamente), así que el snapshot no debe cambiar para la gran mayoría
+    // de los negocios.
     final local = await cobrar(
       tester,
       monedaBase: 'CUP',
-      tasasConversion: const {'USD': 400, 'MLC': 120},
-      tasasVigentes: const {'USD': 400, 'MLC': 120},
+      tasas: const {'USD': 400, 'MLC': 120},
       monedasAlternativas: const ['USD', 'MLC'],
     );
 

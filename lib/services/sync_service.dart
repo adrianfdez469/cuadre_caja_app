@@ -525,7 +525,11 @@ class SyncService {
       return true;
     } catch (e) {
       final errorMessage = e is SyncVentaException ? e.message : e.toString();
-      logDebug('❌ Error sincronizando venta ${toSync.syncId}: $errorMessage');
+      final errorCode = e is SyncVentaException ? e.code : null;
+      logDebug(
+        '❌ Error sincronizando venta ${toSync.syncId}: $errorMessage'
+        '${errorCode != null ? ' [$errorCode]' : ''}',
+      );
 
       // El servidor la rechazó porque su período ya no es el vigente (lo
       // cerraron y abrieron otro mientras la venta esperaba en la cola). Se
@@ -543,9 +547,14 @@ class SyncService {
         syncState: SyncState.error,
         syncAttempts: toSync.syncAttempts + 1,
         errorMessage: errorMessage,
+        errorCode: errorCode,
       );
 
-      onSyncEvent?.call('Error sincronizando venta');
+      onSyncEvent?.call(
+        SyncErrorMessages.isPermanent(errorCode)
+            ? SyncErrorMessages.title(errorMessage, code: errorCode)
+            : 'Error sincronizando venta',
+      );
       return false;
     }
   }
@@ -585,7 +594,7 @@ class SyncService {
       venta,
       productos: productos,
       monedaBase: multimoneda?.monedaBase,
-      tasaSnapshot: multimoneda?.tasasConversion,
+      tasaSnapshot: multimoneda?.tasas,
     );
 
     if (!patchResult.wasPatched) return venta;
@@ -1022,8 +1031,7 @@ class SyncService {
           monedaBase: tasasResp.monedaBase.isNotEmpty
               ? tasasResp.monedaBase
               : baseFallback,
-          tasasVigentes: tasasResp.vigentes,
-          tasasConversion: tasasResp.tasasCup,
+          tasas: tasasResp.tasas,
           monedas: monedasResp.monedas,
           tasasActualizadoEn: tasasResp.actualizadoEn,
         );

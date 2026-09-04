@@ -95,6 +95,11 @@ class VentaLocalModel {
   final Map<String, double> tasaSnapshot;
   final SyncState syncState;
   final String? errorMessage;
+
+  /// El `code` con el que el API rechazó la venta (`MISSING_EXCHANGE_RATE`…).
+  /// Discriminante estable, a diferencia de [errorMessage], que es el texto
+  /// para el cajero. Decide si la venta sigue en la cola de reintento.
+  final String? errorCode;
   final String? serverId;
 
   VentaLocalModel({
@@ -116,6 +121,7 @@ class VentaLocalModel {
     this.tasaSnapshot = const {},
     this.syncState = SyncState.pending,
     this.errorMessage,
+    this.errorCode,
     this.serverId,
   });
 
@@ -124,6 +130,7 @@ class VentaLocalModel {
     SyncState? syncState,
     int? syncAttempts,
     String? errorMessage,
+    String? errorCode,
     String? serverId,
     String? monedaCobro,
     List<PagoLinea>? pagosDetalle,
@@ -148,6 +155,7 @@ class VentaLocalModel {
     tasaSnapshot: tasaSnapshot ?? this.tasaSnapshot,
     syncState: syncState ?? this.syncState,
     errorMessage: errorMessage ?? this.errorMessage,
+    errorCode: errorCode ?? this.errorCode,
     serverId: serverId ?? this.serverId,
   );
 
@@ -201,6 +209,7 @@ class VentaLocalModel {
     'tasaSnapshotJson': tasaSnapshot.isEmpty ? null : jsonEncode(tasaSnapshot),
     'syncState': syncState.name,
     'errorMessage': errorMessage,
+    'errorCode': errorCode,
     'serverId': serverId,
   };
 
@@ -261,6 +270,7 @@ class VentaLocalModel {
         orElse: () => SyncState.pending,
       ),
       errorMessage: map['errorMessage'] as String?,
+      errorCode: map['errorCode'] as String?,
       serverId: map['serverId'] as String?,
     );
   }
@@ -466,6 +476,10 @@ class VentaUnificadaModel {
   final bool wasOffline;
   final int syncAttempts;
   final String? errorMessage;
+
+  /// El `code` del rechazo, si el API lo mandó. Lo usa la UI para titular el
+  /// error por su causa y no por el texto.
+  final String? errorCode;
   /// ID del usuario que realizó la venta (servidor); null en ventas locales = usuario actual.
   final String? usuarioId;
   final String? usuarioNombre;
@@ -502,6 +516,7 @@ class VentaUnificadaModel {
     this.wasOffline = false,
     this.syncAttempts = 0,
     this.errorMessage,
+    this.errorCode,
     this.usuarioId,
     this.usuarioNombre,
     required this.productos,
@@ -536,6 +551,7 @@ class VentaUnificadaModel {
         wasOffline: v.wasOffline,
         syncAttempts: v.syncAttempts,
         errorMessage: v.errorMessage,
+        errorCode: v.errorCode,
         usuarioId: null,
         usuarioNombre: null,
         productos: v.productos,
@@ -572,6 +588,7 @@ class VentaUnificadaModel {
         wasOffline: v.wasOffline,
         syncAttempts: local?.syncAttempts ?? 0,
         errorMessage: local?.errorMessage,
+        errorCode: local?.errorCode,
         usuarioId: v.usuarioId,
         usuarioNombre: v.usuarioNombre,
         productos: v.productos,

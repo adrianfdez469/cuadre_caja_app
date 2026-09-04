@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'cuadre_caja.db';
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 8;
 
   Database? _database;
 
@@ -69,6 +69,7 @@ class DatabaseHelper {
         tasaSnapshotJson TEXT,
         syncState TEXT NOT NULL DEFAULT 'pending',
         errorMessage TEXT,
+        errorCode TEXT,
         serverId TEXT
       )
     ''');
@@ -213,6 +214,16 @@ class DatabaseHelper {
         await db.execute(
           "UPDATE carritos SET nombre = 'Cuenta #' || substr(nombre, 9) "
           "WHERE nombre LIKE 'Carrito %'",
+        );
+      } catch (_) {}
+    }
+    if (oldVersion < 8) {
+      // El `code` con el que el API rechaza una venta. El texto del error ya se
+      // guarda en errorMessage, pero es para el cajero y puede cambiar; el code
+      // es lo que decide si vale la pena reintentar.
+      try {
+        await db.execute(
+          'ALTER TABLE ventas_pendientes ADD COLUMN errorCode TEXT',
         );
       } catch (_) {}
     }

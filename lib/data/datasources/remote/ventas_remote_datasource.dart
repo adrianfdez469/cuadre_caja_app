@@ -33,12 +33,14 @@ class VentasRemoteDataSource {
     } on DioException catch (e) {
       final body = e.response?.data;
       String message;
+      String? code;
       if (body is Map<String, dynamic> && body['error'] != null) {
         message = body['error'] as String;
+        code = body['code'] as String?;
       } else {
         message = e.message ?? 'Error de conexión al sincronizar la venta';
       }
-      throw SyncVentaException(message);
+      throw SyncVentaException(message, code: code);
     }
   }
 

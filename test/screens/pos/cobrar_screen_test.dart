@@ -392,6 +392,43 @@ void main() {
       expect(montoDe(tester, cashFieldDe('USD')), '100');
       expect(find.text('FALTA POR CUBRIR'), findsNothing);
     });
+
+    testWidgets('sin la tasa de USD no ofrece cobrar en otra moneda',
+        (tester) async {
+      // Las tasas se anclan en CUP: sin la de USD, cobrar 1360 CUP en un
+      // negocio con base USD registraría 1360 USD. Se ofrece solo la base, que
+      // no necesita conversión, y se dice por qué.
+      await pumpCobrarScreen(
+        tester,
+        total: 100,
+        monedaBase: 'USD',
+        tasas: const {'EUR': 775},
+        monedasAlternativas: const ['EUR'],
+      );
+
+      expect(find.text('Agregar forma de pago'), findsNothing);
+      expect(
+        find.textContaining('falta registrar la tasa de cambio de USD'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('con la tasa de USD sí ofrece las demás monedas',
+        (tester) async {
+      await pumpCobrarScreen(
+        tester,
+        total: 100,
+        monedaBase: 'USD',
+        tasas: const {'USD': 680, 'EUR': 775},
+        monedasAlternativas: const ['EUR'],
+      );
+
+      expect(find.text('Agregar forma de pago'), findsOneWidget);
+      expect(
+        find.textContaining('falta registrar la tasa de cambio'),
+        findsNothing,
+      );
+    });
   });
 
   group('CobrarScreen — venta registrada', () {

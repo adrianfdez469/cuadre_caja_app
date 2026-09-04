@@ -224,7 +224,7 @@ class FakeTasasRemote extends Fake implements TasasRemoteDataSource {
   @override
   Future<TasasVigentesResponse> getTasasCambio(String negocioId) async {
     calls++;
-    return const TasasVigentesResponse(vigentes: {}, monedaBase: 'CUP');
+    return TasasVigentesResponse.empty;
   }
 }
 
@@ -487,6 +487,7 @@ class FakeVentasLocalSync extends Fake implements VentasLocalDataSource {
     SyncState? syncState,
     int? syncAttempts,
     String? errorMessage,
+    String? errorCode,
     String? serverId,
   }) async {
     final actual = _find(syncId);
@@ -497,6 +498,7 @@ class FakeVentasLocalSync extends Fake implements VentasLocalDataSource {
         syncState: syncState,
         syncAttempts: syncAttempts,
         errorMessage: errorMessage,
+        errorCode: errorCode,
         serverId: serverId,
       ),
     );

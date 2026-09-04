@@ -38,11 +38,15 @@ class VentasListScreen extends StatefulWidget {
     String? currentPeriodoId,
     VoidCallback? onPeriodoUpdated,
   }) {
-    final title = SyncErrorMessages.title(venta.errorMessage);
+    final title = SyncErrorMessages.title(
+      venta.errorMessage,
+      code: venta.errorCode,
+    );
     final detail = SyncErrorMessages.detail(venta.errorMessage);
     final isPeriodConflict = SyncErrorMessages.isPeriodConflict(
       venta.errorMessage,
     );
+    final esPermanente = SyncErrorMessages.isPermanent(venta.errorCode);
     final colors = context.colors;
 
     showDialog<void>(
@@ -68,6 +72,28 @@ class VentasListScreen extends StatefulWidget {
                   style: Theme.of(
                     ctx,
                   ).textTheme.bodySmall!.copyWith(color: colors.textSecondary),
+                ),
+              ],
+              // Sin este aviso la venta parece abandonada: se queda en rojo y
+              // deja de reintentarse sola, y el cajero no tiene por qué saber
+              // que el paso siguiente ocurre fuera de la app.
+              if (esPermanente) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: colors.cautionWash,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(
+                      color: colors.caution.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Text(
+                    'Esta venta no se reintenta sola: seguirá fallando hasta que '
+                    'se resuelva en el sistema. Cuando esté resuelto, usa el '
+                    'botón de sincronizar de la venta.',
+                    style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
                 ),
               ],
               if (isPeriodConflict && currentPeriodoId != null) ...[

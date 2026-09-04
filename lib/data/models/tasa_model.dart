@@ -1,53 +1,61 @@
 /// Respuesta de GET /api/app/tasas-cambio/{negocioId}.
 class TasasVigentesResponse {
-  /// Snapshot para ventas (sin moneda base ni CUP).
-  final Map<String, double> vigentes;
-  /// Tasas ancladas en CUP para conversiones (incluye moneda base).
-  final Map<String, double> tasasCup;
+  /// Tasas ancladas en CUP: 1 `{monedaCode}` = `tasas[monedaCode]` CUP.
+  ///
+  /// Incluye la moneda base del negocio cuando no es CUP — convertir a la base
+  /// pasa por CUP y necesita la tasa CUP de la propia base — y nunca incluye
+  /// CUP, cuya tasa es implícitamente 1.
+  final Map<String, double> tasas;
   final String monedaBase;
   final DateTime? actualizadoEn;
 
   const TasasVigentesResponse({
-    required this.vigentes,
-    this.tasasCup = const {},
+    this.tasas = const {},
     this.monedaBase = 'CUP',
     this.actualizadoEn,
   });
 
+  /// Une `vigentes` y `tasasCup` en un solo mapa para hablar con las dos
+  /// versiones del backend:
+  ///
+  /// - contrato v2.0.1: llega solo `vigentes`, ya completo.
+  /// - contrato anterior: llega `vigentes` **sin la moneda base** más un
+  ///   `tasasCup` completo. La unión recupera la base; quedarse con uno solo de
+  ///   los dos objetos perdía claves (sin la base, toda conversión a base se
+  ///   resolvía a tasa 1).
+  ///
+  /// Se descartan CUP y las tasas no positivas, igual que hace el servidor.
   factory TasasVigentesResponse.fromJson(Map<String, dynamic> json) {
-    final vigentesRaw = json['vigentes'] as Map<String, dynamic>? ?? {};
-    final tasasCupRaw = json['tasasCup'] as Map<String, dynamic>? ?? {};
+    final tasas = <String, double>{};
+    for (final raw in [json['vigentes'], json['tasasCup']]) {
+      if (raw is! Map) continue;
+      raw.forEach((k, v) {
+        if (k == 'CUP' || v is! num) return;
+        final tasa = v.toDouble();
+        if (tasa <= 0) return;
+        tasas.putIfAbsent(k as String, () => tasa);
+      });
+    }
+
     DateTime? actualizado;
     final actualizadoRaw = json['actualizadoEn'] as String?;
     if (actualizadoRaw != null) {
       actualizado = DateTime.tryParse(actualizadoRaw);
     }
-    final vigentes = vigentesRaw.map(
-      (k, v) => MapEntry(k, (v as num).toDouble()),
-    );
-    final tasasCup = tasasCupRaw.map(
-      (k, v) => MapEntry(k, (v as num).toDouble()),
-    );
+
     return TasasVigentesResponse(
-      vigentes: vigentes,
-      tasasCup: tasasCup.isNotEmpty ? tasasCup : vigentes,
+      tasas: tasas,
       monedaBase: json['monedaBase'] as String? ?? 'CUP',
       actualizadoEn: actualizado,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'vigentes': vigentes,
-        'tasasCup': tasasCup,
+        'vigentes': tasas,
         'monedaBase': monedaBase,
         if (actualizadoEn != null)
           'actualizadoEn': actualizadoEn!.toIso8601String(),
       };
 
-  /// Objeto a enviar como `tasaSnapshot` en ventas: el mapa completo anclado
-  /// en CUP, **con** la moneda base. `vigentes` la omite, y sin ella el backend
-  /// resuelve `cupTasa(monedaBase)` como 1 e infla toda conversion a base.
-  Map<String, double> get snapshot => Map<String, double>.from(tasasCup);
-
-  static const empty = TasasVigentesResponse(vigentes: {});
+  static const empty = TasasVigentesResponse();
 }
